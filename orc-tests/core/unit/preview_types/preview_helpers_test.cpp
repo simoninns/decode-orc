@@ -138,7 +138,170 @@ void expect_marker_aligned_on_all_rows(const orc::PreviewImage& image) {
   }
 }
 
+// Composite PAL representation, black except for a single white marker on one
+// frame-flat line, used to verify active-area cropping selects the right rows
+// and columns.  Buffer is in sequential field order (field 1 lines then field
+// 2 lines); marked_buf_line indexes that buffer directly.
+class FakePalMarkedLineRepresentation : public orc::VideoFrameRepresentation {
+ public:
+  FakePalMarkedLineRepresentation(size_t marked_buf_line, uint32_t marker_col) {
+    const size_t total = orc::frame_line_sample_offset(orc::VideoSystem::PAL,
+                                                       kPalWidth, kPalHeight);
+    // White background so a blanking-level boundary line is distinguishable
+    // (for PAL kPalBlack == kPalBlanking, so a black background could not tell
+    // the outline apart from the picture).
+    frame_.assign(total, static_cast<sample_type>(orc::kPalWhite));
+    const size_t off = orc::frame_line_sample_offset(
+        orc::VideoSystem::PAL, kPalWidth, marked_buf_line);
+    frame_[off + marker_col] = static_cast<sample_type>(orc::kPalWhite);
+  }
+
+  orc::FrameIDRange frame_range() const override { return {0, 0}; }
+  size_t frame_count() const override { return 1; }
+  bool has_frame(orc::FrameID id) const override { return id == 0; }
+
+  std::optional<orc::FrameDescriptor> get_frame_descriptor(
+      orc::FrameID id) const override {
+    if (id != 0) return std::nullopt;
+    orc::FrameDescriptor desc;
+    desc.frame_id = 0;
+    desc.system = orc::VideoSystem::PAL;
+    desc.height = kPalHeight;
+    desc.samples_total = frame_.size();
+    desc.samples_per_line_nominal = kPalWidth;
+    return desc;
+  }
+
+  const sample_type* get_frame(orc::FrameID id) const override {
+    return id == 0 ? frame_.data() : nullptr;
+  }
+  std::vector<sample_type> get_frame_copy(orc::FrameID id) const override {
+    return id == 0 ? frame_ : std::vector<sample_type>{};
+  }
+
+  std::optional<orc::SourceParameters> get_video_parameters() const override {
+    orc::SourceParameters params;
+    params.system = orc::VideoSystem::PAL;
+    params.frame_width_nominal = static_cast<int32_t>(kPalWidth);
+    params.frame_height = static_cast<int32_t>(kPalHeight);
+    params.sync_tip_level = orc::kPalSyncTip;
+    params.blanking_level = orc::kPalBlanking;
+    params.black_level = orc::kPalBlack;
+    params.white_level = orc::kPalWhite;
+    params.peak_level = orc::kPalPeak;
+    params.active_video_start = active_video_start_;
+    params.active_video_end = active_video_end_;
+    params.first_active_frame_line = first_active_frame_line_;
+    params.last_active_frame_line = last_active_frame_line_;
+    return params;
+  }
+
+  int32_t active_video_start_ = 0;
+  int32_t active_video_end_ = 0;
+  int32_t first_active_frame_line_ = 0;
+  int32_t last_active_frame_line_ = 0;
+
+ private:
+  std::vector<sample_type> frame_;
+};
+
 }  // namespace
+
+// Masking must keep the full frame at full size while dimming everything
+// outside the active rectangle [first,last) × [active_start,active_end).  The
+// white background means active pixels stay bright and masked pixels are
+// dimmed.  In the interlaced (weaved) layout the active-area line parameters
+// are display rows directly, so there is a single active band.
+TEST(PreviewHelpersTest, MaskInactiveArea_Interlaced_DimsOutsideActiveRect) {
+  auto rep = std::make_shared<FakePalMarkedLineRepresentation>(
+      /*marked_buf_line=*/75, /*marker_col=*/60);
+  rep->active_video_start_ = 10;
+  rep->active_video_end_ = 110;  // active columns [10,110)
+  rep->first_active_frame_line_ = 100;
+  rep->last_active_frame_line_ = 300;  // active weaved rows [100,300)
+
+  const auto image = orc::PreviewHelpers::render_standard_preview(
+      rep, "interlaced_raw", 0, orc::PreviewNavigationHint::Random,
+      /*mask_inactive_area=*/true);
+
+  ASSERT_TRUE(image.is_valid());
+  // Full frame preserved (no crop, no resize).
+  EXPECT_EQ(image.width, static_cast<uint32_t>(kPalWidth));
+  EXPECT_EQ(image.height, static_cast<uint32_t>(kPalHeight));
+
+  // A pixel well inside the active rectangle stays bright.
+  EXPECT_GT(gray_at(image, 150, 50), 128);
+
+  // Just outside each edge is dimmed relative to just inside it.
+  EXPECT_LT(gray_at(image, 99, 50), gray_at(image, 100, 50));   // above top
+  EXPECT_LT(gray_at(image, 300, 50), gray_at(image, 299, 50));  // below bottom
+  EXPECT_LT(gray_at(image, 150, 9), gray_at(image, 150, 10));   // left of start
+  EXPECT_LT(gray_at(image, 150, 110),
+            gray_at(image, 150, 109));  // right of end
+}
+
+// In the sequential layout the display stacks the field-1 buffer block above
+// the field-2 block, so the single weaved active-line range [first,last) maps
+// to one active band per field — twice the horizontal borders.  Field 1 is on
+// even weaved rows, so weaved line w corresponds to field-1 buffer row w/2 and
+// field-2 buffer row kPalField1Lines + (w-1)/2.
+TEST(PreviewHelpersTest, MaskInactiveArea_Sequential_HasOneBandPerField) {
+  auto rep = std::make_shared<FakePalMarkedLineRepresentation>(
+      /*marked_buf_line=*/75, /*marker_col=*/60);
+  rep->active_video_start_ = 10;
+  rep->active_video_end_ = 110;  // active columns [10,110)
+  rep->first_active_frame_line_ = 100;
+  rep->last_active_frame_line_ = 300;  // active weaved rows [100,300)
+
+  const auto image = orc::PreviewHelpers::render_standard_preview(
+      rep, "sequential_raw", 0, orc::PreviewNavigationHint::Random,
+      /*mask_inactive_area=*/true);
+
+  ASSERT_TRUE(image.is_valid());
+  EXPECT_EQ(image.width, static_cast<uint32_t>(kPalWidth));
+  EXPECT_EQ(image.height, static_cast<uint32_t>(kPalHeight));
+
+  // Field-1 band: weaved [100,300) → field-1 buffer rows [50,150).
+  EXPECT_GT(gray_at(image, 100, 50), 128);                    // inside band 1
+  EXPECT_LT(gray_at(image, 49, 50), gray_at(image, 50, 50));  // top border 1
+  EXPECT_LT(gray_at(image, 150, 50),
+            gray_at(image, 149, 50));  // bottom bord. 1
+
+  // Field-2 band: weaved [100,300) → field-2 buffer rows
+  // kPalField1Lines + [50,150) = [363,463).
+  const int f2 = orc::kPalField1Lines;           // 313
+  EXPECT_GT(gray_at(image, f2 + 100, 50), 128);  // inside band 2
+  EXPECT_LT(gray_at(image, f2 + 49, 50),
+            gray_at(image, f2 + 50, 50));  // top border 2
+  EXPECT_LT(gray_at(image, f2 + 150, 50),
+            gray_at(image, f2 + 149, 50));  // bottom border 2
+
+  // The gap between the two bands (field-1 rows above 150, still before the
+  // field-2 block) is dimmed.
+  EXPECT_LT(gray_at(image, 200, 50), gray_at(image, 100, 50));
+
+  // Column masking still applies within an active row.
+  EXPECT_LT(gray_at(image, 100, 9), gray_at(image, 100, 10));
+  EXPECT_LT(gray_at(image, 100, 110), gray_at(image, 100, 109));
+}
+
+// Without the flag the full frame is rendered plain, with no mask.
+TEST(PreviewHelpersTest, NoMask_RendersPlainFullFrame) {
+  auto rep = std::make_shared<FakePalMarkedLineRepresentation>(75, 60);
+  rep->active_video_start_ = 10;
+  rep->active_video_end_ = 110;
+  rep->first_active_frame_line_ = 100;
+  rep->last_active_frame_line_ = 300;
+
+  const auto image =
+      orc::PreviewHelpers::render_standard_preview(rep, "sequential_raw", 0);
+
+  ASSERT_TRUE(image.is_valid());
+  EXPECT_EQ(image.width, static_cast<uint32_t>(kPalWidth));
+  EXPECT_EQ(image.height, static_cast<uint32_t>(kPalHeight));
+  // No mask: a pixel outside the active area matches one inside (both white).
+  EXPECT_EQ(gray_at(image, 99, 50), gray_at(image, 100, 50));
+}
 
 TEST(PreviewHelpersTest, SequentialLumaPreview_UsesPalLineOffsets) {
   auto representation = std::make_shared<FakePalYcRepresentation>();

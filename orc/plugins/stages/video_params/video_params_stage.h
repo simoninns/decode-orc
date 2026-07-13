@@ -26,7 +26,8 @@ namespace orc {
 // All sample access is forwarded unchanged.
 //
 // When black_level or white_level are overridden, sets has_nonstandard_values.
-// When active video geometry is overridden, sets active_area_cropping_applied.
+// Geometry overrides only relabel the active window; they never set
+// active_area_cropping_applied because the sample buffer is not cropped.
 class VideoParamsOverrideFrameRepresentation
     : public VideoFrameRepresentationWrapper,
       public Artifact {

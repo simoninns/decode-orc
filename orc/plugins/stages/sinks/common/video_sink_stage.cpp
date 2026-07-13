@@ -120,6 +120,7 @@ VideoSinkStage::VideoSinkStage()
       adapt_threshold_(1.0),
       output_padding_(8),
       embed_audio_(false),
+      audio_channel_pairs_("all"),
       audio_gain_db_(0.0),
       embed_closed_captions_(false),
       embed_chapter_metadata_(false),
@@ -471,16 +472,37 @@ std::vector<ParameterDescriptor> VideoSinkStage::get_parameter_descriptors(
            ParameterDependency{"output_mode", {"ffmpeg"}}}},
       ParameterDescriptor{
           "embed_audio",
-          "Embed Analogue Audio",
-          "Embed analogue audio in output file (requires audio in source, "
-          "MP4/MKV only)",
+          "Embed Audio",
+          "Embed the input's audio channel pairs in the output file, one "
+          "output stream per pair, each titled with its channel pair name "
+          "(requires audio in source). The audio codec follows the container: "
+          "FLAC for FFV1, PCM S24LE for ProRes/V210/V410/D10, AAC for "
+          "H.264/H.265/AV1.",
           ParameterType::BOOL,
           {{},
            {},
            false,
            {},
            false,
-           ParameterDependency{"ffmpeg_format", {"mp4-h264", "mkv-ffv1"}}}},
+           ParameterDependency{"ffmpeg_format", ffmpeg_formats}}},
+      ParameterDescriptor{
+          "audio_channel_pairs",
+          "Audio Channel Pairs",
+          "Which audio channel pairs to embed, one output audio stream per "
+          "channel pair:\n"
+          "  all - embed every channel pair carried by the input (default)\n"
+          "  0,2 - comma-separated 0-based channel pair indices\n"
+          "Channel pair indices match the CVBS container's _audio_<p>.wav "
+          "numbering. Each embedded stream is titled with the channel pair's "
+          "name (set at the audio source, import or EFM decode stage). The "
+          "export fails if a listed channel pair does not exist.",
+          ParameterType::STRING,
+          {{},
+           {},
+           std::string("all"),
+           {},
+           false,
+           ParameterDependency{"embed_audio", {"true"}}}},
       ParameterDescriptor{
           "audio_gain_db",
           "Audio Gain (dB)",
@@ -663,6 +685,7 @@ std::map<std::string, ParameterValue> VideoSinkStage::get_parameters() const {
   params["encoder_crf"] = encoder_crf_;
   params["encoder_bitrate"] = encoder_bitrate_;
   params["embed_audio"] = embed_audio_;
+  params["audio_channel_pairs"] = audio_channel_pairs_;
   params["audio_gain_db"] = audio_gain_db_;
   params["embed_closed_captions"] = embed_closed_captions_;
   params["embed_chapter_metadata"] = embed_chapter_metadata_;
@@ -933,6 +956,13 @@ bool VideoSinkStage::set_parameters(
         auto str_val = std::get<std::string>(value);
         embed_audio_ =
             (str_val == "true" || str_val == "1" || str_val == "yes");
+      }
+    } else if (key == "audio_channel_pairs") {
+      if (std::holds_alternative<std::string>(value)) {
+        audio_channel_pairs_ = std::get<std::string>(value);
+        if (audio_channel_pairs_.empty()) {
+          audio_channel_pairs_ = "all";
+        }
       }
     } else if (key == "audio_gain_db") {
       if (std::holds_alternative<double>(value)) {
@@ -1527,6 +1557,7 @@ bool VideoSinkStage::run_export_trigger(
   backendConfig.options["display_aspect_ratio"] = display_aspect_ratio_;
   backendConfig.options["video_filter"] = video_filter_;
   backendConfig.options["audio_gain_db"] = std::to_string(audio_gain_db_);
+  backendConfig.options["audio_channel_pairs"] = audio_channel_pairs_;
   backendConfig.observation_context = &observation_context;
 
   // Set field-equivalent range for audio, closed caption, and/or chapter
@@ -2228,6 +2259,7 @@ bool VideoSinkStage::writeOutputFile(
 
   // Pass audio information if embedding is enabled
   config.embed_audio = embed_audio_;
+  config.options["audio_channel_pairs"] = audio_channel_pairs_;
   config.embed_closed_captions = embed_closed_captions_;
   if (embed_audio_ && vfr && vfr->has_audio()) {
     config.vfr = vfr;
@@ -2337,11 +2369,13 @@ StagePreviewCapability VideoSinkStage::get_preview_capability() const {
 
   capability.geometry.display_aspect_ratio = 4.0 / 3.0;
 
-  // Match DAR correction math used by make_signal_preview_capability().
-  double active_ratio = static_cast<double>(capability.geometry.active_width) /
-                        static_cast<double>(capability.geometry.active_height);
-  double target_ratio = 4.0 / 3.0;
-  capability.geometry.dar_correction_factor = target_ratio / active_ratio;
+  // Fixed per-system pixel aspect (see standard_dar_correction), matching
+  // make_signal_preview_capability().  Deriving this from the active-area size
+  // would force every output to display at 4:3 and so vertically squash/stretch
+  // the picture whenever the active line range changed; a fixed factor lets the
+  // active window re-frame (crop/extend) while pixels keep their shape.
+  capability.geometry.dar_correction_factor =
+      orc::standard_dar_correction(video_params.system);
 
   return capability;
 }

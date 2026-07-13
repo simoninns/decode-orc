@@ -43,26 +43,26 @@ This stage reads AC3 RF samples from the incoming stream, decodes the RF-modulat
 
 ---
 
-## Analogue Audio Sink
+## Audio Sink
 
 | | |
 |-|-|
 | **Stage id** | `AudioSink` |
-| **Stage name** | Analogue Audio Sink |
+| **Stage name** | Audio Sink |
 | **Connections** | 1 input → no outputs |
-| **Purpose** | Export analogue audio to a WAV file |
+| **Purpose** | Export any pipeline audio channel pair to a WAV file |
 
 **Use this stage when:**
 
-* Your source contains analogue audio tracks
+* Your source carries audio channel pairs
 * You want to export audio independently of video output
 * You want to inspect or process audio externally
 
 **What it does**
 
-This stage extracts analogue audio samples from the incoming stream and writes them to a standard WAV file. Audio remains synchronised to the processed video timeline, so any frame trimming or reordering performed upstream is reflected in the output.
+This stage extracts one audio channel pair from the incoming stream and writes it to a standard WAV file. The pair can be any channel pair carried by the pipeline — analogue capture audio, decoded EFM digital audio, an imported WAV, or a channel pair derived by a transform. Audio remains synchronised to the processed video timeline, so any frame trimming or reordering performed upstream is reflected in the output.
 
-The pipeline carries audio frame-locked to the video. For PAL (25 fps) the locked rate is exactly 44,100 Hz. For NTSC and PAL-M (30000/1001 fps) the locked rate is 44100000/1001 Hz ≈ 44,055.94 Hz, and the `sample_rate_mode` parameter selects how that audio is exported.
+The pipeline carries stereo audio channel pairs at exactly 48,000 Hz, frame-locked (synchronous) to the video for every system, following SMPTE 272M-1994. The WAV output is 24-bit signed little-endian PCM declaring 48,000 Hz; no resampling or bit-depth conversion is performed.
 
 **Parameters**
 
@@ -70,14 +70,13 @@ The pipeline carries audio frame-locked to the video. For PAL (25 fps) the locke
     - Path to the output WAV file.
     - Required.
 
-* `sample_rate_mode` (string, NTSC/PAL-M projects only)
-    - `locked_44056` (default) — writes the frame-locked samples unmodified; the WAV header declares 44,056 Hz. No resampling; samples remain bit-identical to the pipeline audio.
-    - `free_running_44100` — resamples the audio (SoXR, HQ) to standard free-running 44,100 Hz for tools that expect the standard rate. Duration and A/V sync are preserved.
-    - Not shown for PAL projects, whose locked audio is already at 44,100 Hz.
+* `channel_pair` (integer)
+    - Audio channel pair to write, 0-based (0–7), matching the CVBS container's `_audio_<p>.wav` numbering.
+    - Default 0. Triggering fails if the selected channel pair does not exist.
 
 **Notes**
 
-* This stage handles analogue audio only. Digital audio carried as EFM (CD-quality stereo) or AC3 RF (Dolby Digital) must be extracted with the EFM Decoder Sink or AC3 RF Sink stages respectively.
+* This stage writes whatever channel pair you select. Analogue capture audio arrives as channel pair 0 from the source; EFM digital audio (CD-quality stereo) becomes a channel pair when you add an **EFM Audio Decode** transform upstream, after which it can be written here like any other pair. For a bit-exact, un-resampled WAV of EFM audio use the EFM Decoder Sink instead; AC3 RF (Dolby Digital) is exported via the AC3 RF Sink.
 * Audio stacking or selection must be performed upstream (e.g. via `stacker`).
 
 ---
@@ -142,7 +141,7 @@ This stage writes processed frame data using the selected sample encoding, and a
 Associated sidecars are written automatically when the upstream source provides them:
 
 - `.dropouts.meta` — when dropout hints are present
-- `_audio_00.wav` — when audio is present
+- `_audio_0.wav` … `_audio_7.wav` — when audio is present (one 24-bit 48 kHz stereo WAV per channel pair)
 - `.efm` + `.efm.meta` — when EFM data is present
 - `.ac3` + `.ac3.meta` — when AC3 RF data is present
 
@@ -278,7 +277,7 @@ The output can be used directly with existing ld-decode tools.
 * This is the most common "final output" sink stage.
 * All upstream corrections, stacking, and parameter overrides should be complete before this stage.
 * The target directory must exist and be writable at trigger time.
-* This stage writes video and metadata only — export analogue audio, EFM, or AC3 RF data with the Analogue Audio Sink, Raw EFM Data Sink / EFM Decoder Sink, or AC3 RF Sink stages connected in parallel.
+* This stage writes video and metadata only — export analogue audio, EFM, or AC3 RF data with the Audio Sink, Raw EFM Data Sink / EFM Decoder Sink, or AC3 RF Sink stages connected in parallel.
 
 ---
 
@@ -332,7 +331,7 @@ This stage extracts raw EFM (Eight-to-Fourteen Modulation) t-values from the inc
 
 **What it does**
 
-Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode. In FFmpeg mode the video is encoded into the chosen container and codec, optionally embedding analogue audio, closed captions (as mov_text subtitles, MP4 only), and chapter markers derived from VBI data. In raw mode the decoded frames are written to a file without compression; the raw format determines the pixel layout and whether a Y4M header is prepended.
+Applies the selected chroma decoder to convert the incoming TBC video stream to colour video, then writes the result according to the selected output mode. In FFmpeg mode the video is encoded into the chosen container and codec, optionally embedding pipeline audio (up to 8 channel pairs, one output stream per pair), closed captions (as mov_text subtitles, MP4/MOV only), and chapter markers derived from VBI data. In raw mode the decoded frames are written to a file without compression; the raw format determines the pixel layout and whether a Y4M header is prepended.
 
 **Parameters**
 
@@ -404,7 +403,10 @@ Applies the selected chroma decoder to convert the incoming TBC video stream to 
     - FFmpeg mode only. Custom FFmpeg video filter chain applied before encoding, using the same syntax as ffmpeg's `-vf` option (e.g. `fieldmatch,decimate` for inverse telecine, `crop=692:554`). Filters may change output dimensions and frame rate; the encoder follows the filter output automatically. An invalid filter string fails the export with the FFmpeg error message. Default: empty (no filtering).
 
 * `embed_audio` (bool)
-    - FFmpeg mode only. Embed analogue audio into the output file. Requires audio in the pipeline. Default: `false`.
+    - FFmpeg mode only. Embed pipeline audio into the output file, one output audio stream per selected channel pair. Requires audio in the pipeline. Default: `false`.
+
+* `audio_channel_pairs` (string)
+    - FFmpeg mode only; available only when `embed_audio` is enabled. Which audio channel pairs to embed: `all` (default) or a comma-separated list of 0-based channel pair indices, e.g. `0,2`. Indices match the CVBS container's `_audio_<p>.wav` numbering. The export fails if a listed channel pair does not exist.
 
 * `audio_gain_db` (double)
     - FFmpeg mode only; available only when `embed_audio` is enabled. Gain applied to the embedded audio in decibels. `0` = unchanged; positive boosts (6 dB roughly doubles the amplitude), negative attenuates. Samples are clipped at full scale. Range: -24 to 24. Default: `0`.

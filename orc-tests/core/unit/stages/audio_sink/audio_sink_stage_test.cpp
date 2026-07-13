@@ -12,6 +12,7 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <orc/stage/audio_channel_pair.h>
 
 #include <algorithm>
 
@@ -29,14 +30,8 @@ class MockAudioSinkStageDeps : public orc::IAudioSinkStageDeps {
  public:
   MOCK_METHOD(orc::AudioSinkWriteResult, write_audio_wav,
               (const orc::VideoFrameRepresentation* representation,
-               const std::string& output_path,
-               orc::AudioSinkSampleRateMode sample_rate_mode),
+               const std::string& output_path, size_t pair),
               (override));
-};
-
-class MockVFRArtifactWithAudio : public MockVideoFrameRepresentationArtifact {
- public:
-  MOCK_METHOD(bool, has_audio, (), (const, override));
 };
 
 TEST(AudioSinkStageTest, StageInterfaceInvariants_MatchSink) {
@@ -65,6 +60,23 @@ TEST(AudioSinkStageTest, Descriptor_DefaultsOutputPathIsEmptyWav) {
   EXPECT_EQ(std::get<std::string>(*it->constraints.default_value), "");
 }
 
+TEST(AudioSinkStageTest, Descriptor_SampleRateModeIsNotOffered) {
+  // Pipeline audio is uniformly 48 kHz synchronous; the legacy
+  // sample_rate_mode export parameter no longer exists for any system.
+  orc::AudioSinkStage stage;
+
+  for (const auto system : {orc::VideoSystem::PAL, orc::VideoSystem::NTSC,
+                            orc::VideoSystem::PAL_M}) {
+    const auto descriptors =
+        stage.get_parameter_descriptors(system, orc::SourceType::Composite);
+    const auto it = std::find_if(descriptors.begin(), descriptors.end(),
+                                 [](const orc::ParameterDescriptor& d) {
+                                   return d.name == "sample_rate_mode";
+                                 });
+    EXPECT_EQ(it, descriptors.end());
+  }
+}
+
 TEST(AudioSinkStageTest, Trigger_FailsWhenNoInputProvided) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
@@ -80,9 +92,9 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenNoInputProvided) {
 TEST(AudioSinkStageTest, Trigger_FailsWhenInputHasNoAudio) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
-  EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(false));
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(0));
 
   const bool result =
       stage.trigger({vfr}, {{"output_path", std::string("ignored.wav")}},
@@ -111,8 +123,8 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenInputIsNotVideoFrameRepresentation) {
 TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathMissing) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
-  EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(1));
 
   const bool result = stage.trigger({vfr}, {}, observation_context);
 
@@ -124,8 +136,8 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathMissing) {
 TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathIsNotString) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
-  EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(1));
 
   const bool result = stage.trigger(
       {vfr}, {{"output_path", static_cast<int32_t>(1)}}, observation_context);
@@ -138,8 +150,8 @@ TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathIsNotString) {
 TEST(AudioSinkStageTest, Trigger_FailsWhenOutputPathIsEmpty) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
-  EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(1));
 
   const bool result = stage.trigger({vfr}, {{"output_path", std::string("")}},
                                     observation_context);
@@ -154,12 +166,11 @@ TEST(AudioSinkStageTest, Trigger_UsesDepsSeamAndReportsSuccess) {
   auto deps = std::make_shared<StrictMock<MockAudioSinkStageDeps>>();
   stage.set_deps_override(deps);
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
-  EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
-  // Without a sample_rate_mode parameter the stage defaults to locked output.
-  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav",
-                                     orc::AudioSinkSampleRateMode::kLocked))
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(1));
+  // Without a channel_pair parameter the stage defaults to channel pair 0.
+  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav", 0))
       .WillOnce(Return(orc::AudioSinkWriteResult{true, 123, ""}));
 
   const bool result = stage.trigger(
@@ -175,11 +186,10 @@ TEST(AudioSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   auto deps = std::make_shared<StrictMock<MockAudioSinkStageDeps>>();
   stage.set_deps_override(deps);
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
-  EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
-  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav",
-                                     orc::AudioSinkSampleRateMode::kLocked))
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(1));
+  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav", 0))
       .WillOnce(Return(orc::AudioSinkWriteResult{false, 0, "disk full"}));
 
   const bool result = stage.trigger(
@@ -190,76 +200,80 @@ TEST(AudioSinkStageTest, Trigger_UsesDepsSeamAndPropagatesFailure) {
   EXPECT_FALSE(stage.is_trigger_in_progress());
 }
 
-TEST(AudioSinkStageTest, Descriptor_SampleRateModeOfferedForNtscButNotPal) {
+TEST(AudioSinkStageTest,
+     Descriptor_ChannelPairDefaultsToZeroWithContainerRange) {
   orc::AudioSinkStage stage;
+  const auto descriptors = stage.get_parameter_descriptors();
 
-  const auto find_mode = [](const std::vector<orc::ParameterDescriptor>& d) {
-    return std::find_if(d.begin(), d.end(),
-                        [](const orc::ParameterDescriptor& desc) {
-                          return desc.name == "sample_rate_mode";
-                        });
-  };
+  auto it = std::find_if(descriptors.begin(), descriptors.end(),
+                         [](const orc::ParameterDescriptor& d) {
+                           return d.name == "channel_pair";
+                         });
 
-  const auto ntsc = stage.get_parameter_descriptors(orc::VideoSystem::NTSC,
-                                                    orc::SourceType::Composite);
-  auto it = find_mode(ntsc);
-  ASSERT_NE(it, ntsc.end());
+  ASSERT_NE(it, descriptors.end());
   EXPECT_EQ(it->type, orc::ParameterType::STRING);
   ASSERT_TRUE(it->constraints.default_value.has_value());
-  EXPECT_EQ(std::get<std::string>(*it->constraints.default_value),
-            orc::kSampleRateModeLocked);
-  EXPECT_THAT(it->constraints.allowed_strings,
-              testing::UnorderedElementsAre(orc::kSampleRateModeLocked,
-                                            orc::kSampleRateModeFreeRunning));
-
-  const auto pal_m = stage.get_parameter_descriptors(
-      orc::VideoSystem::PAL_M, orc::SourceType::Composite);
-  EXPECT_NE(find_mode(pal_m), pal_m.end());
-
-  // PAL locked audio is already at 44100 Hz, so the mode is not offered.
-  const auto pal = stage.get_parameter_descriptors(orc::VideoSystem::PAL,
-                                                   orc::SourceType::Composite);
-  EXPECT_EQ(find_mode(pal), pal.end());
+  EXPECT_EQ(std::get<std::string>(*it->constraints.default_value), "0");
+  // One allowed string per container channel-pair slot (0-based); the GUI
+  // narrows this to the pairs the input actually carries.
+  EXPECT_EQ(it->constraints.allowed_strings.size(), orc::kMaxAudioChannelPairs);
 }
 
-TEST(AudioSinkStageTest, Trigger_PassesFreeRunningModeToDeps) {
+TEST(AudioSinkStageTest, Trigger_PassesSelectedChannelPairToDeps) {
   orc::AudioSinkStage stage;
   auto deps = std::make_shared<StrictMock<MockAudioSinkStageDeps>>();
   stage.set_deps_override(deps);
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
 
-  EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
-  EXPECT_CALL(*deps,
-              write_audio_wav(vfr.get(), "out.wav",
-                              orc::AudioSinkSampleRateMode::kFreeRunning))
-      .WillOnce(Return(orc::AudioSinkWriteResult{true, 456, ""}));
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(3));
+  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav", 2))
+      .WillOnce(Return(orc::AudioSinkWriteResult{true, 99, ""}));
 
-  const bool result = stage.trigger(
-      {vfr},
-      {{"output_path", std::string("out.wav")},
-       {"sample_rate_mode", std::string(orc::kSampleRateModeFreeRunning)}},
-      observation_context);
+  const bool result = stage.trigger({vfr},
+                                    {{"output_path", std::string("out.wav")},
+                                     {"channel_pair", std::string("2")}},
+                                    observation_context);
 
   EXPECT_TRUE(result);
-  EXPECT_EQ(stage.get_trigger_status(), "Success: 456 samples written");
+  EXPECT_EQ(stage.get_trigger_status(), "Success: 99 samples written");
 }
 
-TEST(AudioSinkStageTest, Trigger_FailsWhenSampleRateModeIsUnknown) {
+TEST(AudioSinkStageTest, Trigger_AcceptsLegacyIntegerChannelPair) {
+  // Projects saved before the drop-down conversion stored channel_pair as an
+  // integer; the stage still accepts that form.
+  orc::AudioSinkStage stage;
+  auto deps = std::make_shared<StrictMock<MockAudioSinkStageDeps>>();
+  stage.set_deps_override(deps);
+  MockObservationContext observation_context;
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(3));
+  EXPECT_CALL(*deps, write_audio_wav(vfr.get(), "out.wav", 2))
+      .WillOnce(Return(orc::AudioSinkWriteResult{true, 99, ""}));
+
+  const bool result = stage.trigger({vfr},
+                                    {{"output_path", std::string("out.wav")},
+                                     {"channel_pair", static_cast<int32_t>(2)}},
+                                    observation_context);
+
+  EXPECT_TRUE(result);
+  EXPECT_EQ(stage.get_trigger_status(), "Success: 99 samples written");
+}
+
+TEST(AudioSinkStageTest, Trigger_FailsWhenChannelPairIsOutOfRange) {
   orc::AudioSinkStage stage;
   MockObservationContext observation_context;
-  auto vfr = std::make_shared<NiceMock<MockVFRArtifactWithAudio>>();
-  EXPECT_CALL(*vfr, has_audio()).WillOnce(Return(true));
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  EXPECT_CALL(*vfr, audio_channel_pair_count()).WillOnce(Return(1));
 
-  const bool result =
-      stage.trigger({vfr},
-                    {{"output_path", std::string("out.wav")},
-                     {"sample_rate_mode", std::string("nonsense")}},
-                    observation_context);
+  const bool result = stage.trigger({vfr},
+                                    {{"output_path", std::string("out.wav")},
+                                     {"channel_pair", std::string("8")}},
+                                    observation_context);
 
   EXPECT_FALSE(result);
   EXPECT_EQ(stage.get_trigger_status(),
-            "Error: sample_rate_mode must be 'locked_44056' or "
-            "'free_running_44100'");
+            "Error: channel_pair parameter must be between 0 and 7");
 }
 }  // namespace orc_unit_test

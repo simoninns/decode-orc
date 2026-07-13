@@ -1,7 +1,7 @@
 /*
  * File:        audio_sink_stage.cpp
  * Module:      orc-core
- * Purpose:     Analogue Audio Sink Stage - writes PCM audio to WAV file
+ * Purpose:     Audio Sink Stage - writes PCM audio to WAV file
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
@@ -10,15 +10,37 @@
 #include "audio_sink_stage.h"
 
 #include <orc/plugin/orc_plugin_services.h>
+#include <orc/stage/audio_channel_pair.h>
 #include <orc/stage/common_types.h>
 #include <orc/stage/logging.h>
 
+#include <optional>
 #include <stdexcept>
+#include <string>
+#include <variant>
 
 #include "audio_sink_stage_deps.h"
 #include "audio_sink_stage_deps_interface.h"
 
 namespace orc {
+
+namespace {
+
+// Parses a fully-numeric channel-pair index string to an integer. Returns
+// nullopt when the text is not a plain integer; the caller applies the range
+// check so it can report a specific out-of-range message.
+std::optional<int32_t> parse_channel_pair_string(const std::string& text) {
+  try {
+    size_t consumed = 0;
+    const int parsed = std::stoi(text, &consumed);
+    if (consumed != text.size()) return std::nullopt;
+    return static_cast<int32_t>(parsed);
+  } catch (const std::exception&) {
+    return std::nullopt;
+  }
+}
+
+}  // namespace
 
 AudioSinkStage::AudioSinkStage() {
   set_configuration_status(orc::ConfigurationStatus::Red);
@@ -27,8 +49,8 @@ AudioSinkStage::AudioSinkStage() {
 NodeTypeInfo AudioSinkStage::get_node_type_info() const {
   return NodeTypeInfo{NodeType::SINK,
                       "AudioSink",
-                      "Analogue Audio Sink",
-                      "Extracts analogue audio PCM data and writes to WAV file",
+                      "Audio Sink",
+                      "Extracts audio data and writes it to a WAV file",
                       1,
                       1,  // One input
                       0,
@@ -52,6 +74,7 @@ std::vector<ArtifactPtr> AudioSinkStage::execute(
 
 std::vector<ParameterDescriptor> AudioSinkStage::get_parameter_descriptors(
     VideoSystem project_format, SourceType source_type) const {
+  (void)project_format;
   (void)source_type;
   std::vector<ParameterDescriptor> descriptors;
 
@@ -68,27 +91,26 @@ std::vector<ParameterDescriptor> AudioSinkStage::get_parameter_descriptors(
     descriptors.push_back(desc);
   }
 
-  // sample_rate_mode parameter — only meaningful for NTSC/PAL-M, where the
-  // pipeline's frame-locked audio rate (44100000/1001 Hz ≈ 44055.94 Hz)
-  // differs from the standard free-running 44100 Hz. PAL locked audio is
-  // already at 44100 Hz, so the parameter is omitted for PAL projects.
-  if (project_format != VideoSystem::PAL) {
+  // channel_pair parameter — which audio channel pair to write. Channel pair
+  // indices are 0-based, matching the CVBS container's _audio_<p>.wav
+  // numbering.
+  {
     ParameterDescriptor desc;
-    desc.name = "sample_rate_mode";
-    desc.display_name = "Sample Rate Mode";
+    desc.name = "channel_pair";
+    desc.display_name = "Audio Channel Pair";
     desc.description =
-        "Output sample rate for NTSC/PAL-M audio. " +
-        std::string(kSampleRateModeLocked) +
-        " writes the frame-locked samples unmodified with the WAV header "
-        "declaring the NTSC frame-rate-matched rate of 44,056 Hz. " +
-        std::string(kSampleRateModeFreeRunning) +
-        " resamples the audio to standard free-running 44,100 Hz. Ignored "
-        "for PAL sources, whose locked audio is already at 44,100 Hz.";
+        "Audio channel pair to write (0-based, matching the CVBS container "
+        "channel pair numbering). The input may carry up to " +
+        std::to_string(kMaxAudioChannelPairs) +
+        " stereo channel pairs; triggering fails if the selected channel "
+        "pair does not exist. The GUI restricts the choices to the channel "
+        "pairs the input actually carries.";
     desc.type = ParameterType::STRING;
     desc.constraints.required = false;
-    desc.constraints.default_value = std::string(kSampleRateModeLocked);
-    desc.constraints.allowed_strings.push_back(kSampleRateModeLocked);
-    desc.constraints.allowed_strings.push_back(kSampleRateModeFreeRunning);
+    for (size_t p = 0; p < kMaxAudioChannelPairs; ++p) {
+      desc.constraints.allowed_strings.push_back(std::to_string(p));
+    }
+    desc.constraints.default_value = std::string("0");
     descriptors.push_back(desc);
   }
 
@@ -153,21 +175,29 @@ bool AudioSinkStage::trigger(
       throw std::runtime_error("output_path parameter is empty");
     }
 
-    // Optional sample-rate mode; defaults to frame-locked output.
-    AudioSinkSampleRateMode sample_rate_mode = AudioSinkSampleRateMode::kLocked;
-    const auto mode_it = parameters.find("sample_rate_mode");
-    if (mode_it != parameters.end()) {
-      if (!std::holds_alternative<std::string>(mode_it->second)) {
-        throw std::runtime_error("sample_rate_mode parameter must be a string");
+    // Optional channel pair selection; defaults to channel pair 0. The
+    // parameter is a channel-pair index string (the GUI drop-down); a legacy
+    // integer value is also accepted for backwards compatibility.
+    size_t pair = 0;
+    const auto pair_it = parameters.find("channel_pair");
+    if (pair_it != parameters.end()) {
+      std::optional<int32_t> pair_value;
+      if (const auto* s = std::get_if<std::string>(&pair_it->second)) {
+        pair_value = parse_channel_pair_string(*s);
+      } else if (const auto* i = std::get_if<int32_t>(&pair_it->second)) {
+        pair_value = *i;
       }
-      const std::string& mode = std::get<std::string>(mode_it->second);
-      if (mode == kSampleRateModeFreeRunning) {
-        sample_rate_mode = AudioSinkSampleRateMode::kFreeRunning;
-      } else if (mode != kSampleRateModeLocked) {
-        throw std::runtime_error("sample_rate_mode must be '" +
-                                 std::string(kSampleRateModeLocked) + "' or '" +
-                                 std::string(kSampleRateModeFreeRunning) + "'");
+      if (!pair_value) {
+        throw std::runtime_error(
+            "channel_pair parameter must be a channel-pair index");
       }
+      if (*pair_value < 0 ||
+          *pair_value >= static_cast<int32_t>(kMaxAudioChannelPairs)) {
+        throw std::runtime_error(
+            "channel_pair parameter must be between 0 and " +
+            std::to_string(kMaxAudioChannelPairs - 1));
+      }
+      pair = static_cast<size_t>(*pair_value);
     }
 
     ORC_LOG_INFO("AudioSink: Writing audio to {}", output_path);
@@ -181,7 +211,7 @@ bool AudioSinkStage::trigger(
     }
 
     const auto write_result =
-        deps->write_audio_wav(vfr.get(), output_path, sample_rate_mode);
+        deps->write_audio_wav(vfr.get(), output_path, pair);
     if (!write_result.success) {
       last_status_ = "Error: " + write_result.error_message;
       ORC_LOG_ERROR("AudioSink: {}", write_result.error_message);

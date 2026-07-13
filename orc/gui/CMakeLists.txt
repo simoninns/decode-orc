@@ -64,7 +64,9 @@ set(ORC_GUI_LIB_SOURCES
     projectpropertiesdialog.h
     node_type_helper.cpp
     node_type_helper.h
-    
+    quick_project_planner.cpp
+    quick_project_planner.h
+
     # Field/Frame presentation helpers
     field_frame_presentation.cpp
     field_frame_presentation.h

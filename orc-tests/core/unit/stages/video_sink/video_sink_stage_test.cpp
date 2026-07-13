@@ -424,4 +424,44 @@ TEST(VideoSinkStageTest, SetParameters_RoundTripsAudioGain) {
   ASSERT_TRUE(std::holds_alternative<double>(it->second));
   EXPECT_EQ(std::get<double>(it->second), 0.0);
 }
+
+TEST(VideoSinkStageTest,
+     ParameterDescriptors_AudioChannelPairsRequiresEmbedAudio) {
+  orc::VideoSinkStage stage;
+  auto descriptors = stage.get_parameter_descriptors(
+      orc::VideoSystem::NTSC, orc::SourceType::Composite);
+
+  const auto* pairs = find_parameter(descriptors, "audio_channel_pairs");
+  ASSERT_NE(pairs, nullptr);
+  EXPECT_EQ(pairs->type, orc::ParameterType::STRING);
+
+  ASSERT_TRUE(pairs->constraints.default_value.has_value());
+  ASSERT_TRUE(
+      std::holds_alternative<std::string>(*pairs->constraints.default_value));
+  EXPECT_EQ(std::get<std::string>(*pairs->constraints.default_value), "all");
+
+  // Only meaningful when audio is embedded in the FFmpeg output.
+  ASSERT_TRUE(pairs->constraints.depends_on.has_value());
+  EXPECT_EQ(pairs->constraints.depends_on->parameter_name, "embed_audio");
+  ASSERT_EQ(pairs->constraints.depends_on->required_values.size(), 1U);
+  EXPECT_EQ(pairs->constraints.depends_on->required_values.front(), "true");
+}
+
+TEST(VideoSinkStageTest, SetParameters_RoundTripsAudioChannelPairs) {
+  orc::VideoSinkStage stage;
+
+  ASSERT_TRUE(
+      stage.set_parameters({{"audio_channel_pairs", std::string("0,2")}}));
+  auto params = stage.get_parameters();
+  EXPECT_EQ(string_param(params, "audio_channel_pairs"), "0,2");
+
+  // An empty selection falls back to the default of all channel pairs.
+  ASSERT_TRUE(stage.set_parameters({{"audio_channel_pairs", std::string("")}}));
+  params = stage.get_parameters();
+  EXPECT_EQ(string_param(params, "audio_channel_pairs"), "all");
+
+  orc::VideoSinkStage fresh;
+  params = fresh.get_parameters();
+  EXPECT_EQ(string_param(params, "audio_channel_pairs"), "all");
+}
 }  // namespace orc_unit_test

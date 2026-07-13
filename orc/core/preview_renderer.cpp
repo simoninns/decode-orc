@@ -451,7 +451,8 @@ PreviewRenderResult PreviewRenderer::render_output(const NodeID& node_id,
                 node_id, static_cast<FrameID>(0));
             if (vfr_result.is_valid && vfr_result.representation) {
               result.image = PreviewHelpers::render_standard_preview(
-                  vfr_result.representation, option_id, index, hint);
+                  vfr_result.representation, option_id, index, hint,
+                  capability.geometry.mask_inactive_area);
               result.success = result.image.is_valid();
               if (result.success) render_dropouts(result.image);
               return result;

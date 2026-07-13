@@ -17,6 +17,7 @@
 #include <orc/stage/video_frame_representation.h>
 
 #include <cstddef>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <optional>
@@ -86,16 +87,16 @@ class FrameMappedRepresentation : public VideoFrameRepresentationWrapper,
     return source_ ? source_->get_video_parameters() : std::nullopt;
   }
 
-  // Audio — pass locked audio in lockstep with frame mapping; free-running
-  // audio passes from source unchanged (no frame ID translation needed)
-  bool has_audio() const override {
-    return source_ ? source_->has_audio() : false;
-  }
-  bool audio_locked() const override {
-    return source_ ? source_->audio_locked() : false;
-  }
-  uint32_t get_audio_sample_count(FrameID id) const override;
-  std::vector<int16_t> get_audio_samples(FrameID id) const override;
+  // Audio — channel pairs remap in lockstep with the frame mapping; pair
+  // count and descriptors forward from the source via the wrapper base.
+  // Every output frame p serves exactly audio_pairs_in_frame(p) stereo
+  // pairs: padding frames carry cadence-sized silence, and a mapping that
+  // breaks the NTSC/PAL-M five-frame audio sequence phase
+  // (SMPTE 272M-1994 §14.3) truncates one trailing pair or appends one
+  // trailing silence pair. Phase-preserving mappings and all PAL mappings
+  // are sample-exact.
+  std::vector<int32_t> get_audio_samples(size_t pair,
+                                         FrameID id) const override;
 
   // EFM / AC3
   bool has_efm() const override { return source_ ? source_->has_efm() : false; }
@@ -114,9 +115,6 @@ class FrameMappedRepresentation : public VideoFrameRepresentationWrapper,
 
   // Descriptors for padding frames (keyed by output FrameID value)
   std::vector<PaddingDescriptor> padding_descriptors_;
-
-  // Pre-allocated silence buffer returned for locked audio on padding frames.
-  mutable std::vector<int16_t> silence_audio_;
 
   // Resolve output FrameID → entry in frame_mapping_
   std::optional<size_t> resolve_index(FrameID id) const;

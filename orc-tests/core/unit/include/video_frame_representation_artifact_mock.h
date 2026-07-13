@@ -49,11 +49,11 @@ class MockVideoFrameRepresentationArtifact
   MOCK_METHOD((std::optional<orc::SourceParameters>), get_video_parameters, (),
               (const, override));
 
-  // Audio
-  MOCK_METHOD(bool, audio_locked, (), (const, override));
-  MOCK_METHOD(uint32_t, get_audio_sample_count, (orc::FrameID),
-              (const, override));
-  MOCK_METHOD((std::vector<int16_t>), get_audio_samples, (orc::FrameID),
+  // Audio channel pairs
+  MOCK_METHOD(size_t, audio_channel_pair_count, (), (const, override));
+  MOCK_METHOD((std::optional<orc::AudioChannelPairDescriptor>),
+              get_audio_channel_pair_descriptor, (size_t), (const, override));
+  MOCK_METHOD((std::vector<int32_t>), get_audio_samples, (size_t, orc::FrameID),
               (const, override));
 
   // EFM

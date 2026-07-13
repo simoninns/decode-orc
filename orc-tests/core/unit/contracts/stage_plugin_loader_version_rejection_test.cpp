@@ -142,8 +142,11 @@ TEST(StagePluginLoaderRejectionTest, AbiV4Plugin_IsRejectedByVersionCheck) {
       << "Expected 'ABI' in error: " << result.error_message;
   EXPECT_NE(result.error_message.find("plugin=4"), std::string::npos)
       << "Expected plugin ABI 4 in error: " << result.error_message;
-  EXPECT_NE(result.error_message.find("host=5"), std::string::npos)
-      << "Expected host ABI 5 in error: " << result.error_message;
+  const std::string expected_host =
+      "host=" + std::to_string(orc::kStagePluginHostAbiVersion);
+  EXPECT_NE(result.error_message.find(expected_host), std::string::npos)
+      << "Expected '" << expected_host
+      << "' in error: " << result.error_message;
 }
 
 // ---------------------------------------------------------------------------

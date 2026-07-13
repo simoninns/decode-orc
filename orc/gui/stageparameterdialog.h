@@ -36,6 +36,13 @@ class StageParameterDialog : public QDialog {
   Q_OBJECT
 
  public:
+  // Separator used inside a string parameter's allowed_strings entry to carry a
+  // display label distinct from the stored value: "value\x1flabel". The combo
+  // box shows the label but stores the value. Entries without the separator
+  // behave as before (display == value). '\x1f' (unit separator) cannot appear
+  // in a normal parameter value, so this is collision-free.
+  static constexpr char kComboValueLabelSeparator = '\x1f';
+
   /**
    * @brief Construct parameter editor dialog
    *

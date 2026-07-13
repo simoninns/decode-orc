@@ -7,6 +7,19 @@ orchestration framework. It hosts a DAG (Directed Acyclic Graph) editor where
 processing pipelines are built by connecting stage nodes. Each node represents
 one processing step; connections between nodes define the data flow.
 
+## Toolbar
+
+Directly beneath the menu bar is a toolbar with quick-access buttons that mirror
+common menu actions:
+
+| Button | Equivalent Menu Action | Description |
+|--------|------------------------|-------------|
+| Arrange to grid | View → Arrange DAG to Grid | Automatically arrange all nodes in an ordered grid layout. |
+| Show preview | View → Show Preview | Open the Preview Window, or bring it to the front if it is already open. Disabled until a project is loaded. |
+| Theme | Tools → Themes | Cycles the UI theme in the order Auto → Light → Dark. The icon shows the current mode (half-disc for Auto, sun for Light, crescent moon for Dark), and stays in sync with the Tools → Themes submenu. |
+
+The toolbar can be hidden or shown from **View → Show Toolbar**.
+
 ## File Menu
 
 | Action | Shortcut | Description |
@@ -23,9 +36,10 @@ one processing step; connections between nodes define the data flow.
 
 | Action | Shortcut | Description |
 |--------|----------|-------------|
-| Show Preview | Ctrl+Shift+P | Open the Preview Window. |
+| Show Preview | Ctrl+Shift+P | Open the Preview Window, or bring it to the front if already open. |
 | Show Preview on Selection | — | When checked, selecting a preview-capable node automatically opens and updates the Preview Window. |
 | Arrange DAG to Grid | Ctrl+G | Automatically arrange all nodes in an ordered grid layout. |
+| Show Toolbar | — | Toggle visibility of the toolbar beneath the menu bar. |
 
 ## Tools Menu
 

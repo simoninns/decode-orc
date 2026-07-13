@@ -9,6 +9,7 @@
 
 #include "video_params_stage.h"
 
+#include <orc/stage/cvbs_signal_constants.h>
 #include <orc/stage/error_types.h>
 #include <orc/stage/logging.h>
 #include <orc/stage/preview_helpers.h>
@@ -71,23 +72,23 @@ std::optional<SourceParameters> VideoParamsStage::build_video_parameters(
   if (source_params.has_value()) params = *source_params;
 
   bool level_overridden = false;
-  bool geometry_overridden = false;
 
+  // Geometry overrides only relabel the active window; they must NOT touch
+  // active_area_cropping_applied.  That flag means "the sample buffer is
+  // already cropped to the active area, index it from 0" — but this stage
+  // forwards samples unchanged, so downstream must keep using these offsets
+  // against the full-frame buffer.  Leave the flag inherited from the source.
   if (active_video_start_ >= 0) {
     params.active_video_start = active_video_start_;
-    geometry_overridden = true;
   }
   if (active_video_end_ >= 0) {
     params.active_video_end = active_video_end_;
-    geometry_overridden = true;
   }
   if (first_active_frame_line_ >= 0) {
     params.first_active_frame_line = first_active_frame_line_;
-    geometry_overridden = true;
   }
   if (last_active_frame_line_ >= 0) {
     params.last_active_frame_line = last_active_frame_line_;
-    geometry_overridden = true;
   }
   if (white_level_ >= 0) {
     params.white_level = white_level_;
@@ -98,78 +99,141 @@ std::optional<SourceParameters> VideoParamsStage::build_video_parameters(
     level_overridden = true;
   }
 
-  if (level_overridden) params.has_nonstandard_values = true;
-  if (geometry_overridden) params.active_area_cropping_applied = true;
+  // Flag non-standard levels by comparing the resulting values against the
+  // system's spec constants — NOT merely because a level was specified.  This
+  // lets the levels default to their spec values (see
+  // get_parameter_descriptors) without falsely marking a standard source as
+  // non-standard; only a value that actually differs from spec sets the flag.
+  if (level_overridden) {
+    int32_t spec_white = -1;
+    int32_t spec_black = -1;
+    switch (params.system) {
+      case VideoSystem::PAL:
+        spec_white = kPalWhite;
+        spec_black = kPalBlack;
+        break;
+      case VideoSystem::NTSC:
+      case VideoSystem::PAL_M:
+        spec_white = kNtscWhite;
+        spec_black = kNtscBlack;
+        break;
+      default:
+        break;
+    }
+    if (params.white_level != spec_white || params.black_level != spec_black) {
+      params.has_nonstandard_values = true;
+    }
+  }
 
   return params;
 }
 
 std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
-    VideoSystem, SourceType) const {
+    VideoSystem project_format, SourceType) const {
+  // Present every parameter with the format's standard metadata value rather
+  // than the bare -1 "inherit" sentinel, so they all read as ordinary populated
+  // parameters.  For a standard source these equal the values that would be
+  // inherited, so applying them is a no-op (and, for the levels, leaves
+  // has_nonstandard_values clear — see build_video_parameters).  -1 remains a
+  // valid explicit "inherit from source" value.  PAL_M shares NTSC geometry and
+  // levels; Unknown keeps -1 since the standard values can't be known.
+  int32_t av_start_default = -1;
+  int32_t av_end_default = -1;
+  int32_t first_line_default = -1;
+  int32_t last_line_default = -1;
+  int32_t white_default = -1;
+  int32_t black_default = -1;
+  switch (project_format) {
+    case VideoSystem::PAL:
+      av_start_default = kPalActiveVideoStart;
+      av_end_default = kPalActiveVideoEnd;
+      first_line_default = kPalFirstActiveFrameLine;
+      last_line_default = kPalLastActiveFrameLine;
+      white_default = kPalWhite;
+      black_default = kPalBlack;
+      break;
+    case VideoSystem::NTSC:
+    case VideoSystem::PAL_M:
+      av_start_default = kNtscActiveVideoStart;
+      av_end_default = kNtscActiveVideoEnd;
+      first_line_default = kNtscFirstActiveFrameLine;
+      last_line_default = kNtscLastActiveFrameLine;
+      white_default = kNtscWhite;
+      black_default = kNtscBlack;
+      break;
+    default:
+      break;
+  }
   return {
       ParameterDescriptor{
           "activeVideoStart", "Active Video Start",
-          "Override active video start sample (0-based within line). "
+          "Active video start sample (0-based within line). "
+          "Defaults to the format standard (PAL: 157, NTSC: 126); "
           "-1 = inherit from source.",
           ParameterType::INT32,
           ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
                                ParameterValue{static_cast<int32_t>(10000)},
-                               ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{av_start_default},
                                {},
                                false,
                                std::nullopt}},
       ParameterDescriptor{
           "activeVideoEnd", "Active Video End",
-          "Override active video end sample (0-based within line). "
+          "Active video end sample (0-based within line, exclusive). "
+          "Defaults to the format standard (PAL: 1105, NTSC: 894); "
           "-1 = inherit from source.",
           ParameterType::INT32,
           ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
                                ParameterValue{static_cast<int32_t>(10000)},
-                               ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{av_end_default},
                                {},
                                false,
                                std::nullopt}},
       ParameterDescriptor{
           "firstActiveFrameLine", "First Active Frame Line",
-          "Override first active frame line (0-based, frame-flat). "
-          "PAL: ~44, NTSC: ~40. -1 = inherit from source.",
+          "First active frame line (0-based, frame-flat). "
+          "Defaults to the format standard (PAL: 44, NTSC: 40); "
+          "-1 = inherit from source.",
           ParameterType::INT32,
           ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
                                ParameterValue{static_cast<int32_t>(1200)},
-                               ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{first_line_default},
                                {},
                                false,
                                std::nullopt}},
       ParameterDescriptor{
           "lastActiveFrameLine", "Last Active Frame Line",
-          "Override last active frame line (0-based, frame-flat). "
-          "PAL: ~619, NTSC: ~519. -1 = inherit from source.",
+          "Last active frame line (0-based, frame-flat, exclusive). "
+          "Defaults to the format standard (PAL: 620, NTSC: 523); "
+          "-1 = inherit from source.",
           ParameterType::INT32,
           ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
                                ParameterValue{static_cast<int32_t>(1200)},
-                               ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{last_line_default},
                                {},
                                false,
                                std::nullopt}},
       ParameterDescriptor{
           "whiteLevel", "White Level (10-bit)",
-          "Override white level in CVBS_U10_4FSC domain (0-1023). "
-          "PAL: 844, NTSC: 800. -1 = inherit from source.",
+          "White level in CVBS_U10_4FSC domain (0-1023). "
+          "Defaults to the format standard (PAL: 844, NTSC: 800); "
+          "-1 = inherit from source.",
           ParameterType::INT32,
           ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
                                ParameterValue{static_cast<int32_t>(1023)},
-                               ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{white_default},
                                {},
                                false,
                                std::nullopt}},
       ParameterDescriptor{
           "blackLevel", "Black Level (10-bit)",
-          "Override black level in CVBS_U10_4FSC domain (0-1023). "
-          "PAL: 282, NTSC: 282. -1 = inherit from source.",
+          "Black level in CVBS_U10_4FSC domain (0-1023). "
+          "Defaults to the format standard (PAL: 256, NTSC: 282); "
+          "-1 = inherit from source.",
           ParameterType::INT32,
           ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
                                ParameterValue{static_cast<int32_t>(1023)},
-                               ParameterValue{static_cast<int32_t>(-1)},
+                               ParameterValue{black_default},
                                {},
                                false,
                                std::nullopt}},
@@ -218,7 +282,14 @@ bool VideoParamsStage::set_parameters(
 }
 
 StagePreviewCapability VideoParamsStage::get_preview_capability() const {
-  return PreviewHelpers::make_signal_preview_capability(cached_output_);
+  auto capability =
+      PreviewHelpers::make_signal_preview_capability(cached_output_);
+  // Always show the full frame (blanking/VBI included) at its normal size and
+  // aspect, with the region excluded by the active-area parameters dimmed.  The
+  // preview never crops or rescales — only the actual video sink crops its
+  // output — so the un-dimmed area shows exactly what the export will contain.
+  capability.geometry.mask_inactive_area = true;
+  return capability;
 }
 
 }  // namespace orc

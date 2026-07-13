@@ -10,8 +10,7 @@
 #include "audio_sink_stage_deps.h"
 
 #include <gtest/gtest.h>
-
-#include <cstring>
+#include <orc/stage/audio_channel_pair.h>
 
 #include "../../include/video_frame_representation_artifact_mock.h"
 #include "../../stage_services_mock.h"
@@ -30,24 +29,63 @@ orc::SourceParameters make_system_params(orc::VideoSystem system) {
   return params;
 }
 
-// Reads a little-endian uint32 at the given byte offset from the int16-word
-// stream the deps use to write the RIFF header.
-uint32_t header_u32_at(const std::vector<int16_t>& words, size_t byte_offset) {
-  uint32_t value = 0;
-  std::memcpy(&value,
-              reinterpret_cast<const uint8_t*>(words.data()) + byte_offset, 4);
-  return value;
+std::optional<orc::AudioChannelPairDescriptor> analogue_pair_descriptor() {
+  orc::AudioChannelPairDescriptor desc;
+  desc.name = "Analogue";
+  desc.origin = orc::AudioOrigin::ANALOGUE;
+  return desc;
+}
+
+// Builds a cadence-sized frame of interleaved int32 carrier samples whose
+// leading values follow |leading| and whose remainder is zero.
+std::vector<int32_t> make_frame_samples(uint64_t frame_index,
+                                        orc::VideoSystem system,
+                                        const std::vector<int32_t>& leading) {
+  std::vector<int32_t> samples(
+      static_cast<size_t>(orc::audio_pairs_in_frame(frame_index, system)) * 2,
+      0);
+  for (size_t i = 0; i < leading.size() && i < samples.size(); ++i) {
+    samples[i] = leading[i];
+  }
+  return samples;
+}
+
+// Reads a little-endian uint32 at the given byte offset from the header.
+uint32_t header_u32_at(const std::vector<uint8_t>& bytes, size_t byte_offset) {
+  return static_cast<uint32_t>(bytes[byte_offset]) |
+         (static_cast<uint32_t>(bytes[byte_offset + 1]) << 8) |
+         (static_cast<uint32_t>(bytes[byte_offset + 2]) << 16) |
+         (static_cast<uint32_t>(bytes[byte_offset + 3]) << 24);
+}
+
+uint16_t header_u16_at(const std::vector<uint8_t>& bytes, size_t byte_offset) {
+  return static_cast<uint16_t>(bytes[byte_offset] |
+                               (bytes[byte_offset + 1] << 8));
+}
+
+// Reads the 24-bit signed LE sample at index |sample_index| of a payload.
+int32_t s24le_at(const std::vector<uint8_t>& bytes, size_t sample_index) {
+  const size_t o = sample_index * 3;
+  int32_t v = static_cast<int32_t>(bytes[o]) |
+              (static_cast<int32_t>(bytes[o + 1]) << 8) |
+              (static_cast<int32_t>(bytes[o + 2]) << 16);
+  if (v & 0x800000) {
+    v -= 0x1000000;
+  }
+  return v;
 }
 
 constexpr size_t kWavSampleRateOffset = 24;
+constexpr size_t kWavBitsPerSampleOffset = 34;
 constexpr size_t kWavDataSizeOffset = 40;
+constexpr size_t kBytesPerPair = 6;  // 2 × 24-bit samples
 
 }  // namespace
 
 class AudioSinkStageDeps : public ::testing::Test {
  public:
   void SetUp() override {
-    pMockFileWriterInt16_ = std::make_shared<StrictMock<MockFileWriterInt16>>();
+    pMockFileWriterUint8_ = std::make_shared<StrictMock<MockFileWriterUint8>>();
 
     instance_ = std::make_unique<orc::AudioSinkStageDeps>(&mockStageServices_);
     instance_->init({}, &isProcessing_, &cancelRequested_);
@@ -59,25 +97,25 @@ class AudioSinkStageDeps : public ::testing::Test {
  protected:
   void expect_writer_created_and_opened() {
     EXPECT_CALL(mockStageServices_,
-                create_buffered_file_writer_int16(4UL * 1024 * 1024))
+                create_buffered_file_writer_uint8(4UL * 1024 * 1024))
         .Times(1)
-        .WillOnce(Return(pMockFileWriterInt16_));
-    EXPECT_CALL(*pMockFileWriterInt16_, open("out_path.wav"))
+        .WillOnce(Return(pMockFileWriterUint8_));
+    EXPECT_CALL(*pMockFileWriterUint8_, open("out_path.wav"))
         .Times(1)
         .WillOnce(Return(true));
   }
 
-  void capture_writes(std::vector<std::vector<int16_t>>& writes, int count) {
-    EXPECT_CALL(*pMockFileWriterInt16_, write(A<const std::vector<int16_t>&>()))
+  void capture_writes(std::vector<std::vector<uint8_t>>& writes, int count) {
+    EXPECT_CALL(*pMockFileWriterUint8_, write(A<const std::vector<uint8_t>&>()))
         .Times(count)
-        .WillRepeatedly([&writes](const std::vector<int16_t>& data) {
+        .WillRepeatedly([&writes](const std::vector<uint8_t>& data) {
           writes.push_back(data);
         });
-    EXPECT_CALL(*pMockFileWriterInt16_, close()).Times(1);
+    EXPECT_CALL(*pMockFileWriterUint8_, close()).Times(1);
   }
 
   MockStageServices mockStageServices_;
-  std::shared_ptr<StrictMock<MockFileWriterInt16>> pMockFileWriterInt16_;
+  std::shared_ptr<StrictMock<MockFileWriterUint8>> pMockFileWriterUint8_;
   StrictMock<MockVideoFrameRepresentationArtifact> mockRepresentation_;
 
   std::atomic<bool> cancelRequested_{};
@@ -86,166 +124,161 @@ class AudioSinkStageDeps : public ::testing::Test {
 };
 
 TEST_F(AudioSinkStageDeps,
-       WriteAudioWav_StreamsHeaderAndSamplesThroughInt16WriterService) {
-  EXPECT_CALL(mockRepresentation_, audio_locked())
-      .Times(1)
-      .WillOnce(Return(true));
-  // Single-frame range with four locked stereo samples.
-  EXPECT_CALL(mockRepresentation_, frame_range())
-      .Times(1)
-      .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
-      .Times(1)
-      .WillOnce(Return(4));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(0))
-      .Times(1)
-      .WillOnce(Return(std::vector<int16_t>{1, -2, 3, -4}));
-  // No video parameters available: treated as the standard 44100 Hz rate.
-  EXPECT_CALL(mockRepresentation_, get_video_parameters())
-      .Times(1)
-      .WillOnce(Return(std::nullopt));
+       WriteAudioWav_Declares48kHz24BitAndWritesCarrierUnconverted) {
+  // One PAL frame: 1920 stereo pairs (SMPTE 272M-1994, 48000 / 25).
+  constexpr uint32_t kPalPairsPerFrame = 1920;
+  const std::vector<int32_t> carrier = make_frame_samples(
+      0, orc::VideoSystem::PAL, {256, -512, 8388607, -8388608});
 
-  expect_writer_created_and_opened();
-
-  // One write for the 44-byte RIFF header (22 int16 words) and one for the
-  // sample payload.
-  std::vector<std::vector<int16_t>> writes;
-  capture_writes(writes, 2);
-
-  const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
-                                 orc::AudioSinkSampleRateMode::kLocked);
-
-  EXPECT_TRUE(result.success);
-  // Four interleaved stereo samples = two audio frames.
-  EXPECT_EQ(result.frames_written, 2U);
-  ASSERT_EQ(writes.size(), 2U);
-  EXPECT_EQ(header_u32_at(writes[0], kWavSampleRateOffset), 44100U);
-  EXPECT_EQ(writes[1], (std::vector<int16_t>{1, -2, 3, -4}));
-}
-
-TEST_F(AudioSinkStageDeps,
-       WriteAudioWav_LockedNtsc_DeclaresLockedRateAndPassesSamplesThrough) {
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_channel_pair_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
-  EXPECT_CALL(mockRepresentation_, frame_range())
-      .Times(1)
-      .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
-      .Times(1)
-      .WillOnce(Return(4));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(0))
-      .Times(1)
-      .WillOnce(Return(std::vector<int16_t>{1, -2, 3, -4}));
-  EXPECT_CALL(mockRepresentation_, get_video_parameters())
-      .Times(1)
-      .WillOnce(Return(make_system_params(orc::VideoSystem::NTSC)));
-
-  expect_writer_created_and_opened();
-
-  std::vector<std::vector<int16_t>> writes;
-  capture_writes(writes, 2);
-
-  const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
-                                 orc::AudioSinkSampleRateMode::kLocked);
-
-  EXPECT_TRUE(result.success);
-  EXPECT_EQ(result.frames_written, 2U);
-  ASSERT_EQ(writes.size(), 2U);
-  // NTSC frame-locked rate: nearest integer to 44100000/1001 Hz.
-  EXPECT_EQ(header_u32_at(writes[0], kWavSampleRateOffset), 44056U);
-  // Locked mode never resamples: payload is bit-identical to the input.
-  EXPECT_EQ(writes[1], (std::vector<int16_t>{1, -2, 3, -4}));
-}
-
-TEST_F(AudioSinkStageDeps,
-       WriteAudioWav_FreeRunningNtsc_ResamplesTo44100AndDeclaresExactSize) {
-  // Two NTSC frames of locked audio (1470 stereo pairs per frame).
-  constexpr uint32_t kPairsPerFrame = 1470;
-  std::vector<int16_t> frame_block(kPairsPerFrame * 2, 100);
-
-  EXPECT_CALL(mockRepresentation_, audio_locked())
-      .Times(1)
-      .WillOnce(Return(true));
-  EXPECT_CALL(mockRepresentation_, frame_range())
-      .Times(1)
-      .WillOnce(Return(orc::FrameIDRange{0, 1}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
-      .Times(1)
-      .WillOnce(Return(kPairsPerFrame));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(1))
-      .Times(1)
-      .WillOnce(Return(kPairsPerFrame));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(0))
-      .Times(1)
-      .WillOnce(Return(frame_block));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(1))
-      .Times(1)
-      .WillOnce(Return(frame_block));
-  EXPECT_CALL(mockRepresentation_, get_video_parameters())
-      .Times(1)
-      .WillOnce(Return(make_system_params(orc::VideoSystem::NTSC)));
-
-  expect_writer_created_and_opened();
-
-  std::vector<std::vector<int16_t>> writes;
-  capture_writes(writes, 2);
-
-  const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
-                                 orc::AudioSinkSampleRateMode::kFreeRunning);
-
-  EXPECT_TRUE(result.success);
-  ASSERT_EQ(writes.size(), 2U);
-  EXPECT_EQ(header_u32_at(writes[0], kWavSampleRateOffset), 44100U);
-
-  // Resampling 44100000/1001 -> 44100 Hz stretches the stream by a factor of
-  // 1.001, so more pairs come out than went in.
-  const uint64_t input_pairs = 2ULL * kPairsPerFrame;
-  EXPECT_GT(result.frames_written, input_pairs);
-  EXPECT_EQ(result.frames_written, writes[1].size() / 2);
-
-  // The declared data size must match the payload actually written.
-  EXPECT_EQ(header_u32_at(writes[0], kWavDataSizeOffset),
-            writes[1].size() * sizeof(int16_t));
-}
-
-TEST_F(AudioSinkStageDeps,
-       WriteAudioWav_FreeRunningPal_IsPassthroughAtStandardRate) {
-  EXPECT_CALL(mockRepresentation_, audio_locked())
-      .Times(1)
-      .WillOnce(Return(true));
-  EXPECT_CALL(mockRepresentation_, frame_range())
-      .Times(1)
-      .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
-      .Times(1)
-      .WillOnce(Return(4));
-  EXPECT_CALL(mockRepresentation_, get_audio_samples(0))
-      .Times(1)
-      .WillOnce(Return(std::vector<int16_t>{1, -2, 3, -4}));
+      .WillOnce(Return(analogue_pair_descriptor()));
   EXPECT_CALL(mockRepresentation_, get_video_parameters())
       .Times(1)
       .WillOnce(Return(make_system_params(orc::VideoSystem::PAL)));
+  EXPECT_CALL(mockRepresentation_, frame_range())
+      .Times(1)
+      .WillOnce(Return(orc::FrameIDRange{0, 0}));
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(0, 0))
+      .Times(1)
+      .WillOnce(Return(carrier));
 
   expect_writer_created_and_opened();
 
-  std::vector<std::vector<int16_t>> writes;
+  // One write for the 44-byte RIFF header and one for the frame payload.
+  std::vector<std::vector<uint8_t>> writes;
   capture_writes(writes, 2);
 
-  // PAL locked audio is already 44100 Hz; free-running mode must not
-  // resample.
   const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
-                                 orc::AudioSinkSampleRateMode::kFreeRunning);
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0);
 
   EXPECT_TRUE(result.success);
-  EXPECT_EQ(result.frames_written, 2U);
+  EXPECT_EQ(result.frames_written, kPalPairsPerFrame);
   ASSERT_EQ(writes.size(), 2U);
-  EXPECT_EQ(header_u32_at(writes[0], kWavSampleRateOffset), 44100U);
-  EXPECT_EQ(writes[1], (std::vector<int16_t>{1, -2, 3, -4}));
+  ASSERT_EQ(writes[0].size(), 44U);
+  // SMPTE 272M-1994 §1.2: 48 kHz for every video system.
+  EXPECT_EQ(header_u32_at(writes[0], kWavSampleRateOffset), 48000U);
+  // SMPTE 272M-1994 §1.3: 24-bit samples.
+  EXPECT_EQ(header_u16_at(writes[0], kWavBitsPerSampleOffset), 24U);
+  // Declared payload: 1920 stereo pairs × 6 bytes.
+  EXPECT_EQ(header_u32_at(writes[0], kWavDataSizeOffset),
+            kPalPairsPerFrame * kBytesPerPair);
+  // Payload carries the int32 samples as 24-bit signed LE, unconverted.
+  ASSERT_EQ(writes[1].size(),
+            static_cast<size_t>(kPalPairsPerFrame) * kBytesPerPair);
+  EXPECT_EQ(s24le_at(writes[1], 0), 256);
+  EXPECT_EQ(s24le_at(writes[1], 1), -512);
+  EXPECT_EQ(s24le_at(writes[1], 2), 8388607);
+  EXPECT_EQ(s24le_at(writes[1], 3), -8388608);
+  EXPECT_EQ(s24le_at(writes[1], 4), 0);
+}
+
+TEST_F(AudioSinkStageDeps, WriteAudioWav_SilenceFramesAreSizedByNtscCadence) {
+  // Two NTSC frames with no audio: silence must follow the 5-frame audio
+  // frame sequence (SMPTE 272M-1994 §14.3 Table 1: frame 0 = 1602 pairs,
+  // frame 1 = 1601 pairs).
+  EXPECT_CALL(mockRepresentation_, get_audio_channel_pair_descriptor(0))
+      .Times(1)
+      .WillOnce(Return(analogue_pair_descriptor()));
+  EXPECT_CALL(mockRepresentation_, get_video_parameters())
+      .Times(1)
+      .WillOnce(Return(make_system_params(orc::VideoSystem::NTSC)));
+  EXPECT_CALL(mockRepresentation_, frame_range())
+      .Times(1)
+      .WillOnce(Return(orc::FrameIDRange{0, 1}));
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(0, 0))
+      .Times(1)
+      .WillOnce(Return(std::vector<int32_t>{}));
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(0, 1))
+      .Times(1)
+      .WillOnce(Return(std::vector<int32_t>{}));
+
+  expect_writer_created_and_opened();
+
+  // Header plus one silence write per frame.
+  std::vector<std::vector<uint8_t>> writes;
+  capture_writes(writes, 3);
+
+  const auto result =
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0);
+
+  EXPECT_TRUE(result.success);
+  EXPECT_EQ(result.frames_written, 1602U + 1601U);
+  ASSERT_EQ(writes.size(), 3U);
+  EXPECT_EQ(header_u32_at(writes[0], kWavSampleRateOffset), 48000U);
+  EXPECT_EQ(header_u32_at(writes[0], kWavDataSizeOffset),
+            (1602U + 1601U) * kBytesPerPair);
+  EXPECT_EQ(writes[1], std::vector<uint8_t>(1602 * kBytesPerPair, 0));
+  EXPECT_EQ(writes[2], std::vector<uint8_t>(1601 * kBytesPerPair, 0));
+}
+
+TEST_F(AudioSinkStageDeps, WriteAudioWav_SelectedPair_ReadsThatPairOnly) {
+  const std::vector<int32_t> carrier =
+      make_frame_samples(0, orc::VideoSystem::PAL, {1792, -1792});
+
+  EXPECT_CALL(mockRepresentation_, get_audio_channel_pair_descriptor(1))
+      .Times(1)
+      .WillOnce(Return(analogue_pair_descriptor()));
+  EXPECT_CALL(mockRepresentation_, get_video_parameters())
+      .Times(1)
+      .WillOnce(Return(make_system_params(orc::VideoSystem::PAL)));
+  EXPECT_CALL(mockRepresentation_, frame_range())
+      .Times(1)
+      .WillOnce(Return(orc::FrameIDRange{0, 0}));
+  EXPECT_CALL(mockRepresentation_, get_audio_samples(1, 0))
+      .Times(1)
+      .WillOnce(Return(carrier));
+
+  expect_writer_created_and_opened();
+
+  std::vector<std::vector<uint8_t>> writes;
+  capture_writes(writes, 2);
+
+  const auto result =
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 1);
+
+  EXPECT_TRUE(result.success);
+  EXPECT_EQ(result.frames_written, 1920U);
+  ASSERT_EQ(writes.size(), 2U);
+  EXPECT_EQ(s24le_at(writes[1], 0), 1792);
+  EXPECT_EQ(s24le_at(writes[1], 1), -1792);
+}
+
+TEST_F(AudioSinkStageDeps, WriteAudioWav_FailsWhenChannelPairDoesNotExist) {
+  EXPECT_CALL(mockRepresentation_, get_audio_channel_pair_descriptor(3))
+      .Times(1)
+      .WillOnce(Return(std::nullopt));
+  EXPECT_CALL(mockRepresentation_, audio_channel_pair_count())
+      .Times(1)
+      .WillOnce(Return(1));
+
+  const auto result =
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 3);
+
+  EXPECT_FALSE(result.success);
+  EXPECT_EQ(result.error_message,
+            "Audio channel pair 3 does not exist in the input (1 channel "
+            "pair(s) available)");
+}
+
+TEST_F(AudioSinkStageDeps, WriteAudioWav_FailsWhenVideoSystemHasNoAudioLayout) {
+  // Without a known video system there is no defined audio frame sequence,
+  // so the cadence-derived payload is empty and the write fails.
+  EXPECT_CALL(mockRepresentation_, get_audio_channel_pair_descriptor(0))
+      .Times(1)
+      .WillOnce(Return(analogue_pair_descriptor()));
+  EXPECT_CALL(mockRepresentation_, get_video_parameters())
+      .Times(1)
+      .WillOnce(Return(std::nullopt));
+  EXPECT_CALL(mockRepresentation_, frame_range())
+      .Times(1)
+      .WillOnce(Return(orc::FrameIDRange{0, 0}));
+
+  const auto result =
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0);
+
+  EXPECT_FALSE(result.success);
+  EXPECT_EQ(result.error_message, "No audio samples found in frame range");
 }
 
 TEST_F(AudioSinkStageDeps,
@@ -253,46 +286,44 @@ TEST_F(AudioSinkStageDeps,
   orc::AudioSinkStageDeps deps_without_services(nullptr);
   deps_without_services.init({}, &isProcessing_, &cancelRequested_);
 
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_channel_pair_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(analogue_pair_descriptor()));
+  EXPECT_CALL(mockRepresentation_, get_video_parameters())
+      .Times(1)
+      .WillOnce(Return(make_system_params(orc::VideoSystem::PAL)));
   EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
       .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
-      .Times(1)
-      .WillOnce(Return(4));
 
   const auto result = deps_without_services.write_audio_wav(
-      &mockRepresentation_, "out_path.wav",
-      orc::AudioSinkSampleRateMode::kLocked);
+      &mockRepresentation_, "out_path.wav", 0);
 
   EXPECT_FALSE(result.success);
   EXPECT_EQ(result.error_message, "File writer service unavailable");
 }
 
 TEST_F(AudioSinkStageDeps, WriteAudioWav_Fails_WhenWriterCannotOpenFile) {
-  EXPECT_CALL(mockRepresentation_, audio_locked())
+  EXPECT_CALL(mockRepresentation_, get_audio_channel_pair_descriptor(0))
       .Times(1)
-      .WillOnce(Return(true));
+      .WillOnce(Return(analogue_pair_descriptor()));
+  EXPECT_CALL(mockRepresentation_, get_video_parameters())
+      .Times(1)
+      .WillOnce(Return(make_system_params(orc::VideoSystem::PAL)));
   EXPECT_CALL(mockRepresentation_, frame_range())
       .Times(1)
       .WillOnce(Return(orc::FrameIDRange{0, 0}));
-  EXPECT_CALL(mockRepresentation_, get_audio_sample_count(0))
-      .Times(1)
-      .WillOnce(Return(4));
 
   EXPECT_CALL(mockStageServices_,
-              create_buffered_file_writer_int16(4UL * 1024 * 1024))
+              create_buffered_file_writer_uint8(4UL * 1024 * 1024))
       .Times(1)
-      .WillOnce(Return(pMockFileWriterInt16_));
-  EXPECT_CALL(*pMockFileWriterInt16_, open("out_path.wav"))
+      .WillOnce(Return(pMockFileWriterUint8_));
+  EXPECT_CALL(*pMockFileWriterUint8_, open("out_path.wav"))
       .Times(1)
       .WillOnce(Return(false));
 
   const auto result =
-      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav",
-                                 orc::AudioSinkSampleRateMode::kLocked);
+      instance_->write_audio_wav(&mockRepresentation_, "out_path.wav", 0);
 
   EXPECT_FALSE(result.success);
 }

@@ -12,10 +12,12 @@
 #include <gtest/gtest.h>
 
 #include <algorithm>
+#include <cstdint>
 
 #include "../../mocks/mock_video_frame_representation.h"
 
 using ::testing::_;
+using ::testing::NiceMock;
 using ::testing::Return;
 
 namespace orc_unit_test {
@@ -305,6 +307,171 @@ TEST(StackerStageTest, StackedDropoutHints_CarryStackedFrameId) {
   for (const auto& run : hints) {
     EXPECT_EQ(run.frame_id, orc::FrameID{1});
   }
+}
+
+// ── Channel-pair audio ───────────────────────────────────────────────────────
+
+namespace {
+
+// One-frame source scaffold for audio stacking tests: frame 0 present with
+// no colour-frame index (temporal alignment) and no dropouts by default.
+std::shared_ptr<NiceMock<MockVideoFrameRepresentation>>
+make_audio_stack_source() {
+  auto src = std::make_shared<NiceMock<MockVideoFrameRepresentation>>();
+  ON_CALL(*src, has_frame(orc::FrameID{0})).WillByDefault(Return(true));
+  orc::FrameDescriptor desc;
+  desc.frame_id = orc::FrameID{0};
+  desc.colour_frame_index = -1;
+  ON_CALL(*src, get_frame_descriptor(orc::FrameID{0}))
+      .WillByDefault(Return(desc));
+  ON_CALL(*src, frame_range()).WillByDefault(Return(orc::FrameIDRange{0u, 0u}));
+  ON_CALL(*src, frame_count()).WillByDefault(Return(1u));
+  return src;
+}
+
+const orc::AudioChannelPairDescriptor kAnaloguePair{"Analogue",
+                                                    orc::AudioOrigin::ANALOGUE};
+
+// 24-bit two's-complement bounds carried in int32_t (audio_channel_pair.h).
+constexpr int32_t kAudioMax = 8388607;
+constexpr int32_t kAudioMin = -8388608;
+
+}  // namespace
+
+TEST(StackerStageTest, CommonChannelPairs_MeanStacksEveryPair) {
+  orc::StackerStage stage;  // audio_stacking defaults to Mean
+  auto src0 = make_audio_stack_source();
+  auto src1 = make_audio_stack_source();
+  for (const auto& src : {src0, src1}) {
+    ON_CALL(*src, audio_channel_pair_count()).WillByDefault(Return(2u));
+    ON_CALL(*src, get_audio_channel_pair_descriptor(_))
+        .WillByDefault(Return(kAnaloguePair));
+  }
+  ON_CALL(*src0, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{0, 0}));
+  ON_CALL(*src1, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{2000000, 2000000}));
+  ON_CALL(*src0, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{100000, -200000}));
+  ON_CALL(*src1, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{300000, -400000}));
+
+  const orc::StackedVideoFrameRepresentation stacked({src0, src1}, &stage);
+
+  ASSERT_EQ(stacked.audio_channel_pair_count(), 2u);
+  const auto descriptor = stacked.get_audio_channel_pair_descriptor(0);
+  ASSERT_TRUE(descriptor.has_value());
+  EXPECT_EQ(descriptor->name, "Analogue");
+  // Every channel pair common to all inputs is stacked — not just pair 0.
+  EXPECT_EQ(stacked.get_audio_samples(0, orc::FrameID{0}),
+            (std::vector<int32_t>{1000000, 1000000}));
+  EXPECT_EQ(stacked.get_audio_samples(1, orc::FrameID{0}),
+            (std::vector<int32_t>{200000, -300000}));
+  // Out-of-range pairs answer with {}.
+  EXPECT_TRUE(stacked.get_audio_samples(2, orc::FrameID{0}).empty());
+}
+
+TEST(StackerStageTest, CommonChannelPairs_MedianStacksEveryPair) {
+  orc::StackerStage stage;
+  ASSERT_TRUE(
+      stage.set_parameters({{"audio_stacking", std::string("Median")}}));
+  auto src0 = make_audio_stack_source();
+  auto src1 = make_audio_stack_source();
+  auto src2 = make_audio_stack_source();
+  for (const auto& src : {src0, src1, src2}) {
+    ON_CALL(*src, audio_channel_pair_count()).WillByDefault(Return(2u));
+    ON_CALL(*src, get_audio_channel_pair_descriptor(_))
+        .WillByDefault(Return(kAnaloguePair));
+  }
+  ON_CALL(*src0, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{100, kAudioMin}));
+  ON_CALL(*src1, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{200, 0}));
+  ON_CALL(*src2, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{3000000, kAudioMax}));
+  ON_CALL(*src0, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{-50, -50}));
+  ON_CALL(*src1, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{-10, -10}));
+  ON_CALL(*src2, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{-90, -90}));
+
+  const orc::StackedVideoFrameRepresentation stacked({src0, src1, src2},
+                                                     &stage);
+
+  EXPECT_EQ(stacked.get_audio_samples(0, orc::FrameID{0}),
+            (std::vector<int32_t>{200, 0}));
+  EXPECT_EQ(stacked.get_audio_samples(1, orc::FrameID{0}),
+            (std::vector<int32_t>{-50, -50}));
+}
+
+TEST(StackerStageTest, PairNotInAllSources_PassesThroughFromBestSource) {
+  orc::StackerStage stage;
+  auto src0 = make_audio_stack_source();
+  auto src1 = make_audio_stack_source();
+  ON_CALL(*src0, audio_channel_pair_count()).WillByDefault(Return(2u));
+  ON_CALL(*src0, get_audio_channel_pair_descriptor(_))
+      .WillByDefault(Return(kAnaloguePair));
+  ON_CALL(*src1, audio_channel_pair_count()).WillByDefault(Return(1u));
+  ON_CALL(*src1, get_audio_channel_pair_descriptor(0))
+      .WillByDefault(Return(kAnaloguePair));
+  ON_CALL(*src0, get_audio_samples(1, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{100000, 200000}));
+  // src1 has more dropouts, so src0 is the best source.
+  ON_CALL(*src1, get_dropout_hints(orc::FrameID{0}))
+      .WillByDefault(Return(
+          std::vector<orc::DropoutRun>{{orc::FrameID{0}, 0u, 10u, 128}}));
+
+  const orc::StackedVideoFrameRepresentation stacked({src0, src1}, &stage);
+
+  // Pair 1 exists only in src0: no combining, pass through from best.
+  EXPECT_EQ(stacked.get_audio_samples(1, orc::FrameID{0}),
+            (std::vector<int32_t>{100000, 200000}));
+}
+
+TEST(StackerStageTest, MeanStacking_SaturatesAtTwentyFourBitBounds) {
+  orc::StackerStage stage;  // Mean
+  auto src0 = make_audio_stack_source();
+  auto src1 = make_audio_stack_source();
+  for (const auto& src : {src0, src1}) {
+    ON_CALL(*src, audio_channel_pair_count()).WillByDefault(Return(1u));
+    ON_CALL(*src, get_audio_channel_pair_descriptor(_))
+        .WillByDefault(Return(kAnaloguePair));
+    // Both inputs deliver values beyond the 24-bit range; the combined
+    // result must be clamped to the carrier bounds.
+    ON_CALL(*src, get_audio_samples(0, orc::FrameID{0}))
+        .WillByDefault(Return(
+            std::vector<int32_t>{9000000, -9000000, kAudioMax, kAudioMin}));
+  }
+
+  const orc::StackedVideoFrameRepresentation stacked({src0, src1}, &stage);
+
+  EXPECT_EQ(stacked.get_audio_samples(0, orc::FrameID{0}),
+            (std::vector<int32_t>{kAudioMax, kAudioMin, kAudioMax, kAudioMin}));
+}
+
+TEST(StackerStageTest, MedianStacking_SaturatesAtTwentyFourBitBounds) {
+  orc::StackerStage stage;
+  ASSERT_TRUE(
+      stage.set_parameters({{"audio_stacking", std::string("Median")}}));
+  auto src0 = make_audio_stack_source();
+  auto src1 = make_audio_stack_source();
+  for (const auto& src : {src0, src1}) {
+    ON_CALL(*src, audio_channel_pair_count()).WillByDefault(Return(1u));
+    ON_CALL(*src, get_audio_channel_pair_descriptor(_))
+        .WillByDefault(Return(kAnaloguePair));
+  }
+  // Even count: the median averages the two middle values, which can land
+  // outside the 24-bit range when the inputs do.
+  ON_CALL(*src0, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{9000000, -9000000}));
+  ON_CALL(*src1, get_audio_samples(0, orc::FrameID{0}))
+      .WillByDefault(Return(std::vector<int32_t>{9500000, -9500000}));
+
+  const orc::StackedVideoFrameRepresentation stacked({src0, src1}, &stage);
+
+  EXPECT_EQ(stacked.get_audio_samples(0, orc::FrameID{0}),
+            (std::vector<int32_t>{kAudioMax, kAudioMin}));
 }
 
 }  // namespace orc_unit_test

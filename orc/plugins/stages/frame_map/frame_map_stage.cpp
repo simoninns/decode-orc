@@ -13,7 +13,6 @@
 #include <orc/stage/logging.h>
 #include <orc/stage/preview_helpers.h>
 
-#include <algorithm>
 #include <sstream>
 
 namespace orc {
@@ -221,31 +220,32 @@ std::vector<DropoutRun> FrameMappedRepresentation::get_dropout_hints(
   return runs;
 }
 
-uint32_t FrameMappedRepresentation::get_audio_sample_count(FrameID id) const {
+std::vector<int32_t> FrameMappedRepresentation::get_audio_samples(
+    size_t pair, FrameID id) const {
   auto idx = resolve_index(id);
-  if (!idx || is_padding(*idx)) return 0;
-  return source_ ? source_->get_audio_sample_count(frame_mapping_[*idx]) : 0;
-}
+  if (!idx || !source_) return {};
+  if (pair >= source_->audio_channel_pair_count()) return {};
 
-std::vector<int16_t> FrameMappedRepresentation::get_audio_samples(
-    FrameID id) const {
-  auto idx = resolve_index(id);
-  if (!idx) return {};
+  const auto params = source_->get_video_parameters();
+  const VideoSystem system = params ? params->system : VideoSystem::Unknown;
+  // Every output frame must serve exactly audio_pairs_in_frame(id) stereo
+  // pairs regardless of the mapped source frame's native count.
+  const size_t out_pairs = audio_pairs_in_frame(id, system);
+
   if (is_padding(*idx)) {
-    // Return a silence block matching the expected size from the source
-    if (!source_) return {};
-    auto params = source_->get_video_parameters();
-    if (!params) return {};
-    // PAL: 1764 stereo pairs (882 × 2 channels × 2 bytes); NTSC/PAL_M: 1470
-    // These are the per-frame locked audio block sizes from AGENTS.md §5.3.6
-    size_t pairs = (params->system == VideoSystem::PAL) ? 1764 : 1470;
-    if (silence_audio_.size() != pairs * 2) {
-      silence_audio_.assign(pairs * 2, 0);
-    }
-    return silence_audio_;
+    // Padding frames carry cadence-sized silence.
+    return std::vector<int32_t>(out_pairs * 2, 0);
   }
-  return source_ ? source_->get_audio_samples(frame_mapping_[*idx])
-                 : std::vector<int16_t>{};
+
+  auto samples = source_->get_audio_samples(pair, frame_mapping_[*idx]);
+  if (samples.empty() || out_pairs == 0) return samples;
+  // SMPTE 272M-1994 §14.3: NTSC/PAL-M frames carry 1602 or 1601 stereo pairs
+  // by position in the five-frame audio sequence. A mapping that breaks the
+  // sequence phase changes the required count by one pair — truncate one
+  // trailing pair or append one trailing silence pair. Phase-preserving
+  // mappings and all PAL mappings leave the window untouched.
+  samples.resize(out_pairs * 2, 0);
+  return samples;
 }
 
 uint32_t FrameMappedRepresentation::get_efm_sample_count(FrameID id) const {
@@ -549,8 +549,6 @@ std::vector<ArtifactPtr> FrameMapStage::execute(
     const std::vector<ArtifactPtr>& inputs,
     const std::map<std::string, ParameterValue>& parameters,
     ObservationContext& observation_context) {
-  (void)observation_context;
-
   if (inputs.empty()) {
     throw DAGExecutionError("FrameMapStage requires one input");
   }
@@ -565,15 +563,6 @@ std::vector<ArtifactPtr> FrameMapStage::execute(
   // Apply any runtime parameter overrides
   if (!parameters.empty()) {
     set_parameters(parameters);
-  }
-
-  // Emit free-running audio observation if applicable
-  if (source->has_audio() && !source->audio_locked() &&
-      (remove_duplicates_ || pad_gaps_)) {
-    ORC_LOG_WARN(
-        "FrameMapStage: audio is free-running (not frame-locked); frame "
-        "manipulation (remove_duplicates/pad_gaps) is applied to video only — "
-        "audio passes unchanged");
   }
 
   // Pass-through when no ranges and no processing requested

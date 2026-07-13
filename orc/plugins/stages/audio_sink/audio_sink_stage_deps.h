@@ -33,26 +33,12 @@ class AudioSinkStageDeps : public IAudioSinkStageDeps {
 
   AudioSinkWriteResult write_audio_wav(
       const VideoFrameRepresentation* representation,
-      const std::string& output_path,
-      AudioSinkSampleRateMode sample_rate_mode) override;
+      const std::string& output_path, size_t pair) override;
 
  private:
-  std::vector<uint8_t> build_wav_header(uint32_t num_samples,
-                                        uint32_t sample_rate,
-                                        uint16_t num_channels,
-                                        uint16_t bits_per_sample) const;
-
-  // Streams the frame-locked samples to the WAV file unmodified, declaring
-  // header_rate in the header.
-  AudioSinkWriteResult write_locked(
-      const VideoFrameRepresentation* representation, FrameIDRange frame_rng,
-      IFileWriterInt16* writer, uint32_t header_rate, uint64_t total_samples);
-
-  // Collects the frame-locked samples, resamples them from the NTSC/PAL-M
-  // locked rate to free-running 44100 Hz, and writes the result.
-  AudioSinkWriteResult write_free_running(
-      const VideoFrameRepresentation* representation, FrameIDRange frame_rng,
-      IFileWriterInt16* writer);
+  // 44-byte canonical RIFF/WAVE header for |num_pairs| stereo pairs of
+  // 24-bit signed LE PCM at kAudioSampleRateHz.
+  std::vector<uint8_t> build_wav_header(uint32_t num_pairs) const;
 
   IStageServices* stage_services_{nullptr};
   TriggerProgressCallback progress_callback_;

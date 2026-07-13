@@ -46,12 +46,10 @@ StagePreviewCapability make_signal_preview_capability(
                                   params->first_active_frame_line)
           : static_cast<uint32_t>(params->frame_height);
 
-  double dar_correction = 1.0;
-  if (active_width > 0 && active_height > 0) {
-    double active_ratio =
-        static_cast<double>(active_width) / static_cast<double>(active_height);
-    dar_correction = (4.0 / 3.0) / active_ratio;
-  }
+  // Fixed per-system pixel aspect: must not depend on the (possibly overridden)
+  // active-area values, or changing the active window would rescale the whole
+  // preview instead of re-framing it.
+  const double dar_correction = standard_dar_correction(params->system);
 
   StagePreviewCapability cap;
   cap.supported_data_types = {data_type};
@@ -109,23 +107,10 @@ std::vector<PreviewOption> get_standard_preview_options(
   uint32_t width = static_cast<uint32_t>(video_params->frame_width_nominal);
   uint32_t height = static_cast<uint32_t>(video_params->frame_height);
 
-  // 1.0 is a neutral fallback; only the computed path reaches stages that
-  // properly configure active area parameters.
-  double dar_correction = 1.0;
-  if (video_params->active_video_start >= 0 &&
-      video_params->active_video_end > video_params->active_video_start &&
-      video_params->first_active_frame_line >= 0 &&
-      video_params->last_active_frame_line >
-          video_params->first_active_frame_line) {
-    uint32_t active_width = static_cast<uint32_t>(
-        video_params->active_video_end - video_params->active_video_start);
-    uint32_t active_height =
-        static_cast<uint32_t>(video_params->last_active_frame_line -
-                              video_params->first_active_frame_line);
-    double active_ratio =
-        static_cast<double>(active_width) / static_cast<double>(active_height);
-    dar_correction = (4.0 / 3.0) / active_ratio;
-  }
+  // Fixed per-system pixel aspect (see standard_dar_correction): independent of
+  // the active-area values so changing the active window re-frames rather than
+  // rescales the preview.
+  const double dar_correction = standard_dar_correction(video_params->system);
 
   options.push_back(PreviewOption{"interlaced_clamped", "Interlaced Clamped",
                                   false, width, height, frame_count,
@@ -143,7 +128,8 @@ std::vector<PreviewOption> get_standard_preview_options(
 
 PreviewImage render_standard_preview(
     const std::shared_ptr<const VideoFrameRepresentation>& representation,
-    const std::string& option_id, uint64_t index, PreviewNavigationHint hint) {
+    const std::string& option_id, uint64_t index, PreviewNavigationHint hint,
+    bool mask_inactive_area) {
   (void)hint;
   PreviewImage result{};
 
@@ -191,6 +177,10 @@ PreviewImage render_standard_preview(
 
   const bool apply_level_scaling = (base_option_id == "sequential_clamped" ||
                                     base_option_id == "interlaced_clamped");
+  // The option alone selects the layout; masking no longer forces interlacing.
+  // The mask below maps each display row back to its weaved frame-flat line, so
+  // it lands on the correct lines in both the interlaced (weaved) and the
+  // sequential (field-1 block over field-2 block) layouts.
   const bool do_interlace = (base_option_id == "interlaced_clamped" ||
                              base_option_id == "interlaced_raw");
 
@@ -355,6 +345,57 @@ PreviewImage render_standard_preview(
 
       offset += samples_this_line;
       remaining -= samples_this_line;
+    }
+  }
+
+  // Dim the region outside the active picture so the full frame stays visible
+  // at its normal size/aspect while the un-dimmed area shows exactly what the
+  // exported output will crop to.  No cropping or rescaling — just a mask.
+  //
+  // The active-area line parameters [first,last) are expressed in weaved
+  // (frame-flat) coordinates.  In the interlaced layout each display row
+  // already IS its weaved line, so the mask is a single band.  In the
+  // sequential layout the display stacks the field-1 buffer block above the
+  // field-2 block, so we map each display row back to its weaved line —
+  // producing one active band per field (twice the horizontal borders).
+  if (mask_inactive_area) {
+    const int32_t ax0 = video_params->active_video_start;
+    const int32_t ax1 = video_params->active_video_end;  // exclusive
+    const int32_t ay0 = video_params->first_active_frame_line;
+    const int32_t ay1 = video_params->last_active_frame_line;  // exclusive
+    // True field-1 line count (313 for PAL, not height/2); the sequential
+    // block split is stored in the buffer using this count.  qualified to reach
+    // the free helper past the local field1_lines shadowing it.
+    const size_t seq_field1_lines = orc::field1_lines(video_params->system);
+    if (ax1 > ax0 && ay1 > ay0) {
+      for (uint32_t y = 0; y < height; ++y) {
+        int32_t weaved_line;
+        if (do_interlace) {
+          weaved_line = static_cast<int32_t>(y);
+        } else if (static_cast<size_t>(y) < seq_field1_lines) {
+          // Field-1 block: buffer line y → weaved line (field 1 on even rows).
+          const int32_t lif = static_cast<int32_t>(y);
+          weaved_line = field1_on_even_rows ? lif * 2 : lif * 2 + 1;
+        } else {
+          // Field-2 block: buffer line y − field1_lines → weaved line.
+          const int32_t lif = static_cast<int32_t>(y - seq_field1_lines);
+          weaved_line = field1_on_even_rows ? lif * 2 + 1 : lif * 2;
+        }
+        const bool row_active = weaved_line >= ay0 && weaved_line < ay1;
+        for (uint32_t x = 0; x < width; ++x) {
+          const bool col_active =
+              static_cast<int32_t>(x) >= ax0 && static_cast<int32_t>(x) < ax1;
+          if (row_active && col_active) continue;  // inside output area
+          const size_t o = (static_cast<size_t>(y) * width + x) * 3;
+          // Dim to ~30% so the excluded content is still faintly visible.
+          result.rgb_data[o + 0] =
+              static_cast<uint8_t>(result.rgb_data[o] * 3 / 10);
+          result.rgb_data[o + 1] =
+              static_cast<uint8_t>(result.rgb_data[o + 1] * 3 / 10);
+          result.rgb_data[o + 2] =
+              static_cast<uint8_t>(result.rgb_data[o + 2] * 3 / 10);
+        }
+      }
     }
   }
 

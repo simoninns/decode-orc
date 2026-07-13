@@ -53,6 +53,10 @@ void EfmProcessor::setReportOutput(bool reportOutput) {
   m_reportOutput = reportOutput;
 }
 
+void EfmProcessor::setReportFilename(const std::string& reportFilename) {
+  m_reportFilename = reportFilename;
+}
+
 // ---------------------------------------------------------------------------
 // Streaming API
 // ---------------------------------------------------------------------------
@@ -184,7 +188,9 @@ bool EfmProcessor::finishStream() {
     ORC_LOG_INFO("Decoding complete");
 
     if (m_reportOutput) {
-      std::string reportFilename = m_outputFilename + ".txt";
+      std::string reportFilename = m_reportFilename.empty()
+                                       ? m_outputFilename + ".txt"
+                                       : m_reportFilename;
       ORC_LOG_INFO("Writing decoding report to: {}", reportFilename);
       auto reportSink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(
           reportFilename, true);

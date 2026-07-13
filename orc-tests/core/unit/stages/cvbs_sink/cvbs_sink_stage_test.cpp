@@ -15,7 +15,11 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cstdint>
+#include <string>
+#include <vector>
 
+#include "../../../../orc/plugins/stages/cvbs_sink/cvbs_sink_container.h"
 #include "../../../../orc/plugins/stages/cvbs_sink/cvbs_sink_encode.h"
 #include "../../../../orc/plugins/stages/cvbs_sink/cvbs_sink_stage_deps_interface.h"
 #include "../../include/observation_context_interface_mock.h"
@@ -421,5 +425,131 @@ TEST(CVBSSinkEncodeTest, DeriveOutputBase_StripsKnownPayloadExtensions) {
   EXPECT_EQ(orc::derive_cvbs_output_base("/tmp/out.cvbs"), "/tmp/out");
   EXPECT_EQ(orc::derive_cvbs_output_base("/tmp/out"), "/tmp/out");
   EXPECT_EQ(orc::derive_cvbs_output_base("/tmp/out.meta"), "/tmp/out.meta");
+}
+
+// ---------------------------------------------------------------------------
+// Container-format helpers (CVBS file format spec v1.3.0)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+uint16_t le16_at(const std::vector<uint8_t>& bytes, size_t offset) {
+  return static_cast<uint16_t>(bytes[offset]) |
+         (static_cast<uint16_t>(bytes[offset + 1]) << 8);
+}
+
+uint32_t le32_at(const std::vector<uint8_t>& bytes, size_t offset) {
+  return static_cast<uint32_t>(bytes[offset]) |
+         (static_cast<uint32_t>(bytes[offset + 1]) << 8) |
+         (static_cast<uint32_t>(bytes[offset + 2]) << 16) |
+         (static_cast<uint32_t>(bytes[offset + 3]) << 24);
+}
+
+}  // namespace
+
+TEST(CVBSSinkContainerTest, AudioPairPath_UsesSingleDigitSuffix) {
+  // CVBS file format spec v1.3.0: <basename>_audio_<channel_pair>.wav with
+  // a single-digit channel pair number 0–7.
+  EXPECT_EQ(orc::cvbs_audio_pair_path("/tmp/out", 0), "/tmp/out_audio_0.wav");
+  EXPECT_EQ(orc::cvbs_audio_pair_path("/tmp/out", 7), "/tmp/out_audio_7.wav");
+}
+
+TEST(CVBSSinkContainerTest, WavHeader_Is24Bit48kStereoPcm) {
+  const uint32_t data_bytes = 1920 * 6;  // one PAL frame of stereo pairs
+  const auto header = orc::make_cvbs_audio_wav_header(data_bytes);
+  ASSERT_EQ(header.size(), 44u);
+
+  // RIFF/WAVE framing.
+  EXPECT_EQ(std::string(header.begin(), header.begin() + 4), "RIFF");
+  EXPECT_EQ(le32_at(header, 4), 36u + data_bytes);
+  EXPECT_EQ(std::string(header.begin() + 8, header.begin() + 12), "WAVE");
+  EXPECT_EQ(std::string(header.begin() + 12, header.begin() + 16), "fmt ");
+  EXPECT_EQ(le32_at(header, 16), 16u);  // canonical fmt chunk, no extension
+
+  // CVBS file format spec v1.3.0 WAV properties: PCM, 2 channels, 48000 Hz,
+  // 24-bit (block align 6, byte rate 288000).
+  EXPECT_EQ(le16_at(header, 20), 1u);       // wFormatTag = PCM
+  EXPECT_EQ(le16_at(header, 22), 2u);       // nChannels
+  EXPECT_EQ(le32_at(header, 24), 48000u);   // nSamplesPerSec
+  EXPECT_EQ(le32_at(header, 28), 288000u);  // nAvgBytesPerSec
+  EXPECT_EQ(le16_at(header, 32), 6u);       // nBlockAlign
+  EXPECT_EQ(le16_at(header, 34), 24u);      // wBitsPerSample
+
+  EXPECT_EQ(std::string(header.begin() + 36, header.begin() + 40), "data");
+  EXPECT_EQ(le32_at(header, 40), data_bytes);
+}
+
+TEST(CVBSSinkContainerTest, MetaSchema_UsesUserVersion10AndChannelPairTable) {
+  const std::string schema = orc::kCVBSCoreMetaSchemaSql;
+  // CVBS file format spec v1.3.0 metadata schema.
+  EXPECT_NE(schema.find("PRAGMA user_version = 10"), std::string::npos);
+  EXPECT_NE(schema.find("CREATE TABLE audio_channel_pair"), std::string::npos);
+  EXPECT_NE(schema.find("channel_pair                INTEGER PRIMARY KEY"),
+            std::string::npos);
+  EXPECT_NE(schema.find("CHECK (channel_pair BETWEEN 0 AND 7)"),
+            std::string::npos);
+  // The legacy v1.2.0 audio_track table (with its audio_locked column) is
+  // gone.
+  EXPECT_EQ(schema.find("audio_track"), std::string::npos);
+  EXPECT_EQ(schema.find("audio_locked"), std::string::npos);
+}
+
+TEST(CVBSSinkContainerTest, PackS24LE_WritesLittleEndian24BitWords) {
+  const std::vector<int32_t> audio{0x123456, -0x123456, 0, -1};
+  const auto bytes = orc::pack_audio_s24le(audio, audio.size());
+  ASSERT_EQ(bytes.size(), audio.size() * 3);
+  // 0x123456 → 56 34 12.
+  EXPECT_EQ(bytes[0], 0x56u);
+  EXPECT_EQ(bytes[1], 0x34u);
+  EXPECT_EQ(bytes[2], 0x12u);
+  // −0x123456 = 0xFFEDCBAA → AA CB ED.
+  EXPECT_EQ(bytes[3], 0xAAu);
+  EXPECT_EQ(bytes[4], 0xCBu);
+  EXPECT_EQ(bytes[5], 0xEDu);
+  // 0 → 00 00 00.
+  EXPECT_EQ(bytes[6], 0x00u);
+  EXPECT_EQ(bytes[7], 0x00u);
+  EXPECT_EQ(bytes[8], 0x00u);
+  // −1 → FF FF FF.
+  EXPECT_EQ(bytes[9], 0xFFu);
+  EXPECT_EQ(bytes[10], 0xFFu);
+  EXPECT_EQ(bytes[11], 0xFFu);
+}
+
+TEST(CVBSSinkContainerTest, PackS24LE_SaturatesToThe24BitRange) {
+  const std::vector<int32_t> audio{8388608, -8388609, 8388607, -8388608};
+  const auto bytes = orc::pack_audio_s24le(audio, audio.size());
+  ASSERT_EQ(bytes.size(), 12u);
+  // Above-range saturates to 8388607 (0x7FFFFF).
+  EXPECT_EQ(bytes[0], 0xFFu);
+  EXPECT_EQ(bytes[1], 0xFFu);
+  EXPECT_EQ(bytes[2], 0x7Fu);
+  // Below-range saturates to −8388608 (0x800000).
+  EXPECT_EQ(bytes[3], 0x00u);
+  EXPECT_EQ(bytes[4], 0x00u);
+  EXPECT_EQ(bytes[5], 0x80u);
+  // Range extremes pass through unchanged.
+  EXPECT_EQ(bytes[8], 0x7Fu);
+  EXPECT_EQ(bytes[11], 0x80u);
+}
+
+TEST(CVBSSinkContainerTest, PackS24LE_PadsShortInputWithSilence) {
+  const std::vector<int32_t> audio{0x010203};
+  const auto bytes = orc::pack_audio_s24le(audio, 3);
+  ASSERT_EQ(bytes.size(), 9u);
+  EXPECT_EQ(bytes[0], 0x03u);
+  EXPECT_EQ(bytes[1], 0x02u);
+  EXPECT_EQ(bytes[2], 0x01u);
+  for (size_t i = 3; i < bytes.size(); ++i) {
+    EXPECT_EQ(bytes[i], 0x00u) << "byte " << i;
+  }
+}
+
+TEST(CVBSSinkContainerTest, PackS24LE_TruncatesLongInput) {
+  const std::vector<int32_t> audio{1, 2, 3, 4};
+  const auto bytes = orc::pack_audio_s24le(audio, 2);
+  ASSERT_EQ(bytes.size(), 6u);
+  EXPECT_EQ(bytes[0], 0x01u);
+  EXPECT_EQ(bytes[3], 0x02u);
 }
 }  // namespace orc_unit_test

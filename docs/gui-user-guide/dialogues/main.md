@@ -3,10 +3,25 @@
 The Orc-GUI main window contains:
 
 * A **menu bar** (File / View / Tools / Help)
+* A **toolbar** with quick-access buttons for common actions
 * A central **processing graph editor** where you build your pipeline using **stages** and **connections**
 * A **status bar** that shows short messages about what the application is doing
 
 ![](../assets/main-window.png)
+
+---
+
+## Toolbar
+
+Directly beneath the menu bar is a toolbar with buttons for the most common actions. Each button mirrors a menu item, so the menus remain available as well.
+
+| Button | Does the same as | Notes |
+|--------|------------------|-------|
+| Arrange to grid | **View → Arrange DAG to Grid** | Tidies the graph into a left-to-right grid. |
+| Show preview | **View → Show Preview** | Opens the Preview window, or brings it to the front if it is already open. Disabled until a project is loaded. |
+| Theme | **Tools → Themes** | A single button that cycles the theme in the order **Auto → Light → Dark**. Its icon shows the current mode — a half-disc for Auto, a sun for Light, and a crescent moon for Dark — and stays in sync with the Tools → Themes submenu. |
+
+You can hide or show the toolbar with **View → Show Toolbar**.
 
 ---
 
@@ -96,7 +111,7 @@ Exits the application.
 
 #### Show Preview
 
-Opens the Preview window (if a project is loaded). This is where you can view decoded output for the currently selected stage.
+Opens the Preview window (if a project is loaded), or brings it to the front if it is already open. This is where you can view decoded output for the currently selected stage.
 
 #### Show Preview on Selection
 
@@ -109,6 +124,10 @@ When enabled, Orc-GUI automatically shows the Preview window when you select a s
 Automatically lays out the graph in a tidy left-to-right grid based on stage order.
 
 Use this when your graph becomes messy after adding or moving stages.
+
+#### Show Toolbar
+
+A toggle that hides or shows the toolbar beneath the menu bar.
 
 ---
 
@@ -131,7 +150,7 @@ Chooses the user-interface theme, applied immediately:
 * **Auto** follows the operating system's light/dark setting and tracks changes to it while the application is running.
 * **Dark** and **Light** force the respective theme regardless of the OS setting.
 
-The choice overrides the `--theme` command-line option and is remembered between runs.
+The choice overrides the `--theme` command-line option and is remembered between runs. The same modes can be cycled quickly from the theme button on the [toolbar](#toolbar).
 
 ---
 

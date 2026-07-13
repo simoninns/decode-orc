@@ -85,9 +85,12 @@ namespace orc {
  *   4:3, 16:9); FFmpeg mode only
  * - video_filter: Custom FFmpeg video filter chain (same syntax as -vf,
  *   e.g. "fieldmatch,decimate" for inverse telecine); FFmpeg mode only
- * - embed_audio: Embed analogue audio in output (MP4/MKV only, default: false)
- * - audio_gain_db: Gain applied to embedded audio in dB (requires
- *   embed_audio; 0 = unchanged)
+ * - embed_audio: Embed pipeline audio in output (MP4/MKV only, default: false)
+ * - audio_channel_pairs: Which audio channel pairs to embed, one output
+ *   stream per pair ("all" or comma-separated 0-based indices; requires
+ *   embed_audio)
+ * - audio_gain_db: Gain applied to all embedded audio channel pairs in dB
+ *   (requires embed_audio; 0 = unchanged)
  * - embed_closed_captions: Embed closed captions as mov_text (MP4/MOV only)
  * - embed_chapter_metadata: Write chapter markers from VBI data (MKV/MP4/MOV)
  */
@@ -233,10 +236,12 @@ class VideoSinkStage : public DAGStage,
   double chroma_weight_;
   double adapt_threshold_;
   int output_padding_;
-  bool embed_audio_;            // Embed analogue audio in output (MP4/MKV only)
-  double audio_gain_db_;        // Gain for embedded audio in dB (0 = unity)
-  bool embed_closed_captions_;  // Embed closed captions in MP4 output (MP4
-                                // only, converted to mov_text)
+  bool embed_audio_;  // Embed pipeline audio in output (MP4/MKV only)
+  std::string audio_channel_pairs_;  // "all" or comma-separated 0-based
+                                     // indices
+  double audio_gain_db_;         // Gain for embedded audio in dB (0 = unity)
+  bool embed_closed_captions_;   // Embed closed captions in MP4 output (MP4
+                                 // only, converted to mov_text)
   bool embed_chapter_metadata_;  // Write chapter markers from VBI data
                                  // (MKV/MP4/MOV)
 

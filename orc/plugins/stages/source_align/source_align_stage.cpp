@@ -34,7 +34,13 @@ class AlignedSourceFrameRepresentation : public VideoFrameRepresentationWrapper,
         Artifact(ArtifactID("aligned_source_" + std::to_string(source_index) +
                             "_offset_" + std::to_string(offset)),
                  Provenance{}),
-        offset_(offset) {}
+        offset_(offset) {
+    if (source_) {
+      if (auto params = source_->get_video_parameters()) {
+        system_ = params->system;
+      }
+    }
+  }
 
   std::string type_name() const override {
     return "aligned_source_frame_representation";
@@ -123,14 +129,21 @@ class AlignedSourceFrameRepresentation : public VideoFrameRepresentationWrapper,
     return runs;
   }
 
-  // Per-frame audio / EFM / AC3 must follow the shifted frame IDs.
-  uint32_t get_audio_sample_count(FrameID id) const override {
-    return source_ ? source_->get_audio_sample_count(id + offset_) : 0;
-  }
-
-  std::vector<int16_t> get_audio_samples(FrameID id) const override {
-    return source_ ? source_->get_audio_samples(id + offset_)
-                   : std::vector<int16_t>{};
+  // Audio channel pairs must follow the shifted frame IDs; pair count and
+  // descriptors forward from the source via the wrapper base. Every output
+  // frame must serve exactly audio_pairs_in_frame(id) stereo pairs, so an
+  // offset that breaks the NTSC/PAL-M five-frame audio sequence phase
+  // (SMPTE 272M-1994 §14.3: 1602/1601 pairs by sequence position) truncates
+  // one trailing pair or appends one trailing silence pair. Offsets that
+  // preserve the phase (multiples of 5) and all PAL offsets are sample-exact.
+  std::vector<int32_t> get_audio_samples(size_t pair,
+                                         FrameID id) const override {
+    if (!source_) return {};
+    auto samples = source_->get_audio_samples(pair, id + offset_);
+    const size_t out_pairs = audio_pairs_in_frame(id, system_);
+    if (samples.empty() || out_pairs == 0) return samples;
+    samples.resize(out_pairs * 2, 0);
+    return samples;
   }
 
   uint32_t get_efm_sample_count(FrameID id) const override {
@@ -153,6 +166,7 @@ class AlignedSourceFrameRepresentation : public VideoFrameRepresentationWrapper,
 
  private:
   FrameID offset_;
+  VideoSystem system_ = VideoSystem::Unknown;
 };
 
 // ============================================================================
@@ -278,16 +292,28 @@ class PaddedSourceFrameRepresentation : public VideoFrameRepresentationWrapper,
     return runs;
   }
 
-  // Per-frame audio / EFM / AC3 must follow the shifted frame IDs; padding
-  // frames carry no audio, EFM, or AC3 data.
-  uint32_t get_audio_sample_count(FrameID id) const override {
-    if (id < pad_count_ || !source_) return 0;
-    return source_->get_audio_sample_count(id - pad_count_);
-  }
-
-  std::vector<int16_t> get_audio_samples(FrameID id) const override {
-    if (id < pad_count_ || !source_) return {};
-    return source_->get_audio_samples(id - pad_count_);
+  // Audio channel pairs must follow the shifted frame IDs; pair count and
+  // descriptors forward from the source via the wrapper base. Every output
+  // frame must serve exactly audio_pairs_in_frame(id) stereo pairs: padding
+  // frames carry cadence-sized silence, and a pad count that breaks the
+  // NTSC/PAL-M five-frame audio sequence phase (SMPTE 272M-1994 §14.3:
+  // 1602/1601 pairs by sequence position) truncates one trailing pair or
+  // appends one trailing silence pair on the shifted real frames. Pad counts
+  // that preserve the phase (multiples of 5) and all PAL pad counts are
+  // sample-exact.
+  std::vector<int32_t> get_audio_samples(size_t pair,
+                                         FrameID id) const override {
+    if (!source_) return {};
+    if (pair >= source_->audio_channel_pair_count()) return {};
+    const size_t out_pairs = audio_pairs_in_frame(id, pad_system_);
+    if (id < pad_count_) {
+      // Padding frames carry cadence-sized silence.
+      return std::vector<int32_t>(out_pairs * 2, 0);
+    }
+    auto samples = source_->get_audio_samples(pair, id - pad_count_);
+    if (samples.empty() || out_pairs == 0) return samples;
+    samples.resize(out_pairs * 2, 0);
+    return samples;
   }
 
   uint32_t get_efm_sample_count(FrameID id) const override {

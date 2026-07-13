@@ -215,6 +215,43 @@ constexpr int32_t kNtscLastActiveFrameLine = 523;
 // PAL_M shares NTSC active video geometry (ITU-R BT.1700-1 Annex 1 Part B).
 
 // ---------------------------------------------------------------------------
+// Display pixel-aspect correction
+// ---------------------------------------------------------------------------
+//
+// Horizontal scale factor that maps square rendered samples to the intended
+// display so the *standard* active picture appears at 4:3.  This is the
+// signal's pixel aspect ratio: a fixed property of the sampling geometry, so it
+// is derived from the STANDARD active-area constants and depends only on the
+// video system.
+//
+// IMPORTANT: this must NOT be recomputed from a source's (or a video_params
+// override's) actual active-area values.  Doing so ties the display aspect to
+// the chosen active window, so changing first/last active line or active video
+// start/end rescales the whole preview instead of merely re-framing it.  With a
+// fixed factor, changing the active window re-frames (crop/extend) while pixels
+// keep their shape.
+inline double standard_dar_correction(VideoSystem system) {
+  int32_t active_w = 0;
+  int32_t active_h = 0;
+  switch (system) {
+    case VideoSystem::PAL:
+      active_w = kPalActiveVideoEnd - kPalActiveVideoStart;
+      active_h = kPalLastActiveFrameLine - kPalFirstActiveFrameLine;
+      break;
+    case VideoSystem::NTSC:
+    case VideoSystem::PAL_M:
+      active_w = kNtscActiveVideoEnd - kNtscActiveVideoStart;
+      active_h = kNtscLastActiveFrameLine - kNtscFirstActiveFrameLine;
+      break;
+    default:
+      return 1.0;
+  }
+  if (active_w <= 0 || active_h <= 0) return 1.0;
+  return (4.0 / 3.0) /
+         (static_cast<double>(active_w) / static_cast<double>(active_h));
+}
+
+// ---------------------------------------------------------------------------
 // Per-system total-sample and frame-line helpers
 // ---------------------------------------------------------------------------
 

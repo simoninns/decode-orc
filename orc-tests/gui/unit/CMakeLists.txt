@@ -92,6 +92,7 @@ orc_add_gui_unit_tests(
             line_navigation_mapper_test.cpp
             theme_manager_test.cpp
             node_type_helper_port_test.cpp
+            quick_project_planner_test.cpp
             vectorscope_geometry_test.cpp
 )
 

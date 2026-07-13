@@ -9,6 +9,7 @@
 
 #pragma once
 
+#include <orc/stage/audio_channel_pair.h>
 #include <orc/stage/dropout_run.h>
 #include <orc/stage/frame_descriptor.h>
 #include <orc/stage/frame_id.h>
@@ -147,21 +148,34 @@ class VideoFrameRepresentation {
   }
 
   // --------------------------------------------------------------------------
-  // Audio
+  // Audio channel pairs
   // --------------------------------------------------------------------------
+  // Up to kMaxAudioChannelPairs stereo channel pairs, identified by index
+  // 0 … audio_channel_pair_count() - 1. Pair order is stable through the
+  // DAG. Every pair is 48000 Hz frame-locked (synchronous), 24-bit-in-int32
+  // stereo — see audio_channel_pair.h. The per-frame sample count needs no
+  // accessor: it is fully determined by the video system and frame index via
+  // audio_pairs_in_frame().
 
-  virtual bool has_audio() const { return false; }
+  // Number of stereo audio channel pairs (0 = no audio). Max
+  // kMaxAudioChannelPairs. Pipeline pair p maps to container channel pair p.
+  virtual size_t audio_channel_pair_count() const { return 0; }
 
-  // True when audio is sample-locked to video frames (frame-locked PCM).
-  // False when audio is a free-running WAV stream independent of frame timing.
-  virtual bool audio_locked() const { return false; }
+  // Convenience: true when at least one audio channel pair is present.
+  bool has_audio() const { return audio_channel_pair_count() > 0; }
 
-  // Number of stereo int16_t pairs for the given frame.
-  // Meaningful only when audio_locked() is true; returns 0 otherwise.
-  virtual uint32_t get_audio_sample_count(FrameID /*id*/) const { return 0; }
+  // Descriptor for channel pair |pair|; nullopt when out of range.
+  virtual std::optional<AudioChannelPairDescriptor>
+  get_audio_channel_pair_descriptor(size_t /*pair*/) const {
+    return std::nullopt;
+  }
 
-  // Interleaved stereo int16_t pairs (L, R, L, R, …) for the given frame.
-  virtual std::vector<int16_t> get_audio_samples(FrameID /*id*/) const {
+  // Interleaved 24-bit-in-int32 stereo pairs (L, R, L, R, …) of channel pair
+  // |pair| for frame |id| — exactly audio_pairs_in_frame(id, system) pairs
+  // (silence-filled by the producer where source material is short). Empty
+  // when |pair| is out of range.
+  virtual std::vector<int32_t> get_audio_samples(size_t /*pair*/,
+                                                 FrameID /*id*/) const {
     return {};
   }
 
@@ -208,7 +222,13 @@ class VideoFrameRepresentation {
 //      get_frame, has_separate_channels, get_frame_luma, get_frame_chroma,
 //      get_dropout_hints, get_video_parameters, audio / EFM / AC3 accessors.
 //    A stage that remaps frame IDs MUST override every per-frame accessor in
-//    this group so IDs are translated on the way through.
+//    this group so IDs are translated on the way through. For audio that
+//    means get_audio_samples (per channel pair): the output frame at
+//    timeline index p must serve exactly audio_pairs_in_frame(p) pairs, so
+//    a mapping that breaks the NTSC/PAL-M cadence phase (source frame index
+//    not congruent to the output index mod 5) must truncate or silence-pad
+//    the mapped window by the one-pair difference — see
+//    audio_channel_pair.h.
 //
 // 2. Derived accessors — implemented here in terms of this object's own
 //    virtual primitives, never forwarded:
@@ -285,18 +305,19 @@ class VideoFrameRepresentationWrapper : public VideoFrameRepresentation {
   std::optional<SourceParameters> get_video_parameters() const override {
     return source_ ? source_->get_video_parameters() : std::nullopt;
   }
-  // Audio
-  bool has_audio() const override {
-    return source_ ? source_->has_audio() : false;
+  // Audio channel pairs
+  size_t audio_channel_pair_count() const override {
+    return source_ ? source_->audio_channel_pair_count() : 0;
   }
-  bool audio_locked() const override {
-    return source_ ? source_->audio_locked() : false;
+  std::optional<AudioChannelPairDescriptor> get_audio_channel_pair_descriptor(
+      size_t pair) const override {
+    return source_ ? source_->get_audio_channel_pair_descriptor(pair)
+                   : std::nullopt;
   }
-  uint32_t get_audio_sample_count(FrameID id) const override {
-    return source_ ? source_->get_audio_sample_count(id) : 0;
-  }
-  std::vector<int16_t> get_audio_samples(FrameID id) const override {
-    return source_ ? source_->get_audio_samples(id) : std::vector<int16_t>{};
+  std::vector<int32_t> get_audio_samples(size_t pair,
+                                         FrameID id) const override {
+    return source_ ? source_->get_audio_samples(pair, id)
+                   : std::vector<int32_t>{};
   }
 
   // EFM

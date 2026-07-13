@@ -17,6 +17,7 @@
 #include <QKeySequence>
 #include <QMenu>
 #include <QMessageBox>
+#include <QMouseEvent>
 #include <QPaintEvent>
 #include <QPainter>
 #include <QShowEvent>
@@ -150,6 +151,48 @@ void OrcGraphicsView::wheelEvent(QWheelEvent* event) {
   }
 
   event->accept();
+}
+
+void OrcGraphicsView::mouseReleaseEvent(QMouseEvent* event) {
+  QtNodes::GraphicsView::mouseReleaseEvent(event);
+
+  // A left-button release is the end of a potential node drag. QtNodes updates
+  // the on-screen graphics item during the drag but never commits the new
+  // position to the graph model, so persist it here.
+  if (event->button() == Qt::LeftButton) {
+    commitDraggedNodePositions();
+  }
+}
+
+void OrcGraphicsView::commitDraggedNodePositions() {
+  auto* orc_scene = dynamic_cast<OrcGraphicsScene*>(scene());
+  if (!orc_scene) {
+    return;
+  }
+
+  auto& graph_model = orc_scene->graphModel();
+
+  // Positions are doubles; only commit when the item has actually moved to
+  // avoid flagging the project modified on a plain click.
+  constexpr double kEpsilon = 0.01;
+
+  for (QGraphicsItem* item : scene()->items()) {
+    auto* node_graphics = dynamic_cast<QtNodes::NodeGraphicsObject*>(item);
+    if (!node_graphics) {
+      continue;
+    }
+
+    const QtNodes::NodeId qt_node_id = node_graphics->nodeId();
+    const QPointF stored =
+        graph_model.nodeData(qt_node_id, QtNodes::NodeRole::Position)
+            .toPointF();
+    const QPointF current = node_graphics->pos();
+
+    if (std::abs(current.x() - stored.x()) > kEpsilon ||
+        std::abs(current.y() - stored.y()) > kEpsilon) {
+      graph_model.setNodeData(qt_node_id, QtNodes::NodeRole::Position, current);
+    }
+  }
 }
 
 void OrcGraphicsView::contextMenuEvent(QContextMenuEvent* event) {

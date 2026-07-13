@@ -10,10 +10,14 @@
 #ifndef ORC_CORE_FFMPEG_OUTPUT_BACKEND_H
 #define ORC_CORE_FFMPEG_OUTPUT_BACKEND_H
 
+#include <orc/stage/audio_channel_pair.h>
 #include <orc/stage/eia608_decoder.h>
 #include <orc/stage/field_id.h>
+#include <orc/stage/frame_id.h>
 
 #include <memory>
+#include <string>
+#include <vector>
 
 #include "output_backend.h"
 
@@ -69,20 +73,28 @@ class FFmpegOutputBackend : public OutputBackend {
   AVFrame* filtered_frame_ = nullptr;  // Reused for buffersink output
   std::string video_filter_desc_;      // Combined chain; empty = passthrough
 
-  // Audio structures
-  AVCodecContext* audio_codec_ctx_ = nullptr;
-  AVStream* audio_stream_ = nullptr;
-  AVFrame* audio_frame_ = nullptr;
-  AVPacket* audio_packet_ = nullptr;
-  int64_t audio_pts_ = 0;
+  // Audio structures — one encoder per embedded audio channel pair. Every
+  // stream is declared at kAudioSampleRateHz (48000 Hz), the only pipeline
+  // audio rate (SMPTE 272M-1994 §1.2, exact for all video systems).
+  struct AudioPairEncoder {
+    size_t pair_index = 0;                  // Pipeline channel pair index
+    AudioChannelPairDescriptor descriptor;  // Name and origin
+    AVCodecContext* codec_ctx = nullptr;
+    AVStream* stream = nullptr;
+    AVFrame* frame = nullptr;
+    int64_t pts = 0;
+    // Pending interleaved 24-bit-in-int32 carrier samples
+    std::vector<int32_t> buffer;
+  };
+  std::vector<AudioPairEncoder> audio_encoders_;
+  AVPacket* audio_packet_ = nullptr;  // Shared scratch packet
   const VideoFrameRepresentation* vfr_ = nullptr;
   uint64_t start_field_index_ = 0;
   uint64_t num_fields_ = 0;
   uint64_t current_field_for_audio_ = 0;
   bool embed_audio_ = false;
+  std::string audio_channel_pairs_option_;  // "all" or comma-separated indices
   double audio_gain_ = 1.0;  // Linear gain applied to embedded audio samples
-  std::vector<int16_t>
-      audio_buffer_;  // Persistent buffer for audio samples across frames
 
   // Subtitle structures (for closed captions)
   AVCodecContext* subtitle_codec_ctx_ = nullptr;
@@ -146,7 +158,20 @@ class FFmpegOutputBackend : public OutputBackend {
   // Send one frame to the encoder and write the resulting packets.
   // frame may be nullptr to flush the encoder.
   bool encodeVideoFrame(AVFrame* frame);
-  bool setupAudioEncoder();
+  // Set up one encoder per selected audio channel pair
+  // (audio_channel_pairs_option_).
+  bool setupAudioEncoders();
+  bool setupAudioEncoderForPair(AudioPairEncoder& pair);
+  // Gather one video frame's worth of 24-bit-in-int32 carrier samples for
+  // the given channel pair; frames without audio yield cadence-sized silence
+  // (audio_pairs_in_frame()). Conversion to the encoder's sample format
+  // happens at encode time (audio_sample_feed.h).
+  std::vector<int32_t> gatherAudioForFrame(AudioPairEncoder& pair,
+                                           FrameID frame_id);
+  // Encode full encoder-frame-size chunks from the pair's pending buffer.
+  bool encodeBufferedAudio(AudioPairEncoder& pair);
+  // Send one audio frame (nullptr flushes) and write the resulting packets.
+  bool sendAudioFrame(AudioPairEncoder& pair, AVFrame* frame);
   bool setupSubtitleEncoder();
   void extractClosedCaptionsFromObservations(
       const class IObservationContext& observation_context,

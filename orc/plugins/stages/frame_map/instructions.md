@@ -18,6 +18,8 @@ When `remove_duplicates` is enabled, the stage removes the second of any two con
 
 When `pad_gaps` is enabled, the stage inserts synthetic padding frames wherever a break in the `colour_frame_index` sequence is detected (indicating the player skipped). Padding frame content is determined by `pad_strategy`.
 
+Audio follows the mapping. Every audio channel pair remaps in lockstep with the video, per frame; padding frames carry silence. Each output frame always carries the exact per-frame sample count required by its position in the output timeline (constant on PAL; alternating per the SMPTE 272M five-frame sequence on NTSC/PAL-M), so a mapping that breaks the NTSC/PAL-M sequence phase trims or silence-pads the mapped frame's audio by a single trailing stereo pair. Mappings that preserve the phase — and all PAL mappings — are sample-exact. Sample values and rates are never changed.
+
 ## Parameters
 
 ### ranges (string)

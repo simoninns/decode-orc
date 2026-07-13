@@ -1,33 +1,28 @@
-# Analogue Audio Sink
+# Audio Sink
 
-Extracts the analogue audio tracks from the processed video pipeline and writes them to a standard WAV file, synchronised to the processed video timeline. Use this stage when you want the audio independently from the full TBC output.
+Extracts one audio channel pair from the processed video pipeline and writes it to a standard WAV file, synchronised to the processed video timeline. Use this stage when you want the audio independently from the full TBC output.
 
 ## When to use
 
-Add this sink in parallel with the LD Sink stage when your LaserDisc or tape source carries analogue audio tracks and you need the audio as a standalone file — for example to process it in a DAW, verify audio/video sync, or archive it separately. Because it is a parallel sink, adding it does not affect the video output.
+Add this sink in parallel with the LD Sink stage when your LaserDisc or tape source carries audio and you need it as a standalone file — for example to process it in a DAW, verify audio/video sync, or archive it separately. Because it is a parallel sink, adding it does not affect the video output.
 
 ## What it does
 
-The stage reads 16-bit signed little-endian stereo PCM samples from the VideoFieldRepresentation, which are populated by the upstream source stage from the `.pcm` sidecar file. It then wraps the samples in a standard RIFF WAV container and writes the result to the specified path. The audio is aligned to the processed field sequence, so any frame trimming or reordering performed upstream is reflected in the output.
+The pipeline can carry up to 8 stereo audio channel pairs (analogue capture audio, decoded EFM digital audio, imported WAV files, or channel pairs derived by transforms). The `channel_pair` parameter selects which channel pair this sink writes.
 
-The pipeline carries audio frame-locked to the video. For PAL (25 fps) the locked rate is exactly 44,100 Hz. For NTSC and PAL-M (30000/1001 fps) the locked rate is 44100000/1001 Hz ≈ 44,055.94 Hz (exactly 1470 stereo pairs per frame), and the `sample_rate_mode` parameter selects how that audio is exported.
+All pipeline audio is stereo, sampled at exactly 48,000 Hz and frame-locked (synchronous) to the video, following SMPTE 272M-1994. The sink gathers the selected channel pair frame by frame — so any frame trimming or reordering performed upstream is reflected in the output — and writes 24-bit signed little-endian stereo PCM in a standard RIFF WAV container declaring 48,000 Hz, with no sample-rate or bit-depth conversion. Frames without audio are written as silence of the correct length, preserving audio/video sync.
 
 ## Parameters
 
 ### output_path (string)
 Path to the output WAV file. Required. The file will be created or overwritten at trigger time.
 
-### sample_rate_mode (string, NTSC/PAL-M projects only)
-Selects the output sample rate for NTSC/PAL-M audio:
-
-- `locked_44056` (default) — writes the frame-locked samples unmodified; the WAV header declares the NTSC frame-rate-matched rate of 44,056 Hz (nearest integer to 44100000/1001 Hz). No resampling is performed, so the samples remain bit-identical to the pipeline audio.
-- `free_running_44100` — resamples the audio (SoXR, HQ) to standard free-running 44,100 Hz for tools that expect the standard rate. Duration and A/V sync are preserved.
-
-The parameter is not shown for PAL projects, whose locked audio is already at 44,100 Hz; both modes would produce identical output.
+### channel_pair
+Audio channel pair to write. Channel pair indices are 0-based, matching the CVBS container's `_audio_<p>.wav` numbering (0–7). Default 0. In the GUI this is a drop-down restricted to the channel pairs the input actually carries (shown as `<n> - <description>` where a description is present). Triggering fails if the selected channel pair does not exist in the input.
 
 ## Notes
 
-This stage handles analogue audio only. Digital audio carried as EFM (CD-quality stereo) or AC3 RF (Dolby Digital) must be extracted with the EFM Decoder Sink or AC3 RF Sink stages respectively. Audio track selection or stacking (when processing multiple source captures) must be performed upstream, for example via the Stacker stage's `audio_stacking` parameter.
+Undecoded digital audio carried as an EFM t-value stream or AC3 RF (Dolby Digital) must be extracted with the EFM Decoder Sink or AC3 RF Sink stages respectively — or, for EFM, decoded into a pipeline channel pair with the EFM Audio Decode transform and then written by this sink. Audio stacking (when processing multiple source captures) must be performed upstream, for example via the Stacker stage's `audio_stacking` parameter.
 
 ## Status Indicator
 

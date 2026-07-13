@@ -63,6 +63,7 @@ class FieldPreviewWidget;
 class QLabel;
 class QSlider;
 class QToolBar;
+class QMenu;
 class QComboBox;
 class QSplitter;
 class QTimer;
@@ -195,6 +196,8 @@ class MainWindow : public QMainWindow {
   void setupUI();
   void setupMenus();
   void setupToolbar();
+  void syncThemeUi();  ///< Refresh theme-dependent toolbar icons and the
+                       ///< Tools > Themes checkmarks for the active mode
   void reportPluginRuntimeDiagnostics(bool show_error_dialog);
   void
   connectDAGSignals();  ///< Connect DAG model/scene signals to their handlers
@@ -319,6 +322,16 @@ class MainWindow : public QMainWindow {
   QAction* plugin_manager_action_ = nullptr;
   QAction* show_preview_action_;
   QAction* auto_show_preview_action_;
+
+  // Toolbar (mirrors a few menu actions with simple icons; the menu items are
+  // retained). See setupToolbar()/syncThemeUi().
+  QToolBar* main_toolbar_ = nullptr;
+  QMenu* view_menu_ = nullptr;
+  QAction* arrange_dag_action_ = nullptr;  // shared by View menu + toolbar
+  QAction* theme_cycle_action_ = nullptr;  // toolbar: cycles Auto->Light->Dark
+  QAction* theme_auto_action_ = nullptr;   // Tools > Themes > Auto
+  QAction* theme_dark_action_ = nullptr;   // Tools > Themes > Dark
+  QAction* theme_light_action_ = nullptr;  // Tools > Themes > Light
 
   // Preview state (UI only - all data comes from core)
   orc::PreviewOutputType current_output_type_;

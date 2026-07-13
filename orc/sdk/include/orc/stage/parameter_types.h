@@ -75,6 +75,12 @@ struct ParameterDescriptor {
   std::string file_extension_hint =
       "";  // File extension hint for FILE_PATH types (e.g., ".cvbs", ".pcm",
            // ".rgb", ".mp4")
+  // For FILE_PATH types: when true, the GUI browse button opens a "save" dialog
+  // (the file is written, may not exist yet) instead of an "open" dialog. Sink
+  // stages are treated as output by default via a name heuristic; set this
+  // explicitly for output paths on stages that are not sinks (e.g. a report
+  // file written by a transform stage).
+  bool output_path = false;
 };
 
 /// Helper functions to work with parameter values

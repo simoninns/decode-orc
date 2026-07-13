@@ -13,7 +13,7 @@
 
 #include <algorithm>
 
-#include "efm_processor.h"
+#include "efm-decode/efm_processor.h"
 
 namespace orc {
 void EFMSinkStageDeps::init(TriggerProgressCallback progress_callback,

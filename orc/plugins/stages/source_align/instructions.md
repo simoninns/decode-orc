@@ -10,6 +10,8 @@ Use Source Align whenever you connect more than one source to a Stacker stage an
 
 For CAV discs the stage reads the VBI frame number embedded in each field's vertical-blanking interval and finds the highest first-frame number across all inputs. Fields before that frame number are dropped from every input. For CLV discs the equivalent CLV timecode frame value is used. If `alignmentMap` is set, the automatic detection is skipped and the specified per-input offsets are applied directly. Each aligned input produces one output; the outputs are guaranteed to be frame-aligned with one another.
 
+Audio follows the alignment. Every audio channel pair remaps per frame: trimmed sources serve their audio from the shifted frame IDs, and padded sources carry silence on the prepended padding frames. Each output frame always carries the exact per-frame sample count required by its position in the output timeline (constant on PAL; alternating per the SMPTE 272M five-frame sequence on NTSC/PAL-M), so an offset that breaks the NTSC/PAL-M sequence phase trims or silence-pads each shifted frame's audio by a single trailing stereo pair. Offsets that preserve the phase (multiples of 5) — and all PAL offsets — are sample-exact. Sample values and rates are never changed.
+
 ## Parameters
 
 ### alignmentMap (string)

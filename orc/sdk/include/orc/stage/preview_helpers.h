@@ -66,12 +66,19 @@ std::vector<PreviewOption> get_standard_preview_options(
  * @param option_id Preview option identifier
  * @param index Frame index (0-based)
  * @param hint Navigation hint (unused currently)
+ * @param mask_inactive_area When true, the full frame is rendered at normal
+ * size with the region outside the active picture (active_video_start/end ×
+ *        first/last_active_frame_line) dimmed.  Works in both the interlaced
+ *        and sequential layouts: the mask maps each display row back to its
+ *        weaved (frame-flat) line, so the sequential layout gets one active
+ *        band per field.  No cropping or rescaling is applied.
  * @return Preview image (invalid if option unknown or rendering fails)
  */
 PreviewImage render_standard_preview(
     const std::shared_ptr<const VideoFrameRepresentation>& representation,
     const std::string& option_id, uint64_t index,
-    PreviewNavigationHint hint = PreviewNavigationHint::Random);
+    PreviewNavigationHint hint = PreviewNavigationHint::Random,
+    bool mask_inactive_area = false);
 
 }  // namespace PreviewHelpers
 

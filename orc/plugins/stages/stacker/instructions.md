@@ -36,7 +36,7 @@ Disable differential dropout detection. When `true`, dropout status from individ
 When `true`, pixels that are in dropout across all sources are passed through unchanged rather than being replaced. Default: `false`.
 
 ### audio_stacking (string)
-Method used to combine audio samples from multiple sources. Values: `Disabled`, `Mean`, `Median`. Default: `Mean`. When `Disabled`, audio from the source with the fewest dropouts is used.
+Method used to combine audio samples from multiple sources. Values: `Disabled`, `Mean`, `Median`. Default: `Mean`. When `Disabled`, audio from the source with the fewest dropouts is used. The method applies per channel pair, to every channel pair present in all inputs; channel pairs not common to all inputs pass through from the source with the fewest dropouts. All pipeline audio is 48 kHz frame-locked 24-bit stereo, so sources are combined sample by sample at the same frame position; combined values saturate at the 24-bit range.
 
 ### efm_stacking (string)
 Method used to combine EFM t-values from multiple sources. Values: `Disabled`, `Mean`, `Median`. Default: `Mean`. When `Disabled`, EFM from the source with the fewest dropouts is used.

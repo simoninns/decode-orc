@@ -58,6 +58,7 @@ SDK_ALLOWLIST=(
     "orc/stage/artifact.h"
     "orc/stage/analysis_sink_results.h"
     # Frame / signal model
+    "orc/stage/audio_channel_pair.h"
     "orc/stage/video_frame_representation.h"
     "orc/stage/video_metadata_types.h"
     "orc/stage/frame_descriptor.h"
@@ -125,7 +126,7 @@ THIRD_PARTY_PATTERNS=(
     "libswscale/*" "libswresample/*"  # ffmpeg video sink
     "fftw3.h"                   # Transform PAL chroma decoder
     "sqlite3.h"                 # tbc_source / ld_sink / cvbs_source metadata
-    "soxr.h"                    # tbc_source audio resampling
+    "soxr.h"                    # shared audio-resample library
     "sys/*"                     # POSIX
 )
 
@@ -259,8 +260,14 @@ check_include() {
     fi
 
     # Sanctioned shared trees:
+    #   - every stage plugin may use orc/plugins/stages/common/ (shared
+    #     plugin-side static libraries, e.g. audio-resample)
     #   - sink plugins share orc/plugins/stages/sinks/common/
     #   - ld_sink shares tbc_source's ld-decode metadata structures
+    if resolves_in_tree "$include_path" "$including_dir" \
+        "${root_dir}/common"; then
+        return 0
+    fi
     case "$owner_dir" in
         */sinks/*)
             if resolves_in_tree "$include_path" "$including_dir" \

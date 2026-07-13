@@ -80,6 +80,11 @@ class EfmProcessor {
 
   // Report options
   void setReportOutput(bool reportOutput);
+  // Overrides the report file path. When empty (the default) the report is
+  // written to the decode output filename with a ".txt" suffix appended;
+  // when set, the report is written to exactly this path. Needed by callers
+  // that decode to a scratch file but want the report at a user-chosen path.
+  void setReportFilename(const std::string& reportFilename);
 
   // Statistics output
   void showAllStatistics() const;
@@ -96,6 +101,7 @@ class EfmProcessor {
   bool m_noWavHeader;
   bool m_outputMetadata;
   bool m_reportOutput;
+  std::string m_reportFilename;  // empty = derive from m_outputFilename
 
   // -----------------------------------------------------------------------
   // Pipeline decoder instances

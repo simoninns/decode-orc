@@ -38,7 +38,7 @@ class CVBSSinkStage : public DAGStage,
   ~CVBSSinkStage() override = default;
 
   // DAGStage interface
-  std::string version() const override { return "1.0"; }
+  std::string version() const override { return "1.1"; }
   ORC_STAGE_INSTRUCTIONS_MD
   NodeTypeInfo get_node_type_info() const override;
 

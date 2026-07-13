@@ -1,0 +1,54 @@
+# EFM Audio Decode
+
+Decodes the EFM t-value stream carried by the pipeline (LaserDisc digital audio) to CD audio and appends it to the representation as a new audio channel pair. The appended pair is in the standard pipeline audio form: 48 kHz synchronous (frame-locked) 24-bit stereo, converted from the decoded 44.1 kHz 16-bit CD audio at the point of production. Its first sample is synchronous with the first frame of this stage's input.
+
+## When to use
+
+Use EFM Audio Decode on ld-decode LaserDisc sources that carry an `.efm` sidecar when you want the disc's digital audio available as a pipeline channel pair — for example so the Video Sink embeds it alongside the analogue audio, or so the Audio Sink or CVBS Sink can export it. If you want a bit-exact, un-resampled WAV file of the disc's CD audio, the EFM Decoder Sink does that without adding a channel pair.
+
+Place this stage after dropout correction and stacking so it decodes the best available EFM stream, and after any frame mapping or source alignment so the decoded pair is born aligned to the output timeline.
+
+This transform is audio-only. EFM data discs (ECMA-130 sectors) cannot become an audio channel pair; on a data disc the decode fails and the appended pair is silent (use the EFM Decoder Sink in data mode instead).
+
+## What it does
+
+The stage wraps the incoming frame representation and appends one audio channel pair (named from the `Channel Pair Name` parameter, default `EFM digital audio`; origin EFM). The name surfaces in the CVBS container and as the embedded stream title in the Video Sink. Video, dropout hints, undecoded EFM/AC3 signal data, and all existing audio channel pairs pass through untouched.
+
+EFM decoding is whole-stream sequential (the CIRC interleaving spans sectors), so it cannot run frame-by-frame. The decode therefore runs lazily, at most once, on the first access to the appended pair's audio: the stage gathers the t-values across the input's full frame range, runs the shared EFM decode pipeline, widens the decoded 44.1 kHz 16-bit CD audio to 24-bit, resamples it to 48 kHz (SoXR HQ), and caches the converted frame-locked PCM in a scratch file on disk. Video-only preview and project validation never trigger the decode.
+
+EFM decode start-up (sync acquisition) makes the pair's time origin approximate; if the digital audio needs nudging relative to the video, apply a per-pair sync adjustment downstream (Audio Align).
+
+Appending the pair counts toward the pipeline's 8-channel-pair limit; the stage fails validation if the input already carries 8 channel pairs.
+
+## Parameters
+
+### no_timecodes
+Boolean, default `false`. Disable timecode verification during decode. Needed for early CAV discs that pre-date the EFM timecode specification.
+
+### no_audio_concealment
+Boolean, default `false`. Disable interpolation-based audio error concealment; uncorrectable samples are left as decoded instead of being concealed.
+
+### pair_name
+String, default `EFM digital audio`. Human-readable name for the decoded EFM audio channel pair. It surfaces in the CVBS container and as the embedded stream title in the Video Sink. If left empty it falls back to `EFM digital audio`.
+
+### report
+Boolean, default `false`. Enable to write a detailed decode statistics report (the same per-stage CIRC/error/timing statistics the EFM Decoder Sink writes) once the lazy decode runs. When enabled, set the report destination in **report_path**.
+
+### report_path
+File path, default empty. Destination for the decode report; only used when **report** is enabled. Because this stage decodes into a scratch cache rather than a user-named output file, the report location is given explicitly here rather than being derived from an output filename. If **report** is enabled but this path is empty, no report is written.
+
+## Tools
+
+This stage has no interactive tools.
+
+## Status Indicator
+
+The coloured dot in the top-right corner of the node shows its configuration status.
+
+| Colour | Meaning |
+|--------|---------|
+| Green | Fully configured and ready to run. All required parameters are set. |
+| Yellow | Partially configured. The stage can run but will use default or reduced behaviour — for example, pass-through mode or console-only output. Review the parameters for optional settings. |
+| Red | Not configured. One or more required parameters are missing and the stage cannot run. |
+
+Parameters can be set via **Edit Parameters...** in the node context menu. Some stages also provide interactive stage tools (listed under **Tools** above) that set parameters directly from within the tool.

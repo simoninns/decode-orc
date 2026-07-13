@@ -166,6 +166,10 @@ TEST(StageRegistryContractTest, Migrated_StagesLoadFromRuntimePlugins) {
   EXPECT_TRUE(loaded_stage_names.count("dropout_correct") > 0);
   EXPECT_TRUE(loaded_stage_names.count("source_align") > 0);
   EXPECT_TRUE(loaded_stage_names.count("mask_line") > 0);
+  EXPECT_TRUE(loaded_stage_names.count("efm_audio_decode") > 0);
+  EXPECT_TRUE(loaded_stage_names.count("audio_import") > 0);
+  EXPECT_TRUE(loaded_stage_names.count("audio_channel_map") > 0);
+  EXPECT_TRUE(loaded_stage_names.count("audio_align") > 0);
   EXPECT_TRUE(loaded_stage_names.count("video_params") > 0);
   EXPECT_TRUE(loaded_stage_names.count("stacker") > 0);
   EXPECT_TRUE(loaded_stage_names.count("AudioSink") > 0);

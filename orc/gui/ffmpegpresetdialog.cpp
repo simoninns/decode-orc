@@ -192,7 +192,7 @@ FFmpegPresetDialog::FFmpegPresetDialog(const QString& project_path,
 
   embed_audio_checkbox_ = add_checkbox(
       options_layout, "Embed audio",
-      "Include analogue audio tracks from the source (if available)");
+      "Include audio channel pairs from the source (if available)");
   embed_audio_checkbox_->setChecked(false);
 
   audio_gain_spinbox_ = add_double_spinbox(

@@ -190,4 +190,152 @@ TEST(FrameMapStageTest, GetDropoutHints_RewritesFrameIdToMappedFrame) {
   EXPECT_EQ(hints[0].sample_count, 50u);
 }
 
+// ── Audio channel pairs: cadence-aware frame remapping ──────────────────────
+
+namespace {
+
+constexpr orc::FrameID kPad{UINT64_MAX};
+
+// Interleaved stereo samples for source frame |frame|: stereo pair p carries
+// the value frame × 10000 + p on both channels, sized to the frame's native
+// SMPTE 272M-1994 §14.3 cadence count — so any output sample is traceable to
+// its source frame and in-frame pair position.
+std::vector<int32_t> frame_audio(uint64_t frame, orc::VideoSystem system) {
+  const uint32_t pairs = orc::audio_pairs_in_frame(frame, system);
+  std::vector<int32_t> samples;
+  samples.reserve(static_cast<size_t>(pairs) * 2);
+  for (uint32_t p = 0; p < pairs; ++p) {
+    const auto value = static_cast<int32_t>(frame * 10000 + p);
+    samples.push_back(value);
+    samples.push_back(value);
+  }
+  return samples;
+}
+
+// Mocked source carrying one audio channel pair whose per-frame samples come
+// from frame_audio(); no filesystem or real media involved.
+std::shared_ptr<::testing::NiceMock<MockVideoFrameRepresentation>>
+make_audio_source(orc::VideoSystem system) {
+  auto source =
+      std::make_shared<::testing::NiceMock<MockVideoFrameRepresentation>>();
+  orc::SourceParameters params;
+  params.system = system;
+  ON_CALL(*source, get_video_parameters())
+      .WillByDefault(::testing::Return(params));
+  ON_CALL(*source, audio_channel_pair_count())
+      .WillByDefault(::testing::Return(1u));
+  ON_CALL(*source, get_audio_channel_pair_descriptor(0))
+      .WillByDefault(::testing::Return(orc::AudioChannelPairDescriptor{
+          "Analogue", orc::AudioOrigin::ANALOGUE}));
+  ON_CALL(*source, get_audio_samples(0, ::testing::_))
+      .WillByDefault(::testing::Invoke([system](size_t, orc::FrameID id) {
+        return frame_audio(id, system);
+      }));
+  return source;
+}
+
+}  // namespace
+
+TEST(FrameMapStageTest, Audio_PairCountAndDescriptorForwardFromSource) {
+  auto source = make_audio_source(orc::VideoSystem::NTSC);
+  const orc::FrameMappedRepresentation rep(source, {orc::FrameID{0}}, {},
+                                           "forward");
+
+  EXPECT_EQ(rep.audio_channel_pair_count(), 1u);
+  const auto desc = rep.get_audio_channel_pair_descriptor(0);
+  ASSERT_TRUE(desc.has_value());
+  EXPECT_EQ(desc->name, "Analogue");
+  EXPECT_EQ(desc->origin, orc::AudioOrigin::ANALOGUE);
+}
+
+TEST(FrameMapStageTest, Audio_PhasePreservingNtscMappingIsSampleExact) {
+  auto source = make_audio_source(orc::VideoSystem::NTSC);
+  // Offset 5 preserves the SMPTE 272M five-frame audio sequence phase:
+  // output frame p maps to source frame p + 5 with identical native counts.
+  const orc::FrameMappedRepresentation rep(
+      source,
+      {orc::FrameID{5}, orc::FrameID{6}, orc::FrameID{7}, orc::FrameID{8},
+       orc::FrameID{9}},
+      {}, "phase_preserving");
+
+  for (uint64_t p = 0; p < 5; ++p) {
+    EXPECT_EQ(rep.get_audio_samples(0, orc::FrameID{p}),
+              frame_audio(p + 5, orc::VideoSystem::NTSC))
+        << "output frame " << p;
+  }
+}
+
+TEST(FrameMapStageTest, Audio_PalMappingIsSampleExactAtAnyOffset) {
+  auto source = make_audio_source(orc::VideoSystem::PAL);
+  // PAL is constant-cadence (1920 pairs per frame), so any reordering is
+  // sample-exact.
+  const orc::FrameMappedRepresentation rep(
+      source, {orc::FrameID{3}, orc::FrameID{7}, orc::FrameID{2}}, {},
+      "pal_reorder");
+
+  EXPECT_EQ(rep.get_audio_samples(0, orc::FrameID{0}),
+            frame_audio(3, orc::VideoSystem::PAL));
+  EXPECT_EQ(rep.get_audio_samples(0, orc::FrameID{1}),
+            frame_audio(7, orc::VideoSystem::PAL));
+  const auto samples = rep.get_audio_samples(0, orc::FrameID{2});
+  EXPECT_EQ(samples, frame_audio(2, orc::VideoSystem::PAL));
+  EXPECT_EQ(samples.size(), 1920u * 2u);
+}
+
+TEST(FrameMapStageTest, Audio_PhaseBreakingNtscMappingPadsOneSilencePair) {
+  auto source = make_audio_source(orc::VideoSystem::NTSC);
+  // Output frame 0 needs 1602 pairs but source frame 1 natively carries 1601
+  // (SMPTE 272M-1994 §14.3) — one trailing silence pair is appended.
+  const orc::FrameMappedRepresentation rep(source, {orc::FrameID{1}}, {},
+                                           "pad_direction");
+
+  const auto samples = rep.get_audio_samples(0, orc::FrameID{0});
+  ASSERT_EQ(samples.size(), 1602u * 2u);
+  const auto native = frame_audio(1, orc::VideoSystem::NTSC);
+  EXPECT_TRUE(std::equal(native.begin(), native.end(), samples.begin()));
+  EXPECT_EQ(samples[samples.size() - 2], 0);
+  EXPECT_EQ(samples[samples.size() - 1], 0);
+}
+
+TEST(FrameMapStageTest, Audio_PhaseBreakingNtscMappingTruncatesOnePair) {
+  auto source = make_audio_source(orc::VideoSystem::NTSC);
+  // Output frame 1 needs 1601 pairs but source frame 0 natively carries 1602
+  // (SMPTE 272M-1994 §14.3) — the trailing pair is truncated.
+  const orc::FrameMappedRepresentation rep(
+      source, {orc::FrameID{2}, orc::FrameID{0}}, {}, "truncate_direction");
+
+  const auto samples = rep.get_audio_samples(0, orc::FrameID{1});
+  ASSERT_EQ(samples.size(), 1601u * 2u);
+  auto expected = frame_audio(0, orc::VideoSystem::NTSC);
+  expected.resize(1601u * 2u);
+  EXPECT_EQ(samples, expected);
+}
+
+TEST(FrameMapStageTest, Audio_PaddingFramesCarryCadenceSizedSilence) {
+  auto source = make_audio_source(orc::VideoSystem::NTSC);
+  const orc::FrameMappedRepresentation rep(source, {kPad, kPad}, {},
+                                           "pad_only");
+
+  // Silence blocks are sized by the OUTPUT frame's cadence position, not a
+  // constant per-frame count: 1602 pairs at index 0, 1601 at index 1.
+  const auto silence0 = rep.get_audio_samples(0, orc::FrameID{0});
+  EXPECT_EQ(silence0.size(), 1602u * 2u);
+  EXPECT_TRUE(std::all_of(silence0.begin(), silence0.end(),
+                          [](int32_t s) { return s == 0; }));
+  const auto silence1 = rep.get_audio_samples(0, orc::FrameID{1});
+  EXPECT_EQ(silence1.size(), 1601u * 2u);
+  EXPECT_TRUE(std::all_of(silence1.begin(), silence1.end(),
+                          [](int32_t s) { return s == 0; }));
+}
+
+TEST(FrameMapStageTest, Audio_OutOfRangePairReturnsEmpty) {
+  auto source = make_audio_source(orc::VideoSystem::NTSC);
+  const orc::FrameMappedRepresentation rep(source, {orc::FrameID{0}, kPad}, {},
+                                           "out_of_range");
+
+  EXPECT_TRUE(rep.get_audio_samples(1, orc::FrameID{0}).empty());
+  // Padding frames also honour the pair range.
+  EXPECT_TRUE(rep.get_audio_samples(1, orc::FrameID{1}).empty());
+}
+
 }  // namespace orc_unit_test

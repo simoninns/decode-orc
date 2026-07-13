@@ -81,6 +81,21 @@ struct PreviewGeometry {
   double dar_correction_factor{1.0};  ///< Horizontal stretch factor for display
 
   /**
+   * @brief When true, the full-frame signal preview dims the region outside the
+   *        active picture (active_video_start/end ×
+   * first/last_active_frame_line) instead of cropping.
+   *
+   * Opt-in for stages whose purpose is to (re)define the active area — e.g. the
+   * Video Parameters stage.  The full frame (including blanking/VBI) stays at
+   * its normal size and aspect; the inactive margin is simply masked off so the
+   * user can see the whole frame while the un-dimmed area shows exactly what
+   * the exported output will crop to.  No cropping or rescaling happens in the
+   * preview.  Defaults to false so ordinary signal previews (tbc_source, etc.)
+   * render the plain full frame.
+   */
+  bool mask_inactive_area{false};
+
+  /**
    * @brief Returns true when all geometry fields are non-zero/positive.
    *
    * A default-constructed geometry (zero dimensions) is not valid.

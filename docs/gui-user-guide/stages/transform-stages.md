@@ -8,6 +8,9 @@ Transform stages are used to:
 * Combine multiple captures into a single improved output.
 * Override or edit per-frame metadata and hints used by later processing.
 * Apply signal modifications such as dropout correction or masking.
+* Import external audio, decode EFM digital audio to a channel pair, re-route SMPTE 272M channels, and correct audio/video sync.
+
+Audio in a decode-orc pipeline travels as **audio channel pairs** — up to eight per representation, each a synchronous (frame-locked) 48 kHz 24-bit stereo stream per SMPTE 272M. The audio transform stages below (Audio Import, EFM Audio Decode, Audio Channel Map, Audio Align) add, route, and time-align these channel pairs; sinks then select, embed, or export them.
 
 > Terminology note (decode-orc DAGs): stages connect via **connections** between stage inputs and outputs.
 
@@ -340,3 +343,133 @@ All parameters are int32 and use `-1` as "inherit from source".
 * `active_video_end` — Override active video end sample index. Sets `active_area_cropping_applied = true`.
 * `first_active_frame_line` — Override first active frame line. Sets `active_area_cropping_applied = true`.
 * `last_active_frame_line` — Override last active frame line. Sets `active_area_cropping_applied = true`.
+
+---
+
+## Audio Import
+
+| | |
+|-|-|
+| **Stage id** | `audio_import` |
+| **Stage name** | Audio Import |
+| **Connections** | 1 input → 1 output (fan-out supported) |
+| **Purpose** | Attach an external WAV file to the pipeline as a new audio channel pair |
+
+**Use this stage when:**
+
+* You have separately captured or restored audio (a cleaned-up soundtrack, a commentary track, an externally decoded recording) that should travel with the video.
+* You want an imported track available to sinks so it can be selected, embedded, or exported alongside the decoder-provided audio.
+
+**What it does**
+
+Audio Import wraps the upstream representation and appends one audio channel pair served from a WAV file; video, dropout hints, EFM/AC3 signal data, and all existing channel pairs pass through untouched. The WAV must be RIFF/WAVE PCM, stereo, 16- or 24-bit, at any sample rate. On import the material is converted to the pipeline's only audio form — 48 kHz synchronous (frame-locked) 24-bit stereo per SMPTE 272M: 16-bit samples are widened to 24-bit, the stream is resampled to exactly 48000 Hz (high-quality SoXR; a 48000 Hz input passes through unchanged), and the result is segmented into per-frame blocks. Material shorter than the project is padded with silence; excess is truncated. The appended pair reports origin `IMPORTED` and counts toward the pipeline's 8-channel-pair limit.
+
+**Parameters**
+
+* `wav_path` (file path, required) — The WAV file to attach.
+* `pair_name` (string) — Human-readable name for the channel pair (shown by sinks, e.g. as the Video Sink stream title). Empty uses the WAV file name. Default: `""`.
+
+**Stage tools**
+
+* This stage has no interactive tools.
+
+---
+
+## EFM Audio Decode
+
+| | |
+|-|-|
+| **Stage id** | `efm_audio_decode` |
+| **Stage name** | EFM Audio Decode |
+| **Connections** | 1 input → 1 output (fan-out supported) |
+| **Purpose** | Decode the EFM t-value stream (LaserDisc digital audio) to CD audio and append it as a new pipeline channel pair |
+
+**Use this stage when:**
+
+* You have an ld-decode LaserDisc source carrying an `.efm` sidecar and want the disc's digital audio available as a pipeline channel pair — for example so the Video Sink embeds it alongside the analogue audio, or the Audio Sink / CVBS Sink can export it.
+
+**What it does**
+
+The stage wraps the incoming representation and appends one audio channel pair (origin `EFM`). EFM decoding is whole-stream sequential (CIRC interleaving spans sectors), so it runs lazily at most once, on first access to the appended pair: the stage gathers the t-values across the input's full frame range, runs the shared EFM decode pipeline, widens the decoded 44.1 kHz 16-bit CD audio to 24-bit, resamples it to 48 kHz (SoXR HQ), and caches the frame-locked PCM on disk. Video-only preview and validation never trigger the decode. EFM sync acquisition makes the pair's time origin approximate; nudge it with a downstream Audio Align if needed. Data discs (ECMA-130 sectors) cannot become an audio pair — use the EFM Decoder Sink in data mode instead. For a bit-exact, un-resampled WAV of the CD audio, use the EFM Decoder Sink rather than this transform. The appended pair counts toward the 8-channel-pair limit.
+
+**Parameters**
+
+* `no_timecodes` (bool) — Disable timecode verification during decode (needed for early CAV discs pre-dating the EFM timecode spec). Default: `false`.
+* `no_audio_concealment` (bool) — Disable interpolation-based audio error concealment. Default: `false`.
+* `pair_name` (string) — Human-readable name for the decoded channel pair; surfaces in the CVBS container and as the Video Sink stream title. Default: `EFM digital audio`.
+* `report` (bool) — Write a detailed decode statistics report once the lazy decode runs. Default: `false`.
+* `report_path` (file path) — Destination for the decode report; used only when `report` is enabled. Default: `""`.
+
+**Stage tools**
+
+* This stage has no interactive tools.
+
+---
+
+## Audio Channel Map
+
+| | |
+|-|-|
+| **Stage id** | `audio_channel_map` |
+| **Stage name** | Audio Channel Map |
+| **Connections** | 1 input → 1 output (fan-out supported) |
+| **Purpose** | Route the left/right channels of audio channel pairs following SMPTE 272M |
+
+**Use this stage when:**
+
+* You need to remove a channel pair, extract one channel as mono in place, or copy one channel as mono into another pair.
+* You are splitting a dual-mono pair (e.g. a bilingual LaserDisc carrying two independent mono programmes as the left and right channels of one stereo pair) into two independent, named mono pairs. One operation per stage instance; chain instances for compound routing.
+
+**What it does**
+
+The stage remaps channels on the fly; video, dropout hints, EFM/AC3 signal data, and all untouched pairs pass through unchanged. Per SMPTE 272M-1994 §6.4 a mono programme occupies one channel with the other silenced — the chosen channel is placed on the left and the right is zeroed (`[L, 0]` / `[R, 0]`); a channel is never duplicated across both. The operation is a pure per-sample channel remap on the synchronous 48 kHz 24-bit audio; timing and per-frame sample counts are untouched. Pairs the stage writes are marked origin `DERIVED`. Validation fails when the selected or target pair does not exist, or when appending would exceed the 8-pair limit.
+
+**Parameters**
+
+* `channel_pair` (string) — The pair the operation reads from (source for copies, or the pair modified/deleted otherwise). 0-based, matching the CVBS container `_audio_<n>.wav` numbering; a GUI dropdown restricted to the pairs the input carries. Default: `0`.
+* `operation` (string) — Default `left_to_mono`. One of:
+
+| Value | Effect |
+|-------|--------|
+| `delete` | Remove the pair; later pairs shift down one index |
+| `left_to_mono` | Keep the left channel, silence the right (`[L, 0]`), in place |
+| `right_to_mono` | Move the right channel to the left, silence the right (`[R, 0]`), in place |
+| `copy_left_to_target` | Copy the left channel as mono to the target pair; source untouched |
+| `copy_right_to_target` | Copy the right channel as mono to the target pair; source untouched |
+
+* `target_pair` (string) — Destination for the copy operations (shown only for `copy_*`). `new` appends a pair; otherwise the mono channel overwrites the chosen existing pair. Default: `new`.
+* `set_description` (bool, **Add description**) — Shown for every operation except `delete`. When off, the produced pair keeps its existing description; tick to reveal `description`. Default: `false`.
+* `description` (string) — Name for the pair the operation produces (e.g. `English language`). Shown only when **Add description** is ticked. Default: `""`.
+
+**Stage tools**
+
+* This stage has no interactive tools.
+
+---
+
+## Audio Align
+
+| | |
+|-|-|
+| **Stage id** | `audio_align` |
+| **Stage name** | Audio Align |
+| **Connections** | 1 input → 1 output (fan-out supported) |
+| **Purpose** | Shift one audio channel pair in time relative to the video to correct audio/video sync |
+
+**Use this stage when:**
+
+* A channel pair is consistently early or late against the picture — for example an EFM digital audio pair whose decode start-up left it slightly offset, or an imported WAV captured with a different lead-in than the video.
+* Add one instance per channel pair that needs adjustment; multiple instances may target different pairs.
+
+**What it does**
+
+The stage serves the target channel pair shifted by the requested offset, converted to a whole number of stereo pairs at the synchronous 48 kHz rate (exactly 48 pairs per millisecond). Positive offsets delay the audio (insert lead-in); negative advance it (trim from the start). Only the target pair moves — video, all other pairs, and undecoded EFM/AC3 data are untouched. Each frame's audio window is reassembled from neighbouring frames' samples with silence past either end; per-frame sample counts (including the NTSC/PAL-M 1602/1601 sequence) are preserved, so the pair stays spec-conformant. Sample values and the sample rate are never changed — the shift is pure placement, no resampling. A zero offset passes the input through unchanged; validation fails when the target pair does not exist.
+
+**Parameters**
+
+* `channel_pair` (string) — The pair to shift. 0-based, matching the CVBS container `_audio_<n>.wav` numbering; a GUI dropdown restricted to the pairs the input carries. Default: `0`.
+* `offset_ms` (double) — Milliseconds, range ±3,600,000. Positive delays, negative advances. Rounded to the nearest whole stereo pair at 48 kHz (about 0.021 ms resolution). Default: `0.0`.
+
+**Stage tools**
+
+* This stage has no interactive tools.

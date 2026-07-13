@@ -17,7 +17,7 @@ Base path for the output files. Required. The stage appends the extensions autom
 
 ## Notes
 
-The output path must be writable. If the target directory does not exist the stage will fail at trigger time. This stage writes video and metadata only — export analogue audio, EFM, or AC3 RF data with the Analogue Audio Sink, Raw EFM Data Sink / EFM Decoder Sink, or AC3 RF Sink stages connected in parallel.
+The output path must be writable. If the target directory does not exist the stage will fail at trigger time. This stage writes video and metadata only — export analogue audio, EFM, or AC3 RF data with the Audio Sink, Raw EFM Data Sink / EFM Decoder Sink, or AC3 RF Sink stages connected in parallel.
 
 ## Status Indicator
 

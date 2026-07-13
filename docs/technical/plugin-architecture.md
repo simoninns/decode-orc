@@ -135,13 +135,20 @@ skipped with a logged diagnostic.
 Controls the binary ABI: the layout of `StagePluginDescriptor`, the entrypoint
 signatures, and the `register_stage` callback contract.
 
-**Current value:** `5`
+**Current value:** `7` (channel-pair audio per SMPTE 272M-1994: the
+track-indexed audio API was replaced by the channel-pair API declared in
+`<orc/stage/audio_channel_pair.h>` and
+`<orc/stage/video_frame_representation.h>` — 48 kHz frame-locked
+24-bit-in-int32 stereo pairs only, free-running stream accessors removed —
+changing the vtable layout; all plugins must be rebuilt)
 
 Bumped when any of the following change:
 - `StagePluginDescriptor` field order or alignment
 - Entrypoint function signatures
 - Callback calling convention
 - `IStageServices` gains or loses methods
+- The vtable layout of a contract type crossing the boundary (e.g.
+  `VideoFrameRepresentation`) changes
 
 ### `plugin_api_version`
 

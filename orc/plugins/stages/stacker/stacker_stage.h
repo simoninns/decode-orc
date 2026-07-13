@@ -20,6 +20,7 @@
 
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <thread>
 #include <vector>
 
@@ -78,11 +79,17 @@ class StackedVideoFrameRepresentation : public VideoFrameRepresentationWrapper,
   // Hints — after stacking only residual dropouts remain
   std::vector<DropoutRun> get_dropout_hints(FrameID id) const override;
 
-  // Audio — see design §11.4 and stacker parameter audio_locked semantics
-  bool has_audio() const override;
-  bool audio_locked() const override;
-  uint32_t get_audio_sample_count(FrameID id) const override;
-  std::vector<int16_t> get_audio_samples(FrameID id) const override;
+  // Audio — channel-pair count and descriptors come from the reference
+  // source (the first source carrying audio). Inputs are stacked at the same
+  // frame ID across sources, so per-frame pair counts always agree. Every
+  // channel pair present in ALL inputs is stacked per the audio_stacking
+  // parameter; pairs not common to all inputs pass through from the
+  // per-frame best source.
+  size_t audio_channel_pair_count() const override;
+  std::optional<AudioChannelPairDescriptor> get_audio_channel_pair_descriptor(
+      size_t pair) const override;
+  std::vector<int32_t> get_audio_samples(size_t pair,
+                                         FrameID id) const override;
 
   // EFM
   bool has_efm() const override;
@@ -108,7 +115,7 @@ class StackedVideoFrameRepresentation : public VideoFrameRepresentationWrapper,
   mutable LRUCache<FrameID, std::vector<sample_type>> stacked_luma_;
   mutable LRUCache<FrameID, std::vector<sample_type>> stacked_chroma_;
   mutable LRUCache<FrameID, std::vector<DropoutRun>> stacked_dropouts_;
-  mutable LRUCache<FrameID, std::vector<int16_t>> stacked_audio_;
+  mutable LRUCache<FrameID, std::vector<int32_t>> stacked_audio_;
   mutable LRUCache<FrameID, std::vector<uint8_t>> stacked_efm_;
   mutable LRUCache<FrameID, size_t> best_source_cache_;
 
@@ -125,6 +132,21 @@ class StackedVideoFrameRepresentation : public VideoFrameRepresentationWrapper,
 
   // Build the per-source frame ID vector for stacking (colour-frame aligned)
   std::vector<FrameID> collect_source_frame_ids(FrameID ref_id) const;
+
+  // The reference source for audio metadata: the first source carrying audio
+  // (nullptr when none does).
+  std::shared_ptr<const VideoFrameRepresentation> reference_audio_source()
+      const;
+
+  // True when channel pair |pair| exists in every source — the precondition
+  // for combining it across inputs.
+  bool pair_in_all_sources(size_t pair) const;
+
+  // stacked_audio_ is keyed per (frame, pair); kMaxAudioChannelPairs = 8
+  // leaves the low 3 bits for the pair index.
+  static FrameID audio_cache_key(FrameID id, size_t pair) {
+    return (id << 3) | static_cast<FrameID>(pair);
+  }
 };
 
 // ============================================================================
@@ -254,9 +276,11 @@ class StackerStage : public DAGStage,
       std::vector<DropoutRun>& output_dropouts, size_t& total_dropouts,
       size_t& total_stacked) const;
 
-  // Audio and EFM stacking helpers
-  std::vector<int16_t> stack_audio(
-      const std::vector<FrameID>& source_ids,
+  // Audio and EFM stacking helpers. Audio samples are 24-bit values carried
+  // in int32_t (see audio_channel_pair.h); mean/median results are saturated
+  // to the 24-bit range.
+  std::vector<int32_t> stack_audio(
+      size_t pair, const std::vector<FrameID>& source_ids,
       const std::vector<std::shared_ptr<const VideoFrameRepresentation>>&
           sources,
       size_t best_src) const;
@@ -267,8 +291,8 @@ class StackerStage : public DAGStage,
           sources,
       size_t best_src) const;
 
-  int16_t audio_mean(const std::vector<int16_t>& v) const;
-  int16_t audio_median(std::vector<int16_t> v) const;
+  int32_t audio_mean(const std::vector<int32_t>& v) const;
+  int32_t audio_median(std::vector<int32_t> v) const;
   uint8_t efm_mean(const std::vector<uint8_t>& v) const;
   uint8_t efm_median(std::vector<uint8_t> v) const;
 };

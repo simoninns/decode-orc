@@ -14,6 +14,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "../efm-lib/efm_exception.h"
+
 F2SectionToF1Section::F2SectionToF1Section()
     : m_delayLine1({0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1,
                     0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1}),
@@ -72,7 +74,7 @@ void F2SectionToF1Section::processQueue() {
           "stdin in a pipeline");
       ORC_LOG_CRITICAL(
           "Check that the input EFM stream is properly formatted and complete");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
     // Check section continuity

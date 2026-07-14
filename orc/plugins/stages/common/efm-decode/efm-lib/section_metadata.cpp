@@ -14,6 +14,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "efm_exception.h"
 #include "hex_utils.h"
 
 // SectionType class
@@ -57,7 +58,7 @@ SectionTime::SectionTime() : m_frames(0) {
   if (m_frames < 0 || m_frames >= 270000) {
     ORC_LOG_ERROR("SectionTime::SectionTime(): Invalid frame value of {}",
                   m_frames);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 }
 
@@ -65,7 +66,7 @@ SectionTime::SectionTime(int32_t frames) : m_frames(frames) {
   if (m_frames < 0 || m_frames >= 270000) {
     ORC_LOG_ERROR("SectionTime::SectionTime(): Invalid frame value of {}",
                   m_frames);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 }
 
@@ -77,7 +78,7 @@ void SectionTime::setFrames(int32_t frames) {
   if (frames < 0 || frames >= 270000) {
     ORC_LOG_ERROR("SectionTime::setFrames(): Invalid frame value of {}",
                   frames);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   m_frames = frames;
@@ -134,7 +135,7 @@ uint8_t SectionTime::intToBcd(uint32_t value) {
   if (value > 99) {
     ORC_LOG_ERROR(
         "SectionTime::intToBcd(): Value must be in the range 0 to 99.");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   uint16_t bcd = 0;

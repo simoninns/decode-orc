@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "efm_exception.h"
 #include "hex_utils.h"
 
 // Frame class
@@ -24,7 +25,7 @@ void Frame::setData(const std::vector<uint8_t>& data) {
     ORC_LOG_ERROR(
         "Frame::setData(): Data size of {} does not match frame size of {}",
         data.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frameData = data;
 }
@@ -49,7 +50,7 @@ void Frame::setErrorData(const std::vector<uint8_t>& errorData) {
         "Frame::setErrorData(): Error data size of {} does not match frame "
         "size of {}",
         errorData.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   m_frameErrorData = errorData;
@@ -87,7 +88,7 @@ void Frame::setPaddedData(const std::vector<uint8_t>& paddedData) {
         "Frame::setPaddedData(): Padded data size of {} does not match frame "
         "size of {}",
         static_cast<int>(paddedData.size()), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   m_framePaddedData = paddedData;

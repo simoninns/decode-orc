@@ -12,6 +12,8 @@
 
 #include <cstdlib>
 
+#include "efm_exception.h"
+
 Interleave::Interleave() {}
 
 void Interleave::deinterleave(std::vector<uint8_t>& inputData,
@@ -21,7 +23,7 @@ void Interleave::deinterleave(std::vector<uint8_t>& inputData,
   if (inputData.size() != 24) {
     ORC_LOG_ERROR(
         "Interleave::deinterleave - Input data must be 24 bytes long");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // De-Interleave the input data

@@ -11,6 +11,8 @@
 #include <cstdlib>
 #include <utility>
 
+#include "../efm-lib/efm_exception.h"
+
 F1SectionToData24Section::F1SectionToData24Section()
     : m_invalidF1FramesCount(0),
       m_validF1FramesCount(0),
@@ -51,7 +53,7 @@ void F1SectionToData24Section::processQueue() {
       ORC_LOG_CRITICAL(
           "F1SectionToData24Section::processQueue - F1 Section is not "
           "complete");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
     for (int index = 0; index < 98; ++index) {
@@ -71,7 +73,7 @@ void F1SectionToData24Section::processQueue() {
       } else {
         ORC_LOG_CRITICAL("Data and error data size mismatch in F1 frame {}",
                          index);
-        std::exit(1);
+        throw efm::EfmDecodeError(__func__);
       }
 
       // Check the error data (and count any flagged errors)

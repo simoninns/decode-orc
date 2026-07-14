@@ -14,6 +14,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "efm_exception.h"
+
 // Audio class
 // Set the data for the audio, ensuring it matches the frame size
 void Audio::setData(const std::vector<int16_t>& data) {
@@ -21,7 +23,7 @@ void Audio::setData(const std::vector<int16_t>& data) {
     ORC_LOG_ERROR(
         "Audio::setData(): Data size of {} does not match frame size of {}",
         data.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_audioData = data;
 }
@@ -35,7 +37,7 @@ void Audio::setDataLeftRight(const std::vector<int16_t>& dataLeft,
         "Audio::setDataLeftRight(): Data size of {} does not match frame size "
         "of {}",
         dataLeft.size() + dataRight.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   m_audioData.clear();
@@ -94,7 +96,7 @@ void Audio::setErrorData(const std::vector<uint8_t>& errorData) {
         "Audio::setErrorData(): Error data size of {} does not match frame "
         "size of {}",
         errorData.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_audioErrorData = errorData;
 }
@@ -109,7 +111,7 @@ void Audio::setErrorDataLeftRight(const std::vector<uint8_t>& errorDataLeft,
         "Audio::setErrorDataLeftRight(): Error data size of {} does not match "
         "frame size of {}",
         errorDataLeft.size() + errorDataRight.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   m_audioErrorData.clear();
@@ -229,7 +231,7 @@ void Audio::setConcealedData(const std::vector<uint8_t>& concealedData) {
         "Audio::setConcealedData(): Concealed data size of {} does not match "
         "frame size of {}",
         concealedData.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_audioConcealedData = concealedData;
 }

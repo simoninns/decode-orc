@@ -13,6 +13,7 @@
 
 #include <algorithm>
 
+#include "efm-decode/efm-lib/efm_exception.h"
 #include "efm-decode/efm_processor.h"
 
 namespace orc {
@@ -66,45 +67,53 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
 
   ORC_LOG_DEBUG("EFMSinkDeps: Buffer complete: {} bytes", efm_buffer.size());
 
-  EfmProcessor processor;
-  processor.setAudioMode(options.audio_mode);
-  processor.setNoTimecodes(options.no_timecodes);
-  processor.setAudacityLabels(options.audacity_labels);
-  processor.setNoAudioConcealment(options.no_audio_concealment);
-  processor.setZeroPad(options.zero_pad);
-  processor.setNoWavHeader(options.no_wav_header);
-  processor.setOutputMetadata(options.output_metadata);
-  processor.setReportOutput(options.report);
+  // The EFM decoder throws efm::EfmDecodeError on unrecoverable conditions
+  // (invariant violations, corrupt or unsupported data). Catch it here so a
+  // bad decode reports a failure instead of terminating the host process.
+  try {
+    EfmProcessor processor;
+    processor.setAudioMode(options.audio_mode);
+    processor.setNoTimecodes(options.no_timecodes);
+    processor.setAudacityLabels(options.audacity_labels);
+    processor.setNoAudioConcealment(options.no_audio_concealment);
+    processor.setZeroPad(options.zero_pad);
+    processor.setNoWavHeader(options.no_wav_header);
+    processor.setOutputMetadata(options.output_metadata);
+    processor.setReportOutput(options.report);
 
-  processor.beginStream(options.output_path,
-                        static_cast<int64_t>(efm_buffer.size()));
+    processor.beginStream(options.output_path,
+                          static_cast<int64_t>(efm_buffer.size()));
 
-  constexpr size_t CHUNK_SIZE = 1024;
-  size_t offset = 0;
-  while (offset < efm_buffer.size()) {
-    if (cancel_requested_ && cancel_requested_->load()) {
-      return {false, "Cancelled by user"};
+    constexpr size_t CHUNK_SIZE = 1024;
+    size_t offset = 0;
+    while (offset < efm_buffer.size()) {
+      if (cancel_requested_ && cancel_requested_->load()) {
+        return {false, "Cancelled by user"};
+      }
+
+      const size_t count = std::min(CHUNK_SIZE, efm_buffer.size() - offset);
+      processor.pushChunk(
+          {efm_buffer.begin() + static_cast<std::ptrdiff_t>(offset),
+           efm_buffer.begin() + static_cast<std::ptrdiff_t>(offset + count)});
+      offset += count;
+
+      if (progress_callback_ &&
+          (offset % (CHUNK_SIZE * 64) == 0 || offset == efm_buffer.size())) {
+        progress_callback_(offset, efm_buffer.size(), "Decoding EFM...");
+      }
     }
 
-    const size_t count = std::min(CHUNK_SIZE, efm_buffer.size() - offset);
-    processor.pushChunk(
-        {efm_buffer.begin() + static_cast<std::ptrdiff_t>(offset),
-         efm_buffer.begin() + static_cast<std::ptrdiff_t>(offset + count)});
-    offset += count;
-
-    if (progress_callback_ &&
-        (offset % (CHUNK_SIZE * 64) == 0 || offset == efm_buffer.size())) {
-      progress_callback_(offset, efm_buffer.size(), "Decoding EFM...");
+    const bool ok = processor.finishStream();
+    if (!ok) {
+      std::string reason = processor.lastError();
+      if (reason.empty()) {
+        reason = "EFM decoding did not complete successfully";
+      }
+      return {false, "Error: EFMSink: " + reason};
     }
-  }
-
-  const bool ok = processor.finishStream();
-  if (!ok) {
-    std::string reason = processor.lastError();
-    if (reason.empty()) {
-      reason = "EFM decoding did not complete successfully";
-    }
-    return {false, "Error: EFMSink: " + reason};
+  } catch (const efm::EfmDecodeError& e) {
+    ORC_LOG_ERROR("EFMSinkDeps: {}", e.what());
+    return {false, std::string("Error: EFMSink: ") + e.what()};
   }
 
   if (progress_callback_) {

@@ -12,6 +12,8 @@
 
 #include <cstdlib>
 
+#include "efm_exception.h"
+
 Inverter::Inverter() {}
 
 // Invert the P and Q parity bytes in accordance with
@@ -20,7 +22,7 @@ void Inverter::invertParity(std::vector<uint8_t>& inputData) {
   if (inputData.size() != 32) {
     ORC_LOG_ERROR(
         "Inverter::invertParity(): Data must be a std::vector of 32 integers.");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   for (int i = 12; i < 16; ++i) {

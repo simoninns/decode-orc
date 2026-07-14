@@ -15,6 +15,7 @@
 #include <fstream>
 #include <system_error>
 
+#include "efm-decode/efm-lib/efm_exception.h"
 #include "efm-decode/efm_processor.h"
 
 namespace orc {
@@ -94,14 +95,23 @@ EFMAudioDecodeResult EFMAudioDecodeDeps::decode_to_cache(
     processor.setReportFilename(options.report_path);
   }
 
-  if (!processor.processFromBuffer(efm_buffer, cache_path.string())) {
+  // The EFM decoder throws efm::EfmDecodeError on unrecoverable conditions;
+  // catch it so a bad decode fails this stage rather than killing the process.
+  try {
+    if (!processor.processFromBuffer(efm_buffer, cache_path.string())) {
+      std::error_code ec;
+      std::filesystem::remove(cache_path, ec);
+      std::string reason = processor.lastError();
+      if (reason.empty()) {
+        reason = "EFM decoding did not complete successfully";
+      }
+      return {false, reason, 0};
+    }
+  } catch (const efm::EfmDecodeError& e) {
     std::error_code ec;
     std::filesystem::remove(cache_path, ec);
-    std::string reason = processor.lastError();
-    if (reason.empty()) {
-      reason = "EFM decoding did not complete successfully";
-    }
-    return {false, reason, 0};
+    ORC_LOG_ERROR("EFMAudioDecodeDeps: {}", e.what());
+    return {false, e.what(), 0};
   }
 
   std::error_code ec;

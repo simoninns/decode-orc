@@ -12,6 +12,7 @@
 
 #include <cstdlib>
 
+#include "efm_exception.h"
 #include "ezpwd_compat.h"
 
 // ezpwd C1 ECMA-130 CIRC configuration
@@ -51,7 +52,7 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
   // Ensure input data is 32 bytes long
   if (inputData.size() != 32) {
     ORC_LOG_ERROR("ReedSolomon::c1Decode - Input data must be 32 bytes long");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // Trim the parity bytes from the padded data (32 → 28)
@@ -113,12 +114,12 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
   // Ensure input data is 28 bytes long
   if (inputData.size() != 28) {
     ORC_LOG_ERROR("ReedSolomon::c2Decode - Input data must be 28 bytes long");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   if (errorData.size() != 28) {
     ORC_LOG_ERROR("ReedSolomon::c2Decode - Error data must be 28 bytes long");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // Remove parity positions 12-15 from paddedData (28 → 24)

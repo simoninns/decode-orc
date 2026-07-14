@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "efm_exception.h"
 #include "hex_utils.h"
 
 // Takes 98 bytes of subcode data and returns a FrameMetadata object
@@ -22,7 +23,7 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
     ORC_LOG_ERROR(
         "Subcode::fromData(): Data size of {} does not match 98 bytes",
         static_cast<int>(data.size()));
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // Extract the p-channel data and q-channel data
@@ -285,12 +286,19 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
       sectionMetadata.setAbsoluteSectionTime(
           SectionTime(absMinutes, absSeconds, absFrames));
     } else if (sectionMetadata.qMode() == SectionMetadata::QMode2) {
-      // Extract the 52 bit UPC/EAN code
-      // This is a 13 digit BCD code, so we need to convert it to an integer
+      // Extract the 52-bit (13-digit) UPC/EAN media catalogue number.
+      // The digits are packed as 13 BCD nibbles across q-channel bytes 1-7
+      // (byte 9 holds the frame number, bytes 10-11 the CRC). We must read
+      // nibbles rather than whole bytes: reading qChannelData[i + 1] for
+      // i up to 12 ran past the end of the 12-byte buffer.
       uint64_t upc = 0;
-      for (int i = 0; i < 13; ++i) {
-        upc *= 10;
-        upc += bcd2ToInt(qChannelData[i + 1]);
+      for (int digit = 0; digit < 13; ++digit) {
+        const int byteIndex = 1 + (digit / 2);
+        const uint8_t nibble =
+            (digit % 2 == 0)
+                ? static_cast<uint8_t>(qChannelData[byteIndex] >> 4)
+                : static_cast<uint8_t>(qChannelData[byteIndex] & 0x0F);
+        upc = upc * 10 + nibble;
       }
       sectionMetadata.setUpcEanCode(upc);
       // Show the UPC/EAN code as 13 digits padded with leading zeros
@@ -313,29 +321,17 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
           sectionMetadata);
       sectionMetadata.setAbsoluteSectionTime(SectionTime(0, 0, absFrames));
     } else if (sectionMetadata.qMode() == SectionMetadata::QMode3) {
-      // There is no test data for this qmode, so this is untested
-      ORC_LOG_WARN(
-          "Subcode::fromData(): Q-Mode 3 metadata is present on this disc.  "
-          "This is untested.");
-      ORC_LOG_ERROR(
-          "Subcode::fromData(): Please submit this data for testing - ask in "
-          "Discord/IRC");
-      std::exit(1);
-
-      // Only the absolute frame number is included for Q mode 3
-      sectionMetadata.setSectionType(SectionType(SectionType::UserData), 1);
-      sectionMetadata.setSectionTime(SectionTime(0, 0, 0));
-
-      // Validate BCD value to handle edge case where CRC passes but data is
-      // corrupt
-      int32_t absFrames = validateAndClampTimeValue(
-          bcd2ToInt(qChannelData[9]), 74, "absolute frames (QMode3)",
-          sectionMetadata);
-      sectionMetadata.setAbsoluteSectionTime(SectionTime(0, 0, absFrames));
+      // Q-Mode 3 (ISRC) subcode is not yet decoded. It is legitimate content
+      // on a real disc, so skip the section rather than aborting the decode.
+      ORC_LOG_DEBUG(
+          "Subcode::fromData(): Q-Mode 3 (ISRC) metadata present - not yet "
+          "decoded, skipping section");
+      sectionMetadata.setValid(false);
+      return sectionMetadata;
     } else {
       ORC_LOG_ERROR("Subcode::fromData(): Invalid Q-mode {}",
                     static_cast<int>(sectionMetadata.qMode()));
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
     sectionMetadata.setValid(true);
@@ -454,7 +450,7 @@ std::vector<uint8_t> Subcode::toData(const SectionMetadata& sectionMetadata) {
     default:
       ORC_LOG_ERROR("Subcode::toData(): Invalid Q-mode {}",
                     static_cast<int>(sectionMetadata.qMode()));
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
   }
 
   bool audio = sectionMetadata.isAudio();
@@ -486,7 +482,7 @@ std::vector<uint8_t> Subcode::toData(const SectionMetadata& sectionMetadata) {
   } else {
     ORC_LOG_ERROR(
         "Subcode::toData(): Invalid control nybble! Must be 0-3, 4-7 or 8-11");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // The Q-channel data is constructed from the Q-mode (4 bits) and control bits
@@ -507,16 +503,16 @@ std::vector<uint8_t> Subcode::toData(const SectionMetadata& sectionMetadata) {
   if (trackNumber == 0 && frameType.type() != SectionType::LeadIn) {
     ORC_LOG_ERROR(
         "Subcode::toData(): Track number 0 is only valid for lead-in frames");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   } else if (trackNumber == 0xAA && frameType.type() != SectionType::LeadOut) {
     ORC_LOG_ERROR(
         "Subcode::toData(): Track number 0xAA is only valid for lead-out "
         "frames");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   } else if (trackNumber > 99) {
     ORC_LOG_ERROR("Subcode::toData(): Track number {} is out of range",
                   trackNumber);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // Set the Q-channel data
@@ -596,7 +592,7 @@ void Subcode::setBit(std::vector<uint8_t>& data, uint8_t bitPosition,
     ORC_LOG_ERROR(
         "Subcode::setBit(): Bit position {} is out of range for data size {}",
         bitPosition, static_cast<int>(data.size()));
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // We need to convert this to a byte number and bit number within that byte
@@ -620,7 +616,7 @@ bool Subcode::getBit(const std::vector<uint8_t>& data, uint8_t bitPosition) {
     ORC_LOG_ERROR(
         "Subcode::getBit(): Bit position {} is out of range for data size {}",
         bitPosition, static_cast<int>(data.size()));
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // We need to convert this to a byte number and bit number within that byte
@@ -713,7 +709,7 @@ uint8_t Subcode::intToBcd2(uint8_t value) {
     ORC_LOG_ERROR(
         "Subcode::intToBcd2(): Value must be in the range 0 to 99. Got {}",
         value);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   uint16_t bcd = 0;

@@ -549,24 +549,25 @@ void F2SectionCorrection::processInternalBuffer() {
                 m_internalBuffer[errorStart].metadata.trackNumber(),
                 m_internalBuffer[errorEnd].metadata.trackNumber());
 
-            // Firstly, we have to figure out which track the error section in
-            // on.  We can do this by looking at the section time of the
-            // error_end section and calculating the current section time from
-            // it.  If the time is positive the error section is in the same
-            // track as error_end, otherwise it is in the same track as
-            // error_start
-            SectionTime currentTime =
-                m_internalBuffer[errorEnd].metadata.sectionTime() -
+            // Work out which side of the track boundary this gap section
+            // falls on by projecting error_end's track-relative time backwards
+            // to section i. This must be computed as a plain integer: a
+            // negative result is meaningful here (it means i precedes the
+            // boundary and therefore belongs to error_start's track), but
+            // SectionTime rejects negative times and would throw, so we must
+            // not build a SectionTime just to test its sign.
+            const int32_t endRelativeFrames =
+                m_internalBuffer[errorEnd].metadata.sectionTime().frames() -
                 (errorEnd - i);
 
-            // Now we can set the track number and correct the section time
-            if (currentTime.frames() >= 0) {
+            if (endRelativeFrames >= 0) {
+              // Section i is within error_end's (later) track
               m_internalBuffer[i].metadata.setTrackNumber(
                   m_internalBuffer[errorEnd].metadata.trackNumber());
               m_internalBuffer[i].metadata.setSectionTime(
-                  m_internalBuffer[errorEnd].metadata.sectionTime() -
-                  (errorEnd - i));
+                  SectionTime(endRelativeFrames));
             } else {
+              // Section i is within error_start's (earlier) track
               m_internalBuffer[i].metadata.setTrackNumber(
                   m_internalBuffer[errorStart].metadata.trackNumber());
               m_internalBuffer[i].metadata.setSectionTime(
@@ -574,15 +575,15 @@ void F2SectionCorrection::processInternalBuffer() {
                   (i - errorStart));
             }
 
-            // Adding a critical error here as this functionality is untested
-            // (I haven't found any examples of this in the test data)
-            ORC_LOG_CRITICAL(
-                "F2SectionCorrection::correctInternalBuffer(): Exiting due to "
-                "track change in internal buffer - untested functionality - "
-                "please confirm!");
-            throw std::runtime_error(
-                "F2SectionCorrection::correctInternalBuffer(): Track change in "
-                "internal buffer - untested functionality");
+            ORC_LOG_DEBUG(
+                "F2SectionCorrection::correctInternalBuffer(): Corrected "
+                "section {} across a track boundary to track {} (time {}, "
+                "absolute {}); gap spanned tracks {} -> {}",
+                i, m_internalBuffer[i].metadata.trackNumber(),
+                m_internalBuffer[i].metadata.sectionTime().toString(),
+                m_internalBuffer[i].metadata.absoluteSectionTime().toString(),
+                m_internalBuffer[errorStart].metadata.trackNumber(),
+                m_internalBuffer[errorEnd].metadata.trackNumber());
           } else {
             // The track number is the same, so we can correct the track number
             // by just copying it

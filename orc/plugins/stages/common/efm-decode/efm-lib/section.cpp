@@ -12,12 +12,14 @@
 
 #include <cstdlib>
 
+#include "efm_exception.h"
+
 F2Section::F2Section() { m_frames.reserve(98); }
 
 void F2Section::pushFrame(const F2Frame& inFrame) {
   if (m_frames.size() >= 98) {
     ORC_LOG_ERROR("F2Section::pushFrame - Section is full");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames.push_back(inFrame);
 }
@@ -25,7 +27,7 @@ void F2Section::pushFrame(const F2Frame& inFrame) {
 const F2Frame& F2Section::frame(int32_t index) const {
   if (index >= static_cast<int32_t>(m_frames.size()) || index < 0) {
     ORC_LOG_ERROR("F2Section::frame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   return m_frames[index];
 }
@@ -33,7 +35,7 @@ const F2Frame& F2Section::frame(int32_t index) const {
 void F2Section::setFrame(int32_t index, const F2Frame& inFrame) {
   if (index >= m_frames.size() || index < 0) {
     ORC_LOG_ERROR("F2Section::setFrame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames[index] = inFrame;
 }
@@ -53,7 +55,7 @@ F1Section::F1Section() { m_frames.reserve(98); }
 void F1Section::pushFrame(const F1Frame& inFrame) {
   if (m_frames.size() >= 98) {
     ORC_LOG_ERROR("F1Section::pushFrame - Section is full");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames.push_back(inFrame);
 }
@@ -61,7 +63,7 @@ void F1Section::pushFrame(const F1Frame& inFrame) {
 const F1Frame& F1Section::frame(int32_t index) const {
   if (index >= static_cast<int32_t>(m_frames.size()) || index < 0) {
     ORC_LOG_ERROR("F1Section::frame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   return m_frames[index];
 }
@@ -69,7 +71,7 @@ const F1Frame& F1Section::frame(int32_t index) const {
 void F1Section::setFrame(int32_t index, const F1Frame& inFrame) {
   if (index >= 98 || index < 0) {
     ORC_LOG_ERROR("F1Section::setFrame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames[index] = inFrame;
 }
@@ -89,7 +91,7 @@ Data24Section::Data24Section() { m_frames.reserve(98); }
 void Data24Section::pushFrame(const Data24& inFrame) {
   if (m_frames.size() >= 98) {
     ORC_LOG_ERROR("Data24Section::pushFrame - Section is full");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames.push_back(inFrame);
 }
@@ -97,7 +99,7 @@ void Data24Section::pushFrame(const Data24& inFrame) {
 const Data24& Data24Section::frame(int32_t index) const {
   if (index >= static_cast<int32_t>(m_frames.size()) || index < 0) {
     ORC_LOG_ERROR("Data24Section::frame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   return m_frames[index];
 }
@@ -105,7 +107,7 @@ const Data24& Data24Section::frame(int32_t index) const {
 void Data24Section::setFrame(int32_t index, const Data24& inFrame) {
   if (index >= m_frames.size() || index < 0) {
     ORC_LOG_ERROR("Data24Section::setFrame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames[index] = inFrame;
 }
@@ -125,7 +127,7 @@ AudioSection::AudioSection() { m_frames.reserve(98); }
 void AudioSection::pushFrame(const Audio& inFrame) {
   if (m_frames.size() >= 98) {
     ORC_LOG_ERROR("AudioSection::pushFrame - Section is full");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames.push_back(inFrame);
 }
@@ -133,7 +135,7 @@ void AudioSection::pushFrame(const Audio& inFrame) {
 const Audio& AudioSection::frame(int32_t index) const {
   if (index >= static_cast<int32_t>(m_frames.size()) || index < 0) {
     ORC_LOG_ERROR("AudioSection::frame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   return m_frames[index];
 }
@@ -141,7 +143,7 @@ const Audio& AudioSection::frame(int32_t index) const {
 void AudioSection::setFrame(int32_t index, const Audio& inFrame) {
   if (index >= m_frames.size() || index < 0) {
     ORC_LOG_ERROR("AudioSection::setFrame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames[index] = inFrame;
 }

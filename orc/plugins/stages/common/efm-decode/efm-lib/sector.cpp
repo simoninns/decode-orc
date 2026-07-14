@@ -15,6 +15,8 @@
 #include <iomanip>
 #include <sstream>
 
+#include "efm_exception.h"
+
 // Sector address class
 // ---------------------------------------------------------------------------------------------------
 SectorAddress::SectorAddress() : m_address(0) {
@@ -23,7 +25,7 @@ SectorAddress::SectorAddress() : m_address(0) {
   if (m_address < 0 || m_address >= 270000) {
     ORC_LOG_ERROR("SectorAddress::SectionTime(): Invalid address value of {}",
                   m_address);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 }
 
@@ -31,7 +33,7 @@ SectorAddress::SectorAddress(int32_t address) : m_address(address) {
   if (m_address < 0 || m_address >= 270000) {
     ORC_LOG_ERROR("SectorAddress::SectionTime(): Invalid address value of {}",
                   m_address);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 }
 
@@ -43,7 +45,7 @@ void SectorAddress::setAddress(int32_t address) {
   if (address < 0 || address >= 270000) {
     ORC_LOG_ERROR("SectorAddress::setFrames(): Invalid address value of {}",
                   address);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   m_address = address;
@@ -89,7 +91,7 @@ uint8_t SectorAddress::intToBcd(uint32_t value) {
   if (value > 99) {
     ORC_LOG_ERROR(
         "SectorAddress::intToBcd(): Value must be in the range 0 to 99.");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   uint16_t bcd = 0;
@@ -249,7 +251,7 @@ void Sector::setMode(int32_t mode) {
 
   if (mode < -1 || mode > 2) {
     ORC_LOG_ERROR("Sector::setMode(): Invalid mode value of {}", mode);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_mode = mode;
 }

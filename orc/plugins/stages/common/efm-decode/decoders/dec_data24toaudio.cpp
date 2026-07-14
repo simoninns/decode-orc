@@ -8,6 +8,8 @@
 
 #include "dec_data24toaudio.h"
 
+#include "../efm-lib/efm_exception.h"
+
 Data24ToAudio::Data24ToAudio()
     : m_invalidData24FramesCount(0),
       m_validData24FramesCount(0),
@@ -48,7 +50,7 @@ void Data24ToAudio::processQueue() {
     if (!data24Section.isComplete()) {
       ORC_LOG_CRITICAL(
           "Data24ToAudio::processQueue - Data24 Section is not complete");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
     for (int index = 0; index < 98; ++index) {

@@ -10,6 +10,8 @@
 
 #include <orc/stage/logging.h>
 
+#include "../efm-lib/efm_exception.h"
+
 // This table is the CRC32 look-up for the EDC data
 static constexpr uint32_t crc32Lut[256] = {
     0x00000000, 0x90910101, 0x91210201, 0x01B00300, 0x92410401, 0x02D00500,
@@ -102,7 +104,7 @@ void RawSectorToSector::processQueue() {
           rawSector.data().size());
       ORC_LOG_CRITICAL(
           "RawSectorToSector::processQueue(): Sector data size is incorrect");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
     if (rawSector.errorData().size() != 2352) {
@@ -113,7 +115,7 @@ void RawSectorToSector::processQueue() {
       ORC_LOG_CRITICAL(
           "RawSectorToSector::processQueue(): Sector error data size is "
           "incorrect");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
     if (rawSector.paddedData().size() != 2352) {
@@ -124,7 +126,7 @@ void RawSectorToSector::processQueue() {
       ORC_LOG_CRITICAL(
           "RawSectorToSector::processQueue(): Sector padded data size is "
           "incorrect");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
     // Determine the sector mode (for modes 0 and 2 there is no correction
@@ -279,7 +281,7 @@ void RawSectorToSector::processQueue() {
               "RawSectorToSector::processQueue(): Invalid sector mode of {} - "
               "even though sector data was valid - bug?",
               mode);
-          std::exit(1);
+          throw efm::EfmDecodeError(__func__);
         }
       }
     } else {

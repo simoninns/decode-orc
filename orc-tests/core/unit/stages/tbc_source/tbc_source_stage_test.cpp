@@ -89,15 +89,12 @@ class MockTBCSourceStageDeps : public orc::ITBCSourceStageDeps {
                size_t efm_byte_count),
               (const, override));
 
-  MOCK_METHOD(bool, has_ac3_files,
-              (const std::string& ac3_bin_path,
-               const std::string& ac3_meta_path),
+  MOCK_METHOD(bool, has_ac3_file, (const std::string& ac3_bin_path),
               (const, override));
 
-  MOCK_METHOD(std::optional<std::vector<uint8_t>>, read_ac3_for_frame,
-              (const std::string& ac3_bin_path,
-               const std::string& ac3_meta_path, int32_t field_seq_no_a,
-               int32_t field_seq_no_b),
+  MOCK_METHOD(std::vector<uint8_t>, read_ac3_bytes_at,
+              (const std::string& ac3_bin_path, size_t ac3_byte_offset,
+               size_t ac3_byte_count),
               (const, override));
 };
 
@@ -310,7 +307,7 @@ TEST(TBCSourceStageTest, Execute_ThrowsUserDataErrorWhenMetadataFails) {
       });
   EXPECT_CALL(*deps, has_audio_file(_)).WillRepeatedly(Return(false));
   EXPECT_CALL(*deps, has_efm_file(_)).WillRepeatedly(Return(false));
-  EXPECT_CALL(*deps, has_ac3_files(_, _)).WillRepeatedly(Return(false));
+  EXPECT_CALL(*deps, has_ac3_file(_)).WillRepeatedly(Return(false));
 
   EXPECT_THROW(
       stage.execute({}, {{"input_path", std::string("/tmp/test.tbc")}}, ctx),
@@ -337,7 +334,7 @@ TEST(TBCSourceStageTest,
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(false));
 
   const auto outputs =
       stage.execute({}, {{"input_path", std::string("/tmp/test.tbc")}}, ctx);
@@ -362,7 +359,7 @@ TEST(TBCSourceStageTest, Execute_DisplayNameSetToPALTBCCompositeAfterLoad) {
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(false));
 
   stage.execute({}, {{"input_path", std::string("/tmp/test.tbc")}}, ctx);
 
@@ -392,7 +389,7 @@ TEST(TBCSourceStageTest, OutputIsVFR_FrameCountIsFieldCountDividedByTwo) {
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(false));
 
   const auto outputs =
       stage.execute({}, {{"input_path", std::string("/tmp/test.tbc")}}, ctx);
@@ -427,7 +424,7 @@ TEST(TBCSourceStageTest, OutputVFR_GetFrameLazilyAssemblesFromMockedDeps) {
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(false));
 
   // Expect read_field_samples for TBC fields 0 and 1 (frame 0).
   EXPECT_CALL(*deps, read_field_samples("/tmp/test.tbc", 0, _, kF1Samples, _))
@@ -550,7 +547,7 @@ TEST(TBCSourceStageTest, OutputVFR_ExposesEFM_WhenEfmFileAndMetadataCountsSet) {
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(true));
-  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(false));
 
   // Return a synthetic payload that encodes the requested (offset, count) so
   // the test can assert both the byte range and the concatenation.
@@ -611,7 +608,7 @@ TEST(TBCSourceStageTest, OutputVFR_NoEFM_WhenEfmFileButMetadataCountsAbsent) {
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(true));
-  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(false));
 
   const auto outputs =
       stage.execute({},
@@ -624,6 +621,111 @@ TEST(TBCSourceStageTest, OutputVFR_NoEFM_WhenEfmFileButMetadataCountsAbsent) {
       dynamic_cast<orc::VideoFrameRepresentation*>(outputs.front().get());
   ASSERT_NE(vfr, nullptr);
   EXPECT_FALSE(vfr->has_efm());
+}
+
+// A TBC source with a raw .ac3sym sidecar (no .meta index — that is CVBS-only)
+// must expose AC3 RF symbols.  Per-field symbol counts come from the TBC
+// metadata (ac3_symbols); the .ac3sym file stores one byte per symbol in field
+// order.  Mirrors the EFM tests above.
+TEST(TBCSourceStageTest, OutputVFR_ExposesAC3_WhenAc3FileAndMetadataCountsSet) {
+  auto deps = std::make_shared<NiceMock<MockTBCSourceStageDeps>>();
+  orc::TBCSourceStage stage(deps);
+  orc::ObservationContext ctx;
+
+  constexpr int32_t kNumFields = 4;  // two frames
+  // Per-field symbol counts: frame 0 = fields 0+1 = 10+5 = 15 bytes @ off 0;
+  //                          frame 1 = fields 2+3 = 8+3 = 11 bytes @ off 15.
+  const std::array<int32_t, 4> kCounts = {10, 5, 8, 3};
+
+  ON_CALL(*deps, validate_input_file(_, _)).WillByDefault(Return(true));
+  ON_CALL(*deps, load_video_params(_, _))
+      .WillByDefault([](const std::string&, std::string&) {
+        return std::optional<orc::TBCVideoParams>{
+            make_pal_video_params(kNumFields)};
+      });
+  ON_CALL(*deps, load_all_field_meta(_, _))
+      .WillByDefault([kCounts](const std::string&, std::string&) {
+        auto meta = make_pal_field_meta(kNumFields);
+        for (size_t i = 0; i < meta.size(); ++i) {
+          meta[i].ac3rf_symbol_count = kCounts[i];
+        }
+        return meta;
+      });
+  ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(true));
+
+  // Return a synthetic payload that encodes the requested (offset, count) so
+  // the test can assert both the byte range and the concatenation.
+  ON_CALL(*deps, read_ac3_bytes_at(_, _, _))
+      .WillByDefault([](const std::string&, size_t offset, size_t count) {
+        std::vector<uint8_t> bytes(count);
+        for (size_t i = 0; i < count; ++i) {
+          bytes[i] = static_cast<uint8_t>((offset + i) & 0xFF);
+        }
+        return bytes;
+      });
+
+  const auto outputs =
+      stage.execute({},
+                    {{"input_path", std::string("/tmp/test.tbc")},
+                     {"ac3rf_path", std::string("/tmp/test.ac3sym")}},
+                    ctx);
+
+  ASSERT_EQ(outputs.size(), 1u);
+  const auto* vfr =
+      dynamic_cast<orc::VideoFrameRepresentation*>(outputs.front().get());
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_TRUE(vfr->has_ac3_rf());
+
+  // Per-frame symbol counts must be reported.
+  EXPECT_EQ(vfr->get_ac3_symbol_count(0), 15u);
+  EXPECT_EQ(vfr->get_ac3_symbol_count(1), 11u);
+
+  // Frame 0: 15 bytes starting at offset 0.
+  const auto frame0 = vfr->get_ac3_symbols(0);
+  ASSERT_EQ(frame0.size(), 15u);
+  EXPECT_EQ(frame0.front(), 0u);
+  EXPECT_EQ(frame0.back(), 14u);
+
+  // Frame 1: 11 bytes starting at offset 15 (sum of frame 0's field counts).
+  const auto frame1 = vfr->get_ac3_symbols(1);
+  ASSERT_EQ(frame1.size(), 11u);
+  EXPECT_EQ(frame1.front(), 15u);
+  EXPECT_EQ(frame1.back(), 25u);
+}
+
+// When the .ac3sym file exists but the metadata carries no symbol counts, AC3
+// is unavailable — there is no way to index the raw stream without counts.
+TEST(TBCSourceStageTest, OutputVFR_NoAC3_WhenAc3FileButMetadataCountsAbsent) {
+  auto deps = std::make_shared<NiceMock<MockTBCSourceStageDeps>>();
+  orc::TBCSourceStage stage(deps);
+  orc::ObservationContext ctx;
+
+  ON_CALL(*deps, validate_input_file(_, _)).WillByDefault(Return(true));
+  ON_CALL(*deps, load_video_params(_, _))
+      .WillByDefault([](const std::string&, std::string&) {
+        return std::optional<orc::TBCVideoParams>{make_pal_video_params(2)};
+      });
+  ON_CALL(*deps, load_all_field_meta(_, _))
+      .WillByDefault([](const std::string&, std::string&) {
+        return make_pal_field_meta(2);  // no ac3rf_symbol_count set
+      });
+  ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(true));
+
+  const auto outputs =
+      stage.execute({},
+                    {{"input_path", std::string("/tmp/test.tbc")},
+                     {"ac3rf_path", std::string("/tmp/test.ac3sym")}},
+                    ctx);
+
+  ASSERT_EQ(outputs.size(), 1u);
+  const auto* vfr =
+      dynamic_cast<orc::VideoFrameRepresentation*>(outputs.front().get());
+  ASSERT_NE(vfr, nullptr);
+  EXPECT_FALSE(vfr->has_ac3_rf());
 }
 
 // ===========================================================================
@@ -662,7 +764,7 @@ orc::VideoFrameRepresentation* execute_audio_source(
   ON_CALL(*deps, get_audio_pair_count(_))
       .WillByDefault(Return(std::optional<uint64_t>{raw_pairs}));
   ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(false));
 
   outputs_keepalive =
       stage.execute({},
@@ -725,7 +827,7 @@ TEST(TBCSourceAudioTest, NoPcmSidecar_ReportsZeroChannelPairs) {
       });
   ON_CALL(*deps, has_audio_file(_)).WillByDefault(Return(false));
   ON_CALL(*deps, has_efm_file(_)).WillByDefault(Return(false));
-  ON_CALL(*deps, has_ac3_files(_, _)).WillByDefault(Return(false));
+  ON_CALL(*deps, has_ac3_file(_)).WillByDefault(Return(false));
 
   const auto outputs =
       stage.execute({}, {{"input_path", std::string("/tmp/test.tbc")}}, ctx);

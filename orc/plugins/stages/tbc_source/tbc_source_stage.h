@@ -152,13 +152,18 @@ class ITBCSourceStageDeps {
       const std::string& efm_bin_path, size_t efm_byte_offset,
       size_t efm_byte_count) const = 0;
 
-  // AC3 RF symbols: same structure as EFM but for .ac3 / .ac3.meta.
-  virtual bool has_ac3_files(const std::string& ac3_bin_path,
-                             const std::string& ac3_meta_path) const = 0;
+  // AC3 RF symbols: same structure as EFM.  TBC captures store one byte per
+  // QPSK symbol in the .ac3sym file in field order; there is no .meta index
+  // sidecar (that is a CVBS-only construct) — per-field symbol counts come
+  // from the TBC metadata (ac3_symbols) instead.
+  virtual bool has_ac3_file(const std::string& ac3_bin_path) const = 0;
 
-  virtual std::optional<std::vector<uint8_t>> read_ac3_for_frame(
-      const std::string& ac3_bin_path, const std::string& ac3_meta_path,
-      int32_t field_seq_no_a, int32_t field_seq_no_b) const = 0;
+  // Read ac3_byte_count raw AC3 symbol bytes starting at ac3_byte_offset from
+  // the .ac3sym sidecar.  Offsets/counts are computed by the caller from the
+  // per-field symbol counts.  Returns empty vector on error.
+  virtual std::vector<uint8_t> read_ac3_bytes_at(
+      const std::string& ac3_bin_path, size_t ac3_byte_offset,
+      size_t ac3_byte_count) const = 0;
 };
 
 // ---------------------------------------------------------------------------

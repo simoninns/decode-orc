@@ -152,9 +152,9 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
       std::string tbc_path,  // composite .tbc (or Y .tbc for YC)
       std::string c_path,    // chroma .tbc for YC mode; empty for composite
       std::string pcm_path, std::string efm_bin_path, std::string ac3_bin_path,
-      std::string ac3_meta_path, bool has_audio, double pcm_sample_rate_hz,
-      bool has_efm, bool has_ac3, std::string audio_pair_name,
-      ArtifactID artifact_id, Provenance provenance)
+      bool has_audio, double pcm_sample_rate_hz, bool has_efm, bool has_ac3,
+      std::string audio_pair_name, ArtifactID artifact_id,
+      Provenance provenance)
       : Artifact(std::move(artifact_id), std::move(provenance)),
         video_params_(std::move(video_params)),
         source_params_(std::move(source_params)),
@@ -165,7 +165,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
         pcm_path_(std::move(pcm_path)),
         efm_bin_path_(std::move(efm_bin_path)),
         ac3_bin_path_(std::move(ac3_bin_path)),
-        ac3_meta_path_(std::move(ac3_meta_path)),
         has_audio_(has_audio),
         pcm_sample_rate_hz_(pcm_sample_rate_hz),
         has_efm_(has_efm),
@@ -181,6 +180,7 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     // preview never needs audio (issue #209).
     compute_audio_total_raw_pairs();
     compute_efm_offsets();
+    compute_ac3_offsets();
   }
 
   // --------------------------------------------------------------------------
@@ -392,13 +392,21 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // --------------------------------------------------------------------------
   bool has_ac3_rf() const override { return has_ac3_; }
 
+  uint32_t get_ac3_symbol_count(FrameID id) const override {
+    if (!has_ac3_) return 0;
+    const size_t idx = static_cast<size_t>(id);
+    if (idx >= ac3_frame_byte_counts_.size()) return 0;
+    return static_cast<uint32_t>(ac3_frame_byte_counts_[idx]);
+  }
+
   std::vector<uint8_t> get_ac3_symbols(FrameID id) const override {
     if (!has_ac3_ || !has_frame(id)) return {};
-    const int32_t fld1 = static_cast<int32_t>(id) * 2;
-    const int32_t fld2 = fld1 + 1;
-    auto result =
-        deps_->read_ac3_for_frame(ac3_bin_path_, ac3_meta_path_, fld1, fld2);
-    return result.value_or(std::vector<uint8_t>{});
+    const size_t idx = static_cast<size_t>(id);
+    if (idx >= ac3_frame_offsets_.size()) return {};
+    const size_t byte_offset = ac3_frame_offsets_[idx];
+    const size_t byte_count = ac3_frame_byte_counts_[idx];
+    if (byte_count == 0) return {};
+    return deps_->read_ac3_bytes_at(ac3_bin_path_, byte_offset, byte_count);
   }
 
   // --------------------------------------------------------------------------
@@ -807,6 +815,40 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     }
   }
 
+  // Pre-compute cumulative per-frame AC3 symbol offsets from the per-field
+  // symbol counts in the TBC metadata.  The raw .ac3sym sidecar stores one
+  // byte per QPSK symbol in field order, so a frame's byte offset is the
+  // running sum of all preceding fields' counts.  Mirrors
+  // compute_efm_offsets().
+  void compute_ac3_offsets() {
+    if (!has_ac3_) return;
+    const size_t fc = frame_count();
+    ac3_frame_offsets_.resize(fc, 0);
+    ac3_frame_byte_counts_.resize(fc, 0);
+
+    size_t cumulative = 0;
+    for (size_t frame_idx = 0; frame_idx < fc; ++frame_idx) {
+      const size_t fld1 = frame_idx * 2;
+      const size_t fld2 = fld1 + 1;
+
+      size_t bytes = 0;
+      if (fld1 < field_meta_.size()) {
+        if (const auto& cnt = field_meta_[fld1].ac3rf_symbol_count) {
+          bytes += static_cast<size_t>(*cnt);
+        }
+      }
+      if (fld2 < field_meta_.size()) {
+        if (const auto& cnt = field_meta_[fld2].ac3rf_symbol_count) {
+          bytes += static_cast<size_t>(*cnt);
+        }
+      }
+
+      ac3_frame_offsets_[frame_idx] = cumulative;
+      ac3_frame_byte_counts_[frame_idx] = bytes;
+      cumulative += bytes;
+    }
+  }
+
   TBCVideoParams video_params_;
   SourceParameters source_params_;
   std::vector<TBCFieldMeta> field_meta_;
@@ -816,7 +858,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   std::string pcm_path_;
   std::string efm_bin_path_;
   std::string ac3_bin_path_;
-  std::string ac3_meta_path_;
   bool has_audio_ = false;
   // Sidecar input rate for the ingest resample.  44100 Hz (the ld-decode
   // default) unless the metadata pcm_audio_parameters declare otherwise.
@@ -836,6 +877,10 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // sidecar, one entry per frame.
   std::vector<size_t> efm_frame_offsets_;
   std::vector<size_t> efm_frame_byte_counts_;
+
+  // Pre-computed AC3 symbol layout (one byte per symbol, field order).
+  std::vector<size_t> ac3_frame_offsets_;
+  std::vector<size_t> ac3_frame_byte_counts_;
 
   // Per-frame converted audio blocks (48 kHz 24-bit-in-int32, cadence-sized).
   // Populated lazily by ensure_audio_converted() on first audio access.
@@ -1167,17 +1212,26 @@ class TBCSourceStageDeps final : public ITBCSourceStageDeps {
     return bytes;
   }
 
-  bool has_ac3_files(const std::string& ac3_bin_path,
-                     const std::string& ac3_meta_path) const override {
+  bool has_ac3_file(const std::string& ac3_bin_path) const override {
     namespace fs = std::filesystem;
     std::error_code ec;
-    return fs::exists(ac3_bin_path, ec) && fs::exists(ac3_meta_path, ec);
+    return fs::exists(ac3_bin_path, ec) &&
+           fs::is_regular_file(ac3_bin_path, ec);
   }
 
-  std::optional<std::vector<uint8_t>> read_ac3_for_frame(
-      const std::string& /*ac3_bin_path*/, const std::string& /*ac3_meta_path*/,
-      int32_t /*field_seq_no_a*/, int32_t /*field_seq_no_b*/) const override {
-    return std::nullopt;
+  std::vector<uint8_t> read_ac3_bytes_at(const std::string& ac3_bin_path,
+                                         size_t ac3_byte_offset,
+                                         size_t ac3_byte_count) const override {
+    std::ifstream ifs(ac3_bin_path, std::ios::binary);
+    if (!ifs.is_open()) return {};
+    ifs.seekg(static_cast<std::streamoff>(ac3_byte_offset), std::ios::beg);
+    if (!ifs.good()) return {};
+    std::vector<uint8_t> bytes(ac3_byte_count);
+    ifs.read(reinterpret_cast<char*>(bytes.data()),
+             static_cast<std::streamsize>(ac3_byte_count));
+    const size_t bytes_read = static_cast<size_t>(ifs.gcount());
+    if (bytes_read < ac3_byte_count) bytes.resize(bytes_read);
+    return bytes;
   }
 
  private:
@@ -1439,9 +1493,17 @@ std::vector<ArtifactPtr> TBCSourceStage::execute(
       });
   const bool has_efm = !sc.efm_path.empty() &&
                        deps_->has_efm_file(sc.efm_path) && metadata_has_efm;
-  const std::string ac3_meta = sc.ac3_path.empty() ? "" : sc.ac3_path + ".meta";
-  const bool has_ac3 =
-      !sc.ac3_path.empty() && deps_->has_ac3_files(sc.ac3_path, ac3_meta);
+  // TBC AC3 RF: same model as EFM — the raw .ac3sym sidecar holds one byte
+  // per QPSK symbol; per-field symbol counts come from the TBC metadata
+  // (there is no .meta index — that sidecar is CVBS-only).  AC3 is available
+  // only when the .ac3sym file exists and the metadata carries at least one
+  // field symbol count.
+  const bool metadata_has_ac3 = std::any_of(
+      field_meta.begin(), field_meta.end(), [](const TBCFieldMeta& fm) {
+        return fm.ac3rf_symbol_count.has_value() && *fm.ac3rf_symbol_count > 0;
+      });
+  const bool has_ac3 = !sc.ac3_path.empty() &&
+                       deps_->has_ac3_file(sc.ac3_path) && metadata_has_ac3;
 
   // Build SourceParameters.
   SourceParameters src_params = build_source_params(tvp, frame_count);
@@ -1451,9 +1513,8 @@ std::vector<ArtifactPtr> TBCSourceStage::execute(
       tvp, src_params, std::move(field_meta), deps_, tbc_path,
       is_yc ? c_path : std::string{}, has_audio ? sc.pcm_path : std::string{},
       has_efm ? sc.efm_path : std::string{},
-      has_ac3 ? sc.ac3_path : std::string{}, has_ac3 ? ac3_meta : std::string{},
-      has_audio, pcm_sample_rate_hz, has_efm, has_ac3, get_str("pcm_name"),
-      ArtifactID{}, Provenance{});
+      has_ac3 ? sc.ac3_path : std::string{}, has_audio, pcm_sample_rate_hz,
+      has_efm, has_ac3, get_str("pcm_name"), ArtifactID{}, Provenance{});
 
   // Update display name.
   const std::string new_display = make_display_name(tvp.system, is_yc);

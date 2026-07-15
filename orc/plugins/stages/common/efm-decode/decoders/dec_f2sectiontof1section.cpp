@@ -33,7 +33,8 @@ F2SectionToF1Section::F2SectionToF1Section()
       m_outputByteErrors(0),
       m_invalidPaddedF1FramesCount(0),
       m_invalidNonPaddedF1FramesCount(0),
-      m_lastFrameNumber(-1) {}
+      m_lastFrameNumber(-1),
+      m_haveSectionMetadata(false) {}
 
 void F2SectionToF1Section::pushSection(const F2Section& f2Section) {
   // Add the data to the input buffer
@@ -112,104 +113,143 @@ void F2SectionToF1Section::processQueue() {
         m_inputByteErrors += inFrameErrors;
       }
 
-      m_delayLine1.push(data, errorData, paddedData);
-      if (data.empty()) {
-        // Output a substituted F1 frame while the CIRC delay lines fill (warm
-        // up). E-7: this is fabricated filler, not genuine decoded data, so
-        // mark it padded=1 rather than passing zeros off as valid data
-        // downstream.
-        F1Frame f1Frame;
-        f1Frame.setData(std::vector<uint8_t>(24, 0));
-        f1Frame.setErrorData(std::vector<uint8_t>(24, 0));
-        f1Frame.setPaddedData(std::vector<uint8_t>(24, 1));
-        f1Section.pushFrame(f1Frame);
-        m_dlLostFramesCount++;
-        continue;
-      }
-
-      // Process the data
-      // Note: We will only get valid data if the delay lines are all full
-      m_inverter.invertParity(data);
-
-      m_circ.c1Decode(data, errorData, paddedData);
-
-      m_delayLineM.push(data, errorData, paddedData);
-      if (data.empty()) {
-        // Output a substituted F1 frame while the CIRC delay lines fill (warm
-        // up). E-7: this is fabricated filler, not genuine decoded data, so
-        // mark it padded=1 rather than passing zeros off as valid data
-        // downstream.
-        F1Frame f1Frame;
-        f1Frame.setData(std::vector<uint8_t>(24, 0));
-        f1Frame.setErrorData(std::vector<uint8_t>(24, 0));
-        f1Frame.setPaddedData(std::vector<uint8_t>(24, 1));
-        f1Section.pushFrame(f1Frame);
-        m_dlLostFramesCount++;
-        continue;
-      }
-
-      // Only perform C2 decode if delay line 1 is full and delay line M is full
-      m_circ.c2Decode(data, errorData, paddedData);
-
-      if (std::any_of(errorData.begin(), errorData.end(),
-                      [](uint8_t value) { return value != 0; })) {
-        ORC_LOG_DEBUG(
-            "F2SectionToF1Section - F2 Frame [{}]: C2 Failed in section {}",
-            index, f2Section.metadata.absoluteSectionTime().toString());
-      }
-
-      m_interleave.deinterleave(data, errorData, paddedData);
-
-      m_delayLine2.push(data, errorData, paddedData);
-      if (data.empty()) {
-        // Output a substituted F1 frame while the CIRC delay lines fill (warm
-        // up). E-7: this is fabricated filler, not genuine decoded data, so
-        // mark it padded=1 rather than passing zeros off as valid data
-        // downstream.
-        F1Frame f1Frame;
-        f1Frame.setData(std::vector<uint8_t>(24, 0));
-        f1Frame.setErrorData(std::vector<uint8_t>(24, 0));
-        f1Frame.setPaddedData(std::vector<uint8_t>(24, 1));
-        f1Section.pushFrame(f1Frame);
-        m_dlLostFramesCount++;
-        continue;
-      }
-
-      // Put the resulting data (and error data) into an F1 frame and
-      // push it to the output buffer
-      F1Frame f1Frame;
-      f1Frame.setData(data);
-      f1Frame.setErrorData(errorData);
-      f1Frame.setPaddedData(paddedData);
-
-      // Check F1 frame for errors
-      // Note: The error C2 count will differ from the overall error F1 count
-      // due to the the interleaving which will distribute the errors over more
-      // than on frame (potentially)
-      uint32_t outFrameErrors = f1Frame.countErrors();
-      uint32_t outFramePadding = f1Frame.countPadded();
-
-      if (outFrameErrors == 0 && outFramePadding == 0) {
-        m_validOutputF1FramesCount++;
-      } else {
-        m_invalidOutputF1FramesCount++;
-        m_outputByteErrors += outFrameErrors;
-
-        // Invalid with or without padding?
-        if (outFramePadding > 0) {
-          m_invalidPaddedF1FramesCount++;
-        } else {
-          m_invalidNonPaddedF1FramesCount++;
-        }
-      }
-
-      f1Section.pushFrame(f1Frame);
+      processF2FrameData(std::move(data), std::move(errorData),
+                         std::move(paddedData), f1Section);
     }
 
     // All frames in the section are processed
     f1Section.metadata = f2Section.metadata;
 
+    // Remember the metadata so flush() can synthesise continuing metadata for
+    // the tail sections it drains out of the delay lines (E-7).
+    m_lastSectionMetadata = f2Section.metadata;
+    m_haveSectionMetadata = true;
+
     // Add the section to the output buffer
+    m_outputBuffer.push_back(f1Section);
+  }
+}
+
+void F2SectionToF1Section::pushSubstituteF1Frame(F1Section& f1Section) {
+  // E-7: fabricated filler emitted while the CIRC delay lines fill (warm up) or
+  // as trailing padding once the genuine tail has been drained. Not genuine
+  // decoded data, so mark it padded=1 rather than passing zeros off as valid
+  // data downstream.
+  F1Frame f1Frame;
+  f1Frame.setData(std::vector<uint8_t>(24, 0));
+  f1Frame.setErrorData(std::vector<uint8_t>(24, 0));
+  f1Frame.setPaddedData(std::vector<uint8_t>(24, 1));
+  f1Section.pushFrame(f1Frame);
+  m_dlLostFramesCount++;
+}
+
+void F2SectionToF1Section::processF2FrameData(std::vector<uint8_t> data,
+                                              std::vector<uint8_t> errorData,
+                                              std::vector<uint8_t> paddedData,
+                                              F1Section& f1Section) {
+  m_delayLine1.push(data, errorData, paddedData);
+  if (data.empty()) {
+    pushSubstituteF1Frame(f1Section);
+    return;
+  }
+
+  // Process the data
+  // Note: We will only get valid data if the delay lines are all full
+  m_inverter.invertParity(data);
+
+  m_circ.c1Decode(data, errorData, paddedData);
+
+  m_delayLineM.push(data, errorData, paddedData);
+  if (data.empty()) {
+    pushSubstituteF1Frame(f1Section);
+    return;
+  }
+
+  // Only perform C2 decode if delay line 1 is full and delay line M is full
+  m_circ.c2Decode(data, errorData, paddedData);
+
+  if (std::any_of(errorData.begin(), errorData.end(),
+                  [](uint8_t value) { return value != 0; })) {
+    ORC_LOG_DEBUG("F2SectionToF1Section - F2 Frame: C2 Failed");
+  }
+
+  m_interleave.deinterleave(data, errorData, paddedData);
+
+  m_delayLine2.push(data, errorData, paddedData);
+  if (data.empty()) {
+    pushSubstituteF1Frame(f1Section);
+    return;
+  }
+
+  // Put the resulting data (and error data) into an F1 frame and
+  // push it to the output buffer
+  F1Frame f1Frame;
+  f1Frame.setData(data);
+  f1Frame.setErrorData(errorData);
+  f1Frame.setPaddedData(paddedData);
+
+  // Check F1 frame for errors
+  // Note: The error C2 count will differ from the overall error F1 count
+  // due to the the interleaving which will distribute the errors over more
+  // than on frame (potentially)
+  uint32_t outFrameErrors = f1Frame.countErrors();
+  uint32_t outFramePadding = f1Frame.countPadded();
+
+  if (outFrameErrors == 0 && outFramePadding == 0) {
+    m_validOutputF1FramesCount++;
+  } else {
+    m_invalidOutputF1FramesCount++;
+    m_outputByteErrors += outFrameErrors;
+
+    // Invalid with or without padding?
+    if (outFramePadding > 0) {
+      m_invalidPaddedF1FramesCount++;
+    } else {
+      m_invalidNonPaddedF1FramesCount++;
+    }
+  }
+
+  f1Section.pushFrame(f1Frame);
+}
+
+void F2SectionToF1Section::flush() {
+  // E-7: the CIRC delay lines introduce a latency of
+  // delayLine1 (max 1) + delayLineM (max 108) + delayLine2 (max 2) = 111 F2
+  // frames between input and output. At end of stream that many genuine frames
+  // are still trapped inside the delay lines; without a flush they are silently
+  // dropped (the truncated-capture tail). Push padding frames through the chain
+  // so the trapped genuine frames are carried out as F1 frames. The last frames
+  // to emerge are our own padding, marked padded=1 (concealed as silence).
+  constexpr int32_t kMaxCircLatency = 1 + 108 + 2;  // 111 F2 frames
+  constexpr int32_t kFramesPerSection = 98;
+  // Round up to whole sections so downstream always receives complete sections.
+  constexpr int32_t kFlushSections =
+      (kMaxCircLatency + kFramesPerSection - 1) / kFramesPerSection;  // 2
+
+  // Nothing to drain if no genuine section was ever processed (e.g. a stream
+  // too short to fill the delay lines) — there is no tail to recover and no
+  // metadata to continue from.
+  if (!m_haveSectionMetadata) {
+    return;
+  }
+
+  // Continue the section timeline from the last real section.
+  SectionMetadata metadata = m_lastSectionMetadata;
+
+  for (int32_t section = 0; section < kFlushSections; ++section) {
+    // Advance the (absolute) section time by one 1/75 s frame per section so
+    // the flushed sections remain contiguous with the decoded stream.
+    metadata.setAbsoluteSectionTime(metadata.absoluteSectionTime() + 1);
+    metadata.setSectionTime(metadata.sectionTime() + 1);
+
+    F1Section f1Section;
+    for (int32_t index = 0; index < kFramesPerSection; ++index) {
+      // Feed an all-padding F2 frame (32 symbols) into the chain.
+      processF2FrameData(std::vector<uint8_t>(32, 0),
+                         std::vector<uint8_t>(32, 0),
+                         std::vector<uint8_t>(32, 1), f1Section);
+    }
+    f1Section.metadata = metadata;
     m_outputBuffer.push_back(f1Section);
   }
 }

@@ -143,6 +143,14 @@ bool EfmProcessor::finishStream() {
   ORC_LOG_INFO("Processing final pipeline data");
   drainPipeline(m_zeroPadApplied);
 
+  // E-7: recover the CIRC delay-line tail. Once every real F2 section has
+  // reached F2SectionToF1Section, the newest ~111 genuine F2 frames are still
+  // held inside its delay lines. Flush pushes padding through the chain to
+  // carry that trapped tail out as F1 sections; drain them through the rest of
+  // the pipeline (F1 -> Data24 -> audio/data).
+  m_f2SectionToF1Section.flush();
+  drainPipeline(m_zeroPadApplied);
+
   // Now all Data24 sections have been pushed into AudioCorrection;
   // flush it to release its internal lookahead buffer, then drain once more.
   if (m_audioMode && !m_noAudioConcealment) {

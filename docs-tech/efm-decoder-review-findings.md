@@ -421,7 +421,10 @@ end of stream the ~108 frames still inside the delay lines are never flushed, si
 capture tail (normally hidden by lead-out, but real for truncated captures).
 
 **Fix:** Mark warm-up substitution frames as padded; add an end-of-stream flush that pushes padding
-frames through the CIRC chain to recover the tail.
+frames through the CIRC chain to recover the tail. **Done:** warm-up substitutes are now marked
+`padded=1` (`dec_f2sectiontof1section.cpp`), and `F2SectionToF1Section::flush()` drains the ~111-frame
+delay-line tail (max latency = delayLine1 1 + delayLineM 108 + delayLine2 2), rounded up to whole
+sections and called from `EfmProcessor::finishStream()` before the audio-correction flush.
 
 ### E-8 — Statistics inaccuracies — **Minor** *(cross-confirmed ×2 for the first item's family)*
 

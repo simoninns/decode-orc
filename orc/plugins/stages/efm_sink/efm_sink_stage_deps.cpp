@@ -44,6 +44,13 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
   }
   ORC_LOG_DEBUG("EFMSinkDeps: Total EFM t-values: {}", total_tvalues);
 
+  // The GUI shows a single 0-100 % progress bar for the whole stage. Buffering
+  // is a quick memory copy while the decode below is the long CPU-bound phase,
+  // so give buffering only the first few percent. This keeps the bar advancing
+  // monotonically (previously buffering swept to ~99 % and the decode then
+  // reset it to 0 %, which read as the modal freezing once decoding began).
+  constexpr uint64_t kBufferProgressPct = 5;
+
   std::vector<uint8_t> efm_buffer;
   efm_buffer.reserve(total_tvalues);
 
@@ -59,7 +66,8 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
 
     const uint64_t frames_done = fid - start_fid + 1;
     if (frames_done % 10 == 0 && progress_callback_) {
-      progress_callback_(tvalues_accumulated, total_tvalues,
+      // Map buffering onto 0..kBufferProgressPct % of the bar.
+      progress_callback_(frames_done * kBufferProgressPct, total_frames * 100,
                          "Buffering EFM: frame " + std::to_string(frames_done) +
                              "/" + std::to_string(total_frames));
     }
@@ -85,6 +93,9 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
                           static_cast<int64_t>(efm_buffer.size()));
 
     constexpr size_t CHUNK_SIZE = 1024;
+    // Refresh the modal roughly every 16 chunks so the (slow) decode phase
+    // visibly advances rather than appearing frozen between coarse updates.
+    constexpr size_t PROGRESS_STRIDE = CHUNK_SIZE * 16;
     size_t offset = 0;
     while (offset < efm_buffer.size()) {
       if (cancel_requested_ && cancel_requested_->load()) {
@@ -98,11 +109,26 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
       offset += count;
 
       if (progress_callback_ &&
-          (offset % (CHUNK_SIZE * 64) == 0 || offset == efm_buffer.size())) {
-        progress_callback_(offset, efm_buffer.size(), "Decoding EFM...");
+          (offset % PROGRESS_STRIDE == 0 || offset == efm_buffer.size())) {
+        // Map the decode onto kBufferProgressPct..99 % of the bar, and put the
+        // live percentage in the label so the modal shows motion even when the
+        // integer bar value has not changed between updates.
+        const uint64_t decode_pct =
+            kBufferProgressPct +
+            (static_cast<uint64_t>(offset) * (99 - kBufferProgressPct)) /
+                efm_buffer.size();
+        progress_callback_(
+            decode_pct, 100,
+            "Decoding EFM... " + std::to_string(decode_pct) + "%");
       }
     }
 
+    // finishStream() flushes the pipeline tail and writes final output/report
+    // without emitting progress of its own; mark the bar so the modal does not
+    // look stalled during the finalise step.
+    if (progress_callback_) {
+      progress_callback_(99, 100, "Finalising EFM decode...");
+    }
     const bool ok = processor.finishStream();
     if (!ok) {
       std::string reason = processor.lastError();

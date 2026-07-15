@@ -168,35 +168,41 @@ so the pipeline's remaining value-semantics cost is cleared in one sweep.
 
 ---
 
-## Phase 5 — Cleanup & hygiene (Minor / Info)
+## Phase 5 — Cleanup & hygiene (Minor / Info) ✅
 
-Low-risk tidy-ups; batch into one commit.
+Low-risk tidy-ups; batched into one commit. **All items done** (2026-07-15), including the optional
+5.2/5.3 hardening. `orc-efm-decode` builds clean (warnings-as-errors + clang-tidy) and all 50 EFM
+stage/contract tests pass.
 
-### 5.1 — P-11: dead code and build hygiene remnants ⚠️
-Already done: `-w` → targeted suppressions, `SPDLOG_ACTIVE_LEVEL`, deleted `file_io.h`/`section_io.h`,
-removed several unused members and the `Data24::setData` no-op loop. Remaining:
-- `-O2` still force-set in Debug in `common/efm-decode/CMakeLists.txt` — make deliberate or drop so
-  Debug is debuggable.
-- Commented-out `QDataStream` blocks in `section.cpp`, `frame.cpp`, `section_metadata.cpp` — delete.
-- Unused declarations: `F3FrameToF2Section::m_inputBuffer`, `TvaluesToChannel::m_frameData` /
-  `m_tvalues`, the `Tvalues` class (`tvalues.h`/`tvalues.cpp`, only self-referenced),
-  `F2Section::showData`, `Sector::showData` — delete or wire up.
-- Documentation nits from the findings (efm.cpp "10-bit" → 14-bit; `reedsolomon.h` ezpwd macro
-  parameter labels; the "interleaved" padding comment; duplicated validation log messages).
-- Optionally extract recurring magic numbers (588, 98, 2352, 382, `0x0B`, 550/600, 1000/1000) into a
-  shared `efm_constants.h` with IEC/ECMA references — pairs naturally with task 1.2's mode-size
-  constants.
+### 5.1 — P-11: dead code and build hygiene remnants — **Done**
+Previously done: `-w` → targeted suppressions, `SPDLOG_ACTIVE_LEVEL`, deleted `file_io.h`/`section_io.h`,
+removed several unused members and the `Data24::setData` no-op loop. Completed here:
+- **`-O2` in Debug made deliberate:** `common/efm-decode/CMakeLists.txt` documents the perf rationale
+  and adds a `-DORC_EFM_DEBUG_UNOPTIMISED=ON` cache option that drops the forced `-O2` for a genuinely
+  debuggable Debug build.
+- **Deleted** the commented-out `QDataStream` blocks in `section.cpp`, `frame.cpp`,
+  `section_metadata.cpp`.
+- **Deleted** the unused declarations: `F3FrameToF2Section::m_inputBuffer`,
+  `TvaluesToChannel::m_frameData` / `m_tvalues`, the `Tvalues` class (`tvalues.h`/`tvalues.cpp` removed),
+  `F2Section::showData`, `Sector::showData`.
+- **Doc nits:** rewrote the misleading "interleaved" padding comment (it inserts a contiguous block)
+  and fixed the wrong-function log names in `SectionMetadata::setTrackNumber`. (The `efm.cpp` "10-bit"
+  and `reedsolomon.h` ezpwd-label nits were already correct in the tree.)
+- **Magic numbers extracted:** new `efm-lib/efm_constants.h` (namespace `efm`) defines 588, the
+  550/600 acceptance band, 98, 2352, `0x0B`, 382 and the 1000-byte false-positive threshold with
+  IEC 60908 / ECMA-130 references. Inline literals across the decoders (and the duplicated per-file
+  `kFramesPerSection = 98` constants) now route through it.
 
-### 5.2 — P-12: RS codec duplication / thread-safety ⚠️
-Thread-safety is now documented (satisfies the finding's "or document" option). Optional hardening:
-collapse the byte-identical duplicate configs (`c1rs`/`c2rs`, `qrs`/`prs`) to one type and/or make
-them members of `ReedSolomon`/`Rspc`. Do this **before** any Phase-P-9 parallelism is attempted.
+### 5.2 — P-12: RS codec duplication / thread-safety — **Done**
+The byte-identical duplicate configs were collapsed: `c1rs`/`c2rs` → one `CircRS` (RS(255,251),
+4 parity) serving both the (32,28) C1 and (28,24) C2 shortened codes; `qrs`/`prs` → one `RspcRS`
+(RS(255,253), 2 parity) serving both the Q(45,43) and P(26,24) codes. The deliberate shared-file-scope
+single-instance design (documented thread-safety) is retained.
 
-### 5.3 — Q-10(b): CRC-bit trial-flip in `repairData` (optional) ⚠️
-`repairData` trial-flips only bits 0–79, so single-bit errors in the 16 CRC bits (~17 % of single-bit
-errors) are never repaired. Harmless — those sections fall back to interpolation and the ±10-frame
-plausibility check mitigates false repairs. Extend the loop to 96 bits only if repair yield matters;
-otherwise close as won't-fix.
+### 5.3 — Q-10(b): CRC-bit trial-flip in `repairData` — **Done**
+`Subcode::repairData` now trial-flips all 96 Q-channel bits (was 0–79), so a single-bit error that
+landed in the 16 stored-CRC bits (~17 % of single-bit errors) is now recoverable. The downstream
+±10-frame plausibility check still guards against false repairs.
 
 ---
 

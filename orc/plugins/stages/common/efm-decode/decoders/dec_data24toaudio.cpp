@@ -8,6 +8,7 @@
 
 #include "dec_data24toaudio.h"
 
+#include "../efm-lib/efm_constants.h"
 #include "../efm-lib/efm_exception.h"
 
 Data24ToAudio::Data24ToAudio()
@@ -65,7 +66,7 @@ void Data24ToAudio::processQueue() {
       throw efm::EfmDecodeError(__func__);
     }
 
-    for (int index = 0; index < 98; ++index) {
+    for (int index = 0; index < efm::kFramesPerSection; ++index) {
       const Data24& d24Frame = data24Section.frame(index);
       std::vector<uint8_t> data24Data = d24Frame.data();
       std::vector<uint8_t> data24ErrorData = d24Frame.errorData();

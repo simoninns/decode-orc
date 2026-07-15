@@ -15,6 +15,7 @@
 #include <iomanip>
 #include <sstream>
 
+#include "efm_constants.h"
 #include "efm_exception.h"
 
 // ECMA-130 §14.2 / IEC 60908 §17.5.1: sector addresses are MIN:SEC:FRAME with
@@ -121,8 +122,8 @@ uint8_t SectorAddress::intToBcd(uint32_t value) {
 // The raw sector is 2352 bytes (unscrambled) and contains user data and error
 // correction data
 RawSector::RawSector()
-    : m_data(std::vector<uint8_t>(2352, 0)),
-      m_errorData(std::vector<uint8_t>(2352, 0)) {}
+    : m_data(std::vector<uint8_t>(efm::kRawSectorSize, 0)),
+      m_errorData(std::vector<uint8_t>(efm::kRawSectorSize, 0)) {}
 
 void RawSector::pushData(const std::vector<uint8_t>& inData) {
   m_data = inData;
@@ -220,44 +221,6 @@ const std::vector<uint8_t>& Sector::errorData() const { return m_errorData; }
 const std::vector<uint8_t>& Sector::paddedData() const { return m_paddedData; }
 
 uint32_t Sector::size() const { return static_cast<uint32_t>(m_data.size()); }
-
-void Sector::showData() {
-  // This logs at INFO, but the assembled hex dump is only useful for tracing;
-  // gate it behind trace so normal INFO logging is not flooded per sector.
-  if (!orc::get_logger()->should_log(spdlog::level::trace)) return;
-
-  const int bytesPerLine = 2048 / 64;
-  bool hasError = false;
-
-  for (int offset = 0; offset < static_cast<int>(m_data.size());
-       offset += bytesPerLine) {
-    // Print offset
-    std::string line = "Sector::showData() - [" + m_address.toString() + "] ";
-    char offsetStr[16];
-    snprintf(offsetStr, sizeof(offsetStr), "%06x: ", offset);
-    line += offsetStr;
-
-    // Print hex values
-    for (int i = 0;
-         i < bytesPerLine && (offset + i) < static_cast<int>(m_data.size());
-         ++i) {
-      if (m_errorData[offset + i] == 0) {
-        char hexStr[4];
-        snprintf(hexStr, sizeof(hexStr), "%02x ", m_data[offset + i]);
-        line += hexStr;
-      } else {
-        line += "XX ";
-        hasError = true;
-      }
-    }
-
-    ORC_LOG_TRACE("{}", line);
-  }
-
-  if (hasError) {
-    ORC_LOG_TRACE("Sector contains errors");
-  }
-}
 
 void Sector::setAddress(SectorAddress address) { m_address = address; }
 

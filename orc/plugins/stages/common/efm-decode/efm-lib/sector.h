@@ -113,7 +113,6 @@ class Sector {
   const std::vector<uint8_t>& errorData() const;
   const std::vector<uint8_t>& paddedData() const;
   uint32_t size() const;
-  void showData();
 
   void setAddress(SectorAddress address);
   SectorAddress address() const;

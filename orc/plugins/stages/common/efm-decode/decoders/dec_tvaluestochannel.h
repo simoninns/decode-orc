@@ -14,7 +14,6 @@
 #include <vector>
 
 #include "decoders.h"
-#include "tvalues.h"
 
 class TvaluesToChannel : public Decoder {
  public:
@@ -57,11 +56,9 @@ class TvaluesToChannel : public Decoder {
 
   State m_currentState;
   std::vector<uint8_t> m_internalBuffer;
-  std::vector<uint8_t> m_frameData;
 
   std::queue<std::vector<uint8_t>> m_outputBuffer;
 
-  Tvalues m_tvalues;
   uint64_t m_tvalueDiscardCount;
 
   State expectingInitialSync();

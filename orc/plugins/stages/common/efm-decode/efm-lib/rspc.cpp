@@ -14,28 +14,23 @@
 
 #include "ezpwd_compat.h"
 
-// ECMA-130 Q and P specific CIRC configuration for Reed-Solomon forward error
-// correction
+// ECMA-130 RSPC configuration for Reed-Solomon forward error correction. The Q
+// code is RS(45,43) and the P code is RS(26,24); both carry 2 parity symbols
+// over GF(2^8) with POLY=0x11D, FCR=0, PRIM=1, so a single RS(255,253) codec
+// (255 - 2 = 253 payload) decodes both as shortened code words. (P-12: the
+// former byte-identical QRS/PRS pair collapsed to one type.)
 template <size_t SYMBOLS, size_t PAYLOAD>
-struct QRS;
+struct RspcRS;
 template <size_t PAYLOAD>
-struct QRS<255, PAYLOAD>
-    : public __RS(QRS, uint8_t, 255, PAYLOAD, 0x11d, 0, 1, false);
+struct RspcRS<255, PAYLOAD>
+    : public __RS(RspcRS, uint8_t, 255, PAYLOAD, 0x11d, 0, 1, false);
 
-template <size_t SYMBOLS, size_t PAYLOAD>
-struct PRS;
-template <size_t PAYLOAD>
-struct PRS<255, PAYLOAD>
-    : public __RS(PRS, uint8_t, 255, PAYLOAD, 0x11d, 0, 1, false);
-
-// P-6/P-12: the RS correctors carry precomputed Galois-field tables. Building
+// P-6/P-12: the RS corrector carries precomputed Galois-field tables. Building
 // them per call was a measurable cost (P and Q run 86 + 52 times per corrupt
-// sector, more with the iterative RSPC), so they are constructed once at file
+// sector, more with the iterative RSPC), so it is constructed once at file
 // scope and reused. ezpwd's decode() is const (reads the tables, works in local
 // scratch), so a single shared instance is safe for concurrent decode() calls.
-// Q code is RS(45,43); P code is RS(26,24).
-QRS<255, 255 - 2> qrs;
-PRS<255, 255 - 2> prs;
+RspcRS<255, 255 - 2> rspcRs;
 
 Rspc::Rspc() {}
 
@@ -95,7 +90,7 @@ void Rspc::qParityEcc(std::vector<uint8_t>& inputData,
       if (qFieldErasures.size() > 2) continue;
 
       std::vector<int> position;
-      int fixed = qrs.decode(qField, qFieldErasures, &position);
+      int fixed = rspcRs.decode(qField, qFieldErasures, &position);
 
       if (fixed >= 0) {
         // Correction succeeded (the sector EDC is the final arbiter, so a rare
@@ -148,7 +143,7 @@ void Rspc::qParityEcc(std::vector<uint8_t>& inputData,
 
 void Rspc::pParityEcc(std::vector<uint8_t>& inputData,
                       std::vector<uint8_t>& errorData) {
-  // Uses the shared file-scope `prs` codec (see note above qrs).
+  // Uses the shared file-scope `rspcRs` codec (see note at file scope).
   // Keep track of the number of successful corrections
   int32_t successfulCorrections = 0;
 
@@ -189,7 +184,7 @@ void Rspc::pParityEcc(std::vector<uint8_t>& inputData,
       if (pFieldErasures.size() > 2) continue;
 
       std::vector<int> position;
-      int fixed = prs.decode(pField, pFieldErasures, &position);
+      int fixed = rspcRs.decode(pField, pFieldErasures, &position);
 
       if (fixed >= 0) {
         // Copy back the corrected data AND both P-parity bytes (Q protects the

@@ -8,13 +8,25 @@ file(GLOB_RECURSE EFM_DECODE_SOURCES CONFIGURE_DEPENDS
     ${CMAKE_CURRENT_SOURCE_DIR}/*.cpp
 )
 
+# P-11: force -O2 even in Debug because the decode path runs ~26M frames per
+# stereo disc and an unoptimised build is unusably slow to exercise. This is a
+# deliberate trade-off, but it makes source-level debugging of the EFM library
+# harder (inlined frames, reordered locals). A developer who needs to step
+# through the pipeline can configure with -DORC_EFM_DEBUG_UNOPTIMISED=ON to drop
+# the forced optimisation and get a genuinely debuggable Debug build.
+option(ORC_EFM_DEBUG_UNOPTIMISED
+    "Do not force -O2 on the EFM decode sources (debuggable Debug build)" OFF)
+
 if(NOT MSVC)
-    # Performance-critical pipeline: force -O2 even in Debug. The EFM sources
-    # carry a lot of signed/unsigned comparison noise; suppress only those
-    # categories with targeted flags instead of the blanket "-w" (which hid all
-    # diagnostics, including genuinely useful ones).
+    # The EFM sources carry a lot of signed/unsigned comparison noise; suppress
+    # only those categories with targeted flags instead of the blanket "-w"
+    # (which hid all diagnostics, including genuinely useful ones).
+    set(EFM_DECODE_COMPILE_FLAGS "-Wno-sign-compare -Wno-sign-conversion")
+    if(NOT ORC_EFM_DEBUG_UNOPTIMISED)
+        set(EFM_DECODE_COMPILE_FLAGS "-O2 ${EFM_DECODE_COMPILE_FLAGS}")
+    endif()
     set_source_files_properties(${EFM_DECODE_SOURCES} PROPERTIES
-        COMPILE_FLAGS "-O2 -Wno-sign-compare -Wno-sign-conversion")
+        COMPILE_FLAGS "${EFM_DECODE_COMPILE_FLAGS}")
 endif()
 
 add_library(orc-efm-decode STATIC

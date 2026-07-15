@@ -24,7 +24,6 @@ class F2Section {
   void setFrame(int index, const F2Frame& inFrame);
   bool isComplete() const;
   void clear();
-  void showData();
 
   SectionMetadata metadata;
 

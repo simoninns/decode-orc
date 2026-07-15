@@ -31,7 +31,6 @@ class F3FrameToF2Section : public Decoder {
   void processStateMachine();
   void outputSection(bool showAddress);
 
-  std::queue<F3Frame> m_inputBuffer;
   std::queue<F2Section> m_outputBuffer;
 
   std::vector<F3Frame> m_internalBuffer;

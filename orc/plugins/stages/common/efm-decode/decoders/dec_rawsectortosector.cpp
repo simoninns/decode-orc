@@ -13,6 +13,7 @@
 #include <utility>
 #include <vector>
 
+#include "../efm-lib/efm_constants.h"
 #include "../efm-lib/efm_exception.h"
 
 // This table is the CRC32 look-up for the EDC data
@@ -104,7 +105,7 @@ void RawSectorToSector::processQueue() {
     bool rawSectorValid = false;
 
     // Verify the data sizes (sanity check)
-    if (rawSector.data().size() != 2352) {
+    if (rawSector.data().size() != efm::kRawSectorSize) {
       ORC_LOG_DEBUG(
           "RawSectorToSector::processQueue(): Sector data size is incorrect. "
           "Expected 2352 bytes, got {} bytes",
@@ -114,7 +115,7 @@ void RawSectorToSector::processQueue() {
       throw efm::EfmDecodeError(__func__);
     }
 
-    if (rawSector.errorData().size() != 2352) {
+    if (rawSector.errorData().size() != efm::kRawSectorSize) {
       ORC_LOG_DEBUG(
           "RawSectorToSector::processQueue(): Sector error data size is "
           "incorrect. Expected 2352 bytes, got {} bytes",
@@ -125,7 +126,7 @@ void RawSectorToSector::processQueue() {
       throw efm::EfmDecodeError(__func__);
     }
 
-    if (rawSector.paddedData().size() != 2352) {
+    if (rawSector.paddedData().size() != efm::kRawSectorSize) {
       ORC_LOG_DEBUG(
           "RawSectorToSector::processQueue(): Sector padded data size is "
           "incorrect. Expected 2352 bytes, got {} bytes",
@@ -325,7 +326,7 @@ void RawSectorToSector::processQueue() {
         // surfaced rather than silently accepted.
         const std::vector<uint8_t>& d = rawSector.data();
         bool allZero = true;
-        for (size_t i = 16; i < 2352 && allZero; ++i) {
+        for (size_t i = 16; i < efm::kRawSectorSize && allZero; ++i) {
           if (d[i] != 0) allZero = false;
         }
         if (!allZero) {

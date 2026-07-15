@@ -123,32 +123,6 @@ bool Frame::isFull() const { return !m_frameData.empty(); }
 // Check if the frame is empty (i.e., has no data)
 bool Frame::isEmpty() const { return m_frameData.empty(); }
 
-// NOTE: QDataStream operators disabled for C++17 migration
-// Serialization of Frame objects is not currently supported
-/*
-QDataStream& operator<<(QDataStream& out, const Frame& frame)
-{
-    // Write frame data
-    out << frame.m_frameData;
-    // Write error data
-    out << frame.m_frameErrorData;
-    // Write padding data
-    out << frame.m_framePaddedData;
-    return out;
-}
-
-QDataStream& operator>>(QDataStream& in, Frame& frame)
-{
-    // Read frame data
-    in >> frame.m_frameData;
-    // Read error data
-    in >> frame.m_frameErrorData;
-    // Read padded data
-    in >> frame.m_framePaddedData;
-    return in;
-}
-*/
-
 // Constructor for Data24, initializes data to the frame size
 Data24::Data24() {
   m_frameData.resize(frameSize());

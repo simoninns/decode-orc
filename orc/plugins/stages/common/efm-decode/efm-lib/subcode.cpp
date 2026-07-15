@@ -596,8 +596,12 @@ uint16_t Subcode::calculateQChannelCrc16(
 bool Subcode::repairData(std::vector<uint8_t>& qChannelData) {
   std::vector<uint8_t> dataCopy = qChannelData;
 
-  // 96-16 = Don't repair CRC bits
-  for (int i = 0; i < 96 - 16; ++i) {
+  // Q-10(b): trial-flip every one of the 96 Q-channel bits, including the 16
+  // stored-CRC bits (80..95). A single-bit error that landed in the CRC field
+  // itself is ~17% of all single-bit errors; flipping it back makes the stored
+  // CRC match the (already-correct) data again, so the whole 96-bit word is
+  // recoverable rather than only the 80 data bits.
+  for (int i = 0; i < 96; ++i) {
     dataCopy = qChannelData;
     dataCopy[i / 8] =
         static_cast<uint8_t>(dataCopy[i / 8] ^ (1 << (7 - (i % 8))));

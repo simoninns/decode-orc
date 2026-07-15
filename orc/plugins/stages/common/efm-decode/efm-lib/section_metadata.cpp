@@ -44,24 +44,6 @@ std::string SectionType::toString() const {
   }
 }
 
-// Stream operators for SectionType
-// NOTE: QDataStream operators disabled for C++17 migration
-/*
-QDataStream &operator>>(QDataStream &in, SectionType &type)
-{
-    int32_t rawType;
-    in >> rawType;
-    type.setType(static_cast<SectionType::Type>(rawType));
-    return in;
-}
-
-QDataStream &operator<<(QDataStream &out, const SectionType &type)
-{
-    out << static_cast<int32_t>(type.type());
-    return out;
-}
-*/
-
 // Section time class
 // ---------------------------------------------------------------------------------------------------
 SectionTime::SectionTime() : m_frames(0) {
@@ -163,24 +145,6 @@ uint8_t SectionTime::intToBcd(uint32_t value) {
   return bcd & 0xFF;
 }
 
-// Stream operators for SectionTime
-// NOTE: QDataStream operators disabled for C++17 migration
-/*
-QDataStream &operator>>(QDataStream &in, SectionTime &time)
-{
-    int32_t frames;
-    in >> frames;
-    time.setFrames(frames);
-    return in;
-}
-
-QDataStream &operator<<(QDataStream &out, const SectionTime &time)
-{
-    out << time.frames();
-    return out;
-}
-*/
-
 // Section metadata class
 // -----------------------------------------------------------------------------------------------
 void SectionMetadata::setSectionType(const SectionType& sectionType,
@@ -225,7 +189,7 @@ void SectionMetadata::setTrackNumber(uint8_t trackNumber) {
   if (m_sectionType.type() == SectionType::LeadIn) {
     if (m_trackNumber != 0) {
       ORC_LOG_DEBUG(
-          "SectionMetadata::setSectionType(): Setting track number to 0 for "
+          "SectionMetadata::setTrackNumber(): Setting track number to 0 for "
           "LeadIn section (was {})",
           m_trackNumber);
       m_trackNumber = 0;
@@ -234,7 +198,7 @@ void SectionMetadata::setTrackNumber(uint8_t trackNumber) {
   if (m_sectionType.type() == SectionType::LeadOut) {
     if (m_trackNumber != 0) {
       ORC_LOG_DEBUG(
-          "SectionMetadata::setSectionType(): Setting track number to 0 for "
+          "SectionMetadata::setTrackNumber(): Setting track number to 0 for "
           "LeadOut section (was {})",
           m_trackNumber);
       m_trackNumber = 0;
@@ -244,71 +208,9 @@ void SectionMetadata::setTrackNumber(uint8_t trackNumber) {
   if ((m_sectionType.type() == SectionType::UserData) &&
       (m_trackNumber < 1 || m_trackNumber > 99)) {
     ORC_LOG_DEBUG(
-        "SectionMetadata::setSectionType(): Setting track number to 1 for "
+        "SectionMetadata::setTrackNumber(): Setting track number to 1 for "
         "UserData section (was {})",
         m_trackNumber);
     m_trackNumber = 1;
   }
 }
-
-// Stream operators for SectionMetadata
-// NOTE: QDataStream operators disabled for C++17 migration
-/*
-QDataStream &operator>>(QDataStream &in, SectionMetadata &metadata)
-{
-    // Read section type and times
-    in >> metadata.m_sectionType;
-    in >> metadata.m_sectionTime;
-    in >> metadata.m_absoluteSectionTime;
-
-    // Read track number
-    in >> metadata.m_trackNumber;
-
-    // Read boolean flags
-    in >> metadata.m_isValid;
-    in >> metadata.m_isAudio;
-    in >> metadata.m_isCopyProhibited;
-    in >> metadata.m_hasPreemphasis;
-    in >> metadata.m_is2Channel;
-    in >> metadata.m_pFlag;
-
-    // Read qmode 1 and 2 parameters
-    in >> metadata.m_upcEanCode;
-    in >> metadata.m_isrcCode;
-
-    // Read Q mode
-    int32_t qMode;
-    in >> qMode;
-    metadata.m_qMode = static_cast<SectionMetadata::QMode>(qMode);
-
-    return in;
-}
-
-QDataStream &operator<<(QDataStream &out, const SectionMetadata &metadata)
-{
-    // Write section type and times
-    out << metadata.m_sectionType;
-    out << metadata.m_sectionTime;
-    out << metadata.m_absoluteSectionTime;
-
-    // Write track number
-    out << metadata.m_trackNumber;
-
-    // Write boolean flags
-    out << metadata.m_isValid;
-    out << metadata.m_isAudio;
-    out << metadata.m_isCopyProhibited;
-    out << metadata.m_hasPreemphasis;
-    out << metadata.m_is2Channel;
-    out << metadata.m_pFlag;
-
-    // Write qmode 1 and 2 parameters
-    out << metadata.m_upcEanCode;
-    out << metadata.m_isrcCode;
-
-    // Write Q mode
-    out << static_cast<int32_t>(metadata.m_qMode);
-
-    return out;
-}
-*/

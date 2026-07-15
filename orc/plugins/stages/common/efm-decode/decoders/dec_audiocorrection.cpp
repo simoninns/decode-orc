@@ -13,10 +13,12 @@
 #include <cmath>
 #include <utility>
 
+#include "../efm-lib/efm_constants.h"
+
 namespace {
 
 // Section/frame geometry (98 frames of 12 mono samples = 6 stereo pairs each).
-constexpr int kFramesPerSection = 98;
+constexpr int kFramesPerSection = efm::kFramesPerSection;
 constexpr int kSamplesPerChannelPerFrame = 6;
 constexpr int kSamplesPerFrame = 12;  // 6 stereo pairs, interleaved L,R
 constexpr int kSamplesPerChannel =

@@ -11,6 +11,8 @@
 #include <cmath>
 #include <vector>
 
+#include "../efm-lib/efm_constants.h"
+
 namespace {
 
 // IEC 60908 §17.5 CONTROL: pre-emphasis is the 50/15 us network. The playback
@@ -35,7 +37,7 @@ constexpr double kB1 = (1.0 - kKTau2) / (1.0 + kKTau1);
 constexpr double kA1 = (1.0 - kKTau1) / (1.0 + kKTau1);
 
 // Section/frame geometry: 98 frames of 12 interleaved L,R int16 samples.
-constexpr int kFramesPerSection = 98;
+constexpr int kFramesPerSection = efm::kFramesPerSection;
 constexpr int kSamplesPerFrame = 12;
 
 // int16_t saturation bounds for the filtered output.

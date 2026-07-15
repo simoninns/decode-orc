@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "../efm-lib/efm_constants.h"
 #include "../efm-lib/efm_exception.h"
 
 F2SectionToF1Section::F2SectionToF1Section()
@@ -106,7 +107,7 @@ void F2SectionToF1Section::processQueue() {
       m_lastFrameNumber = f2Section.metadata.absoluteSectionTime().frames();
     }
 
-    for (int index = 0; index < 98; index++) {
+    for (int index = 0; index < efm::kFramesPerSection; index++) {
       const F2Frame& f2Frame = f2Section.frame(index);
       std::vector<uint8_t> data = f2Frame.data();
       std::vector<uint8_t> errorData = f2Frame.errorData();
@@ -229,7 +230,7 @@ void F2SectionToF1Section::flush() {
   // so the trapped genuine frames are carried out as F1 frames. The last frames
   // to emerge are our own padding, marked padded=1 (concealed as silence).
   constexpr int32_t kMaxCircLatency = 1 + 108 + 2;  // 111 F2 frames
-  constexpr int32_t kFramesPerSection = 98;
+  constexpr int32_t kFramesPerSection = efm::kFramesPerSection;
   // Round up to whole sections so downstream always receives complete sections.
   constexpr int32_t kFlushSections =
       (kMaxCircLatency + kFramesPerSection - 1) / kFramesPerSection;  // 2

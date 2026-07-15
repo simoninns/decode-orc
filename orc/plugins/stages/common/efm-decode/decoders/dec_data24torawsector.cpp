@@ -13,9 +13,11 @@
 #include <algorithm>
 #include <cstddef>
 
+#include "efm_constants.h"
+
 // See https://www.domesday86.com/?page_id=2678#CD_Sector_descrambling
 // for the code used to generate this look-up table
-static constexpr uint8_t unscrambleTable[2352] = {
+static constexpr uint8_t unscrambleTable[efm::kRawSectorSize] = {
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
     0x01, 0x80, 0x00, 0x60, 0x00, 0x28, 0x00, 0x1E, 0x80, 0x08, 0x60, 0x06,
     0xA8, 0x02, 0xFE, 0x81, 0x80, 0x60, 0x60, 0x28, 0x28, 0x1E, 0x9E, 0x88,
@@ -257,11 +259,11 @@ void Data24ToRawSector::processStateMachine() {
     m_inputBuffer.pop_front();
 
     // Add the data24 section's data to the sector data buffer
-    m_sectorData.reserve(m_sectorData.size() + 2352);
-    m_sectorErrorData.reserve(m_sectorErrorData.size() + 2352);
-    m_sectorPaddedData.reserve(m_sectorPaddedData.size() + 2352);
+    m_sectorData.reserve(m_sectorData.size() + efm::kRawSectorSize);
+    m_sectorErrorData.reserve(m_sectorErrorData.size() + efm::kRawSectorSize);
+    m_sectorPaddedData.reserve(m_sectorPaddedData.size() + efm::kRawSectorSize);
 
-    for (int i = 0; i < 98; i++) {
+    for (int i = 0; i < efm::kFramesPerSection; i++) {
       const Data24& d24Frame = data24Section.frame(i);
 
       // Data
@@ -298,7 +300,7 @@ Data24ToRawSector::State Data24ToRawSector::waitingForSync() {
   State nextState = WaitingForSync;
 
   // Is there enough data in the buffer to form a sector?
-  if (m_sectorData.size() < 2352) {
+  if (m_sectorData.size() < efm::kRawSectorSize) {
     // Not enough data
     ORC_LOG_DEBUG(
         "Data24ToRawSector::waitingForSync(): Not enough data in sectorData to "
@@ -359,7 +361,7 @@ Data24ToRawSector::State Data24ToRawSector::waitingForSync() {
     // bytes in the sector
     int32_t errorByteCount = 0;
     int32_t paddingByteCount = 0;
-    for (int i = 0; i < 2352; i++) {
+    for (int i = 0; i < efm::kRawSectorSize; i++) {
       if (static_cast<uint8_t>(m_sectorErrorData[i]) == 1) {
         errorByteCount++;
       }
@@ -372,7 +374,8 @@ Data24ToRawSector::State Data24ToRawSector::waitingForSync() {
     // High padding count alone (from CIRC delay contamination after gap-filling
     // sections) does not indicate a false positive – only high error count
     // does.
-    if (errorByteCount > 1000 && paddingByteCount > 1000) {
+    if (errorByteCount > efm::kSectorFalsePositiveByteThreshold &&
+        paddingByteCount > efm::kSectorFalsePositiveByteThreshold) {
       ORC_LOG_INFO(
           "Data24ToRawSector::waitingForSync(): Discarding sync as false "
           "positive due to {} error bytes and {} padding bytes",
@@ -410,7 +413,7 @@ Data24ToRawSector::State Data24ToRawSector::inSync() {
   State nextState = InSync;
 
   // Is there enough data in the buffer to form a sector?
-  if (m_sectorData.size() < 2352) {
+  if (m_sectorData.size() < efm::kRawSectorSize) {
     // Not enough data
     ORC_LOG_DEBUG(
         "Data24ToRawSector::inSync(): Not enough data in sectorData to form a "
@@ -432,7 +435,7 @@ Data24ToRawSector::State Data24ToRawSector::inSync() {
       // padding bytes in the sector
       int32_t errorByteCount = 0;
       int32_t paddingByteCount = 0;
-      for (int i = 0; i < 2352; i++) {
+      for (int i = 0; i < efm::kRawSectorSize; i++) {
         if (static_cast<uint8_t>(m_sectorErrorData[i]) == 1) {
           errorByteCount++;
         }
@@ -494,13 +497,15 @@ Data24ToRawSector::State Data24ToRawSector::inSync() {
 
     // Unscramble the sector (bytes 12 to 2351)
     std::vector<uint8_t> rawDataOut(m_sectorData.begin(),
-                                    m_sectorData.begin() + 2352);
-    std::vector<uint8_t> rawErrorDataOut(m_sectorErrorData.begin(),
-                                         m_sectorErrorData.begin() + 2352);
-    std::vector<uint8_t> rawPaddedDataOut(m_sectorPaddedData.begin(),
-                                          m_sectorPaddedData.begin() + 2352);
+                                    m_sectorData.begin() + efm::kRawSectorSize);
+    std::vector<uint8_t> rawErrorDataOut(
+        m_sectorErrorData.begin(),
+        m_sectorErrorData.begin() + efm::kRawSectorSize);
+    std::vector<uint8_t> rawPaddedDataOut(
+        m_sectorPaddedData.begin(),
+        m_sectorPaddedData.begin() + efm::kRawSectorSize);
 
-    for (int32_t i = 0; i < 2352; i++) {
+    for (int32_t i = 0; i < efm::kRawSectorSize; i++) {
       if (i < 12) {
         // Replace the sync pattern (or the EDC will always be wrong)
         rawDataOut[i] = m_syncPattern[i];
@@ -521,12 +526,13 @@ Data24ToRawSector::State Data24ToRawSector::inSync() {
     m_outputBuffer.push_back(rawSector);
     m_validSectorCount++;
 
-    // Remove 2352 bytes of processed data from the buffers
-    m_sectorData.erase(m_sectorData.begin(), m_sectorData.begin() + 2352);
+    // Remove one raw sector's worth of processed data from the buffers
+    m_sectorData.erase(m_sectorData.begin(),
+                       m_sectorData.begin() + efm::kRawSectorSize);
     m_sectorErrorData.erase(m_sectorErrorData.begin(),
-                            m_sectorErrorData.begin() + 2352);
+                            m_sectorErrorData.begin() + efm::kRawSectorSize);
     m_sectorPaddedData.erase(m_sectorPaddedData.begin(),
-                             m_sectorPaddedData.begin() + 2352);
+                             m_sectorPaddedData.begin() + efm::kRawSectorSize);
   }
 
   return nextState;

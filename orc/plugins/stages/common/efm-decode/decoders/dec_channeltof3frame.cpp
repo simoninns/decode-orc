@@ -14,6 +14,7 @@
 #include <cmath>
 #include <queue>
 
+#include "efm_constants.h"
 #include "efm_exception.h"
 
 ChannelToF3Frame::ChannelToF3Frame() {
@@ -70,15 +71,15 @@ void ChannelToF3Frame::processQueue() {
     }
 
     // Generate statistics
-    if (bitCount != 588) {
+    if (bitCount != efm::kEfmFrameChannelBits) {
       ORC_LOG_DEBUG(
           "ChannelToF3Frame::processQueue() - Frame data is {} bits (should be "
           "588)",
           bitCount);
     }
-    if (bitCount == 588) m_goodFrames++;
-    if (bitCount < 588) m_undershootFrames++;
-    if (bitCount > 588) m_overshootFrames++;
+    if (bitCount == efm::kEfmFrameChannelBits) m_goodFrames++;
+    if (bitCount < efm::kEfmFrameChannelBits) m_undershootFrames++;
+    if (bitCount > efm::kEfmFrameChannelBits) m_overshootFrames++;
 
     // Create an F3 frame
     F3Frame f3Frame = createF3Frame(frameData);

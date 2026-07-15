@@ -44,12 +44,6 @@ bool F2Section::isComplete() const { return m_frames.size() == 98; }
 
 void F2Section::clear() { m_frames.clear(); }
 
-void F2Section::showData() {
-  for (int32_t i = 0; i < m_frames.size(); ++i) {
-    m_frames[i].showData();
-  }
-}
-
 F1Section::F1Section() { m_frames.reserve(98); }
 
 void F1Section::pushFrame(const F1Frame& inFrame) {
@@ -157,84 +151,3 @@ void AudioSection::showData() {
     m_frames[i].showData();
   }
 }
-
-// Stream write and read operators for F2Section and Data24Section
-// NOTE: QDataStream operators disabled for C++17 migration
-// Serialization of Section objects is not currently supported
-/*
-QDataStream& operator<<(QDataStream& stream, const F2Section& section)
-{
-    // Write metadata
-    stream << section.metadata;
-
-    // Write number of frames
-    stream << static_cast<int32_t>(section.m_frames.size());
-
-    // Write frames
-    for (const auto& frame : section.m_frames) {
-        stream << frame;
-    }
-
-    return stream;
-}
-
-QDataStream& operator>>(QDataStream& stream, F2Section& section)
-{
-    // Clear existing data
-    section.clear();
-
-    // Read metadata
-    stream >> section.metadata;
-
-    // Read number of frames
-    int32_t frameCount;
-    stream >> frameCount;
-
-    // Read frames
-    for (int32_t i = 0; i < frameCount; ++i) {
-        F2Frame frame;
-        stream >> frame;
-        section.pushFrame(frame);
-    }
-
-    return stream;
-}
-
-QDataStream& operator<<(QDataStream& stream, const Data24Section& section)
-{
-    // Write metadata
-    stream << section.metadata;
-
-    // Write number of frames
-    stream << static_cast<int32_t>(section.m_frames.size());
-
-    // Write frames
-    for (const auto& frame : section.m_frames) {
-        stream << frame;
-    }
-
-    return stream;
-}
-
-QDataStream& operator>>(QDataStream& stream, Data24Section& section)
-{
-    // Clear existing data
-    section.clear();
-
-    // Read metadata
-    stream >> section.metadata;
-
-    // Read number of frames
-    int32_t frameCount;
-    stream >> frameCount;
-
-    // Read frames
-    for (int32_t i = 0; i < frameCount; ++i) {
-        Data24 frame;
-        stream >> frame;
-        section.pushFrame(frame);
-    }
-
-    return stream;
-}
-*/

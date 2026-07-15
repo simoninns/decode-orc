@@ -16,28 +16,24 @@
 #include "efm_exception.h"
 #include "ezpwd_compat.h"
 
-// ezpwd C1 ECMA-130 CIRC configuration
+// ezpwd ECMA-130 CIRC configuration. Both the C1 (32,28) and C2 (28,24)
+// shortened codes carry 4 parity symbols over GF(2^8) with POLY=0x11D, FCR=0,
+// PRIM=1, so a single RS(255,251) codec (255 - 4 = 251 payload) decodes both -
+// ezpwd treats the shorter received words as shortened code words. (P-12: the
+// former byte-identical C1RS/C2RS pair collapsed to one type.)
 template <size_t SYMBOLS, size_t PAYLOAD>
-struct C1RS;
+struct CircRS;
 template <size_t PAYLOAD>
-struct C1RS<255, PAYLOAD>
-    : public __RS(C1RS, uint8_t, 255, PAYLOAD, 0x11D, 0, 1, false);
+struct CircRS<255, PAYLOAD>
+    : public __RS(CircRS, uint8_t, 255, PAYLOAD, 0x11D, 0, 1, false);
 
-// ezpwd C2 ECMA-130 CIRC configuration
-template <size_t SYMBOLS, size_t PAYLOAD>
-struct C2RS;
-template <size_t PAYLOAD>
-struct C2RS<255, PAYLOAD>
-    : public __RS(C2RS, uint8_t, 255, PAYLOAD, 0x11D, 0, 1, false);
-
-// P-12: the RS codecs carry precomputed Galois-field tables. ezpwd's decode()
+// P-12: the RS codec carries precomputed Galois-field tables. ezpwd's decode()
 // is a const method - it only reads those tables and works in local scratch -
 // so a single shared instance is safe for concurrent decode() calls from
 // multiple pipelines. A file-scope instance (constructed once) is used rather
 // than thread_local because this CIRC path calls decode() ~26M times per stereo
 // disc and is sensitive to per-access thread-local storage overhead.
-C1RS<255, 255 - 4> c1rs;
-C2RS<255, 255 - 4> c2rs;
+CircRS<255, 255 - 4> circRs;
 
 ReedSolomon::ReedSolomon() {
   // Initialise statistics
@@ -91,7 +87,7 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
   }
 
   // Decode the data
-  int result = c1rs.decode(m_scratchData, m_erasures, &m_position);
+  int result = circRs.decode(m_scratchData, m_erasures, &m_position);
 
   // Accept combinations satisfying 2e + s <= 4 (see c2Decode for the
   // rationale).
@@ -175,7 +171,7 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
   }
 
   // Decode the data
-  int result = c2rs.decode(m_scratchData, m_erasures, &m_position);
+  int result = circRs.decode(m_scratchData, m_erasures, &m_position);
 
   // E-1: accept erasure-dominated corrections up to the code's full capacity.
   // IEC 60908 §16.3 / ECMA-130 Annex C: the (28,24) C2 code corrects any

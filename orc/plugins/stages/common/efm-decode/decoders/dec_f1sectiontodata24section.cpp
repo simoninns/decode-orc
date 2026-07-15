@@ -11,6 +11,7 @@
 #include <cstdlib>
 #include <utility>
 
+#include "../efm-lib/efm_constants.h"
 #include "../efm-lib/efm_exception.h"
 
 F1SectionToData24Section::F1SectionToData24Section()
@@ -64,7 +65,7 @@ void F1SectionToData24Section::processQueue() {
       throw efm::EfmDecodeError(__func__);
     }
 
-    for (int index = 0; index < 98; ++index) {
+    for (int index = 0; index < efm::kFramesPerSection; ++index) {
       const F1Frame& f1Frame = f1Section.frame(index);
       std::vector<uint8_t> data = f1Frame.data();
       std::vector<uint8_t> errorData = f1Frame.errorData();

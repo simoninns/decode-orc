@@ -12,7 +12,8 @@
 
 #include <cmath>
 #include <cstddef>
-#include <stdexcept>
+
+#include "efm_exception.h"
 
 F3FrameToF2Section::F3FrameToF2Section()
     : m_badSyncCounter(0),
@@ -276,13 +277,16 @@ F3FrameToF2Section::State F3FrameToF2Section::lostSync() {
 
 void F3FrameToF2Section::outputSection(bool showAddress) {
   if (m_sectionFrames.size() != 98) {
-    throw std::runtime_error(
-        "F3FrameToF2Section::outputSection - Section size is not 98");
+    ORC_LOG_ERROR(
+        "F3FrameToF2Section::outputSection - Section size is {} not 98",
+        m_sectionFrames.size());
+    throw efm::EfmDecodeError(__func__);
   }
 
   Subcode subcode;
 
   std::vector<uint8_t> subcodeData;
+  subcodeData.reserve(98);  // P-7: one subcode byte per frame
   for (size_t i = 0; i < 98; ++i) {
     subcodeData.push_back(m_sectionFrames[i].subcodeByte());
   }

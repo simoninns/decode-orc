@@ -267,8 +267,9 @@ void EfmProcessor::drainPipeline(bool& zeroPadApplied) {
 
   t0 = std::chrono::high_resolution_clock::now();
   while (m_f3FrameToF2Section.isReady()) {
-    F2Section f2Section = m_f3FrameToF2Section.popSection();
-    m_f2SectionCorrection.pushSection(f2Section);
+    // P-1: move the section into the next stage (F2SectionCorrection has an
+    // rvalue pushSection overload) to avoid a whole-section deep copy.
+    m_f2SectionCorrection.pushSection(m_f3FrameToF2Section.popSection());
   }
   m_pipelineStats.f2CorrectionTime +=
       std::chrono::duration_cast<std::chrono::microseconds>(

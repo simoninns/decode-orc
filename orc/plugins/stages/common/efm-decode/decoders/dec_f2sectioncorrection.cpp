@@ -15,7 +15,20 @@
 #include <cmath>
 #include <deque>
 #include <queue>
-#include <stdexcept>
+#include <utility>
+
+#include "efm_exception.h"
+
+namespace {
+// R-3: a corrupt-but-CRC-valid absolute timestamp (a 16-bit CRC passes ~1/65536
+// of corrupt Q blocks) or a genuine multi-second dropout can claim an enormous
+// forward jump. Fabricating one fully-populated 98-frame dummy section per
+// frame of the jump would allocate unbounded memory (a jump to 99:59:74 is
+// ~450000 sections). Any gap larger than this many sections is treated as a
+// hard resync point rather than being filled. 375 sections = 5 seconds of
+// audio, well above any plausible inter-section gap on real media.
+constexpr int32_t kMaxMissingSectionFill = 375;
+}  // namespace
 
 F2SectionCorrection::F2SectionCorrection()
     : m_leadinComplete(false),
@@ -32,7 +45,7 @@ F2SectionCorrection::F2SectionCorrection()
       m_qmode2Sections(0),
       m_qmode3Sections(0),
       m_qmode4Sections(0),
-      m_absoluteStartTime(59, 59, 74),
+      m_absoluteStartTime(99, 59, 74),  // Max-time sentinel (IEC 60908 §17.5.1)
       m_absoluteEndTime(0, 0, 0),
       m_noTimecodes(false),
       m_receivedSections(0),
@@ -51,9 +64,19 @@ void F2SectionCorrection::pushSection(const F2Section& data) {
   processQueue();
 }
 
+void F2SectionCorrection::pushSection(F2Section&& data) {
+  ++m_receivedSections;
+  if (data.metadata.isValid()) ++m_validMetadataSections;
+
+  // Move the data into the input buffer to avoid a whole-section deep copy.
+  m_inputBuffer.push(std::move(data));
+
+  processQueue();
+}
+
 F2Section F2SectionCorrection::popSection() {
-  // Return the first item in the output buffer
-  F2Section section = m_outputBuffer.front();
+  // Move the first item out of the output buffer to avoid a deep copy.
+  F2Section section = std::move(m_outputBuffer.front());
   m_outputBuffer.pop();
   return section;
 }
@@ -81,8 +104,8 @@ void F2SectionCorrection::processQueue() {
 
   // Process the input buffer
   while (!m_inputBuffer.empty()) {
-    // Dequeue the next section
-    F2Section f2Section = m_inputBuffer.front();
+    // Dequeue the next section (move to avoid a whole-section deep copy)
+    F2Section f2Section = std::move(m_inputBuffer.front());
     m_inputBuffer.pop();
 
     // Do we have a last known good section?
@@ -203,13 +226,20 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
   // Check that this isn't the first section in the internal buffer (as we can't
   // calculate the expected time for the first section)
   if (m_internalBuffer.empty()) {
-    if (f2Section.metadata.isValid()) {
+    // Q-7: never seed an empty buffer from a Q-mode 2/3 section. Those sections
+    // carry only a frame number (MM:SS are zero) and a fabricated track/time,
+    // so using one as the timeline baseline poisons getExpectedAbsoluteTime().
+    // Wait for a mode-1 (or mode-4) section to establish the baseline instead.
+    const bool isModeWithoutTimeline =
+        f2Section.metadata.qMode() == SectionMetadata::QMode2 ||
+        f2Section.metadata.qMode() == SectionMetadata::QMode3;
+    if (f2Section.metadata.isValid() && !isModeWithoutTimeline) {
       // The internal buffer is empty, so we can just add the section
-      m_internalBuffer.push_back(f2Section);
+      m_internalBuffer.push_back(std::move(f2Section));
       ORC_LOG_DEBUG(
           "F2SectionCorrection::waitingForSection(): Added section to internal "
           "buffer with absolute time {}",
-          f2Section.metadata.absoluteSectionTime().toString());
+          m_internalBuffer.back().metadata.absoluteSectionTime().toString());
       return;
     } else {
       ORC_LOG_DEBUG(
@@ -258,18 +288,36 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
 
     f2Section.metadata.setAbsoluteSectionTime(correctedAbsoluteTime);
 
+    // Q-2: mode 2/3 blocks encode only the catalogue number / ISRC + AFRAME;
+    // they carry no TNO, INDEX or track-relative time (subcode.cpp fabricates
+    // track 1 / time 0 at parse time). Inherit the track number, section type
+    // and track-relative time from the surrounding mode-1 timeline so the
+    // section is attributed to the correct track instead of dragging track 1's
+    // statistics to 00:00:00.
+    for (int i = static_cast<int>(m_internalBuffer.size()) - 1; i >= 0; --i) {
+      if (!m_internalBuffer[i].metadata.isValid()) continue;
+      const SectionMetadata& prev = m_internalBuffer[i].metadata;
+      const int sectionsSincePrev =
+          static_cast<int>(m_internalBuffer.size()) - i;
+      f2Section.metadata.setSectionType(prev.sectionType(), prev.trackNumber());
+      f2Section.metadata.setSectionTime(prev.sectionTime() + sectionsSincePrev);
+      break;
+    }
+
     if (f2Section.metadata.qMode() == SectionMetadata::QMode2) {
       ORC_LOG_DEBUG(
           "F2SectionCorrection::waitingForSection(): Q Mode 2 section "
-          "detected, correcting absolute time to {}",
-          correctedAbsoluteTime.toString());
+          "detected, correcting absolute time to {} track {} track-time {}",
+          correctedAbsoluteTime.toString(), f2Section.metadata.trackNumber(),
+          f2Section.metadata.sectionTime().toString());
     }
 
     if (f2Section.metadata.qMode() == SectionMetadata::QMode3) {
       ORC_LOG_DEBUG(
           "F2SectionCorrection::waitingForSection(): Q Mode 3 section "
-          "detected, correcting absolute time to {}",
-          correctedAbsoluteTime.toString());
+          "detected, correcting absolute time to {} track {} track-time {}",
+          correctedAbsoluteTime.toString(), f2Section.metadata.trackNumber(),
+          f2Section.metadata.sectionTime().toString());
     }
   }
 
@@ -290,6 +338,28 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
       int32_t missingSections =
           f2Section.metadata.absoluteSectionTime().frames() -
           expectedAbsoluteTime.frames();
+
+      // R-3: guard against fabricating an unbounded number of dummy sections
+      // for an implausibly large forward jump (corrupt-but-CRC-valid timestamp
+      // or a genuine multi-second dropout). Emit whatever is already provable,
+      // drop any unresolved trailing invalid sections, and re-baseline the
+      // timeline from this section instead of filling the gap.
+      if (missingSections > kMaxMissingSectionFill) {
+        ORC_LOG_WARN(
+            "F2SectionCorrection::waitingForSection(): Implausible forward "
+            "jump "
+            "of {} sections (expected {}, got {}); resyncing timeline instead "
+            "of filling the gap.",
+            missingSections, expectedAbsoluteTime.toString(),
+            f2Section.metadata.absoluteSectionTime().toString());
+        while (!m_internalBuffer.empty() &&
+               m_internalBuffer.front().metadata.isValid()) {
+          emitSection();
+        }
+        m_internalBuffer.clear();
+        m_internalBuffer.push_back(std::move(f2Section));
+        return;
+      }
 
       if (missingSections > m_paddingWatermark) {
         // The gap is large - warn the user
@@ -343,10 +413,16 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
         missingSection.metadata.setSectionType(
             f2Section.metadata.sectionType(), f2Section.metadata.trackNumber());
 
-        // Ensure we don't end up with negative time...
+        // Q-5: the real section that follows the gap has track time
+        // f2Section.sectionTime(). The dummy inserted at gap index i (0-based,
+        // i in [0, missingSections)) precedes it by (missingSections - i)
+        // sections, so its track time must count *up* to the real section, not
+        // down from it. The previous formula (- (i + 1)) made track times run
+        // backwards across the gap.
         // Calculate the new frame value before constructing SectionTime to
-        // avoid triggering qFatal
-        int32_t newFrames = f2Section.metadata.sectionTime().frames() - (i + 1);
+        // avoid constructing a negative (throwing) SectionTime.
+        int32_t newFrames =
+            f2Section.metadata.sectionTime().frames() - (missingSections - i);
         if (newFrames >= 0) {
           missingSection.metadata.setSectionTime(SectionTime(newFrames));
         } else {
@@ -426,7 +502,7 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
     }
   }
 
-  if (outputSection) m_internalBuffer.push_back(f2Section);
+  if (outputSection) m_internalBuffer.push_back(std::move(f2Section));
   processInternalBuffer();
 }
 
@@ -452,18 +528,57 @@ SectionTime F2SectionCorrection::getExpectedAbsoluteTime() const {
 
 // Process the internal buffer
 void F2SectionCorrection::processInternalBuffer() {
+  // R-3: bound memory against an extended run of sections whose metadata never
+  // becomes valid (a long damaged region where the Q-subcode CRC keeps
+  // failing). Precise correction waits for a following valid section to bracket
+  // the gap, so such a run would otherwise accumulate in the internal buffer
+  // without limit (~10 KB per section -> memory exhaustion on hostile/badly
+  // damaged input). Once the trailing invalid run exceeds the correctable gap
+  // size it can never be precisely corrected anyway, so forward-fill it with
+  // best-effort monotonic metadata from the last known-good section (the same
+  // degradation used for an uncorrectable bracketed gap) and let it drain.
+  if (!m_internalBuffer.empty() &&
+      !m_internalBuffer.back().metadata.isValid()) {
+    int lastValid = -1;
+    for (int i = static_cast<int>(m_internalBuffer.size()) - 1; i >= 0; --i) {
+      if (m_internalBuffer[i].metadata.isValid()) {
+        lastValid = i;
+        break;
+      }
+    }
+    const int trailingInvalid =
+        static_cast<int>(m_internalBuffer.size()) - 1 - lastValid;
+    if (lastValid >= 0 && trailingInvalid > m_maximumGapSize) {
+      ORC_LOG_WARN(
+          "F2SectionCorrection::processInternalBuffer(): {} consecutive "
+          "invalid "
+          "sections exceed the correctable gap ({}); forward-filling with "
+          "best-effort metadata to bound memory.",
+          trailingInvalid, m_maximumGapSize);
+      const SectionMetadata anchor = m_internalBuffer[lastValid].metadata;
+      for (int i = lastValid + 1; i < static_cast<int>(m_internalBuffer.size());
+           ++i) {
+        const int offset = i - lastValid;
+        m_internalBuffer[i].metadata = anchor;
+        m_internalBuffer[i].metadata.setAbsoluteSectionTime(
+            anchor.absoluteSectionTime() + offset);
+        m_internalBuffer[i].metadata.setTrackNumber(anchor.trackNumber());
+        m_internalBuffer[i].metadata.setSectionTime(anchor.sectionTime() +
+                                                    offset);
+        m_internalBuffer[i].metadata.setValid(true);
+        m_uncorrectableSections++;
+      }
+    }
+  }
+
   // Sanity check - there cannot be an invalid section at the start of the
   // buffer
   if (!m_internalBuffer.empty() &&
       !m_internalBuffer.front().metadata.isValid()) {
-    ORC_LOG_DEBUG(
-        "F2SectionCorrection::correctInternalBuffer(): Invalid section at "
+    ORC_LOG_ERROR(
+        "F2SectionCorrection::processInternalBuffer(): Invalid section at "
         "start of internal buffer!");
-    throw std::runtime_error(
-        "F2SectionCorrection::correctInternalBuffer(): Exiting due to invalid "
-        "section at "
-        "start of internal buffer.");
-    return;
+    throw efm::EfmDecodeError(__func__);
   }
 
   // Sanity check - there cannot be an invalid section at the end of the buffer
@@ -515,17 +630,14 @@ void F2SectionCorrection::processInternalBuffer() {
           m_internalBuffer[errorEnd].metadata.absoluteSectionTime().toString(),
           gapLength, timeDifference);
 
-      // Is the gap length below the allowed maximum?
-      if (gapLength > m_maximumGapSize) {
-        // The gap is too large to correct
-        throw std::runtime_error(
-            "F2SectionCorrection::correctInternalBuffer(): Exiting due to gap "
-            "too "
-            "large in internal buffer.");
-      }
-
-      // Can we correct the error?
-      if (gapLength == timeDifference) {
+      // Can we correct the error precisely? We require the number of missing
+      // sections to match the timestamp difference across the gap and the gap
+      // to be within the conservative interpolation limit. Both a gap larger
+      // than the limit and a gap whose length disagrees with the bracketing
+      // timestamps are disc conditions (damage, a mastering discontinuity, or a
+      // 1/65536 CRC-valid-but-wrong timestamp), not programming errors, so they
+      // must degrade gracefully rather than abort the whole decode (R-2).
+      if (gapLength == timeDifference && gapLength <= m_maximumGapSize) {
         // We can correct the error
         for (int i = errorStart + 1; i < errorEnd; ++i) {
           SectionMetadata originalMetadata = m_internalBuffer[i].metadata;
@@ -610,10 +722,37 @@ void F2SectionCorrection::processInternalBuffer() {
               originalMetadata.absoluteSectionTime().toString());
         }
       } else {
-        // We cannot correct the error
-        throw std::runtime_error(
-            "F2SectionCorrection::correctInternalBuffer(): Exiting due to "
-            "uncorrectable error in internal buffer.");
+        // R-2: the gap cannot be reconciled precisely (too large, or the
+        // section count disagrees with the bracketing timestamps). Rather than
+        // aborting the entire decode, degrade: fill the gap with monotonic
+        // best-effort metadata derived from the last known-good section so the
+        // pipeline keeps flowing. The frame payloads in these sections are
+        // already flagged as errors, so downstream treatment is unaffected.
+        ORC_LOG_WARN(
+            "F2SectionCorrection::processInternalBuffer(): Uncorrectable gap "
+            "between {} and {} (gap length {}, time difference {}); filling "
+            "with best-effort metadata.",
+            m_internalBuffer[errorStart]
+                .metadata.absoluteSectionTime()
+                .toString(),
+            m_internalBuffer[errorEnd]
+                .metadata.absoluteSectionTime()
+                .toString(),
+            gapLength, timeDifference);
+
+        for (int i = errorStart + 1; i < errorEnd; ++i) {
+          m_internalBuffer[i].metadata = m_internalBuffer[errorStart].metadata;
+          m_internalBuffer[i].metadata.setAbsoluteSectionTime(
+              m_internalBuffer[errorStart].metadata.absoluteSectionTime() +
+              (i - errorStart));
+          m_internalBuffer[i].metadata.setTrackNumber(
+              m_internalBuffer[errorStart].metadata.trackNumber());
+          m_internalBuffer[i].metadata.setSectionTime(
+              m_internalBuffer[errorStart].metadata.sectionTime() +
+              (i - errorStart));
+          m_internalBuffer[i].metadata.setValid(true);
+          m_uncorrectableSections++;
+        }
       }
     }
   }
@@ -621,19 +760,26 @@ void F2SectionCorrection::processInternalBuffer() {
   outputSections();
 }
 
-// This function queues up the processed output sections and keeps track of the
-// statistics
+// Drain corrected sections to the output buffer, retaining a small lookahead
+// window so later gap corrections still have a "last known good" anchor.
+//
+// R-3: this previously popped exactly one section per input push, so any large
+// gap backlogged the internal buffer until flush() and forced a full-deque
+// rescan on every push (O(N) per section, quadratic over gap-heavy captures).
 void F2SectionCorrection::outputSections() {
-  // TODO(sdi): There should probably be some checks here to ensure the internal
-  // buffer is in a good state before outputting the sections
+  const size_t lookahead = static_cast<size_t>(m_maximumGapSize) + 2;
+  while (m_internalBuffer.size() > lookahead &&
+         m_internalBuffer.front().metadata.isValid()) {
+    emitSection();
+  }
+}
 
-  // Pop
-  F2Section section = m_internalBuffer.front();
+// Move the front section to the output buffer and update statistics.
+void F2SectionCorrection::emitSection() {
+  F2Section section = std::move(m_internalBuffer.front());
   m_internalBuffer.pop_front();
 
-  // Push
   m_totalSections++;
-  m_outputBuffer.push(section);
 
   // Statistics generation...
   uint8_t trackNumber = section.metadata.trackNumber();
@@ -698,16 +844,17 @@ void F2SectionCorrection::outputSections() {
       }
     }
   }
+
+  // Push the section (moved so no deep copy) after the statistics above have
+  // finished reading from it.
+  m_outputBuffer.push(std::move(section));
 }
 
 void F2SectionCorrection::flush() {
-  // Flush the internal buffer
-
-  // TODO(sdi): What about any remaining invalid sections in the internal
-  // buffer?
-
+  // Flush the entire internal buffer, including any remaining trailing sections
+  // (an end-of-stream tail may still contain uncorrected/invalid sections).
   while (!m_internalBuffer.empty()) {
-    outputSections();
+    emitSection();
   }
 }
 

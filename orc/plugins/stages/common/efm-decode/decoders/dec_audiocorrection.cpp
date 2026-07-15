@@ -10,9 +10,10 @@
 
 #include <fmt/format.h>
 
+#include <utility>
+
 AudioCorrection::AudioCorrection()
-    : m_firstSectionFlag(true),
-      m_concealedSamplesCount(0),
+    : m_concealedSamplesCount(0),
       m_silencedSamplesCount(0),
       m_validSamplesCount(0) {}
 
@@ -25,8 +26,8 @@ void AudioCorrection::pushSection(const AudioSection& audioSection) {
 }
 
 AudioSection AudioCorrection::popSection() {
-  // Return the first item in the output buffer
-  AudioSection result = m_outputBuffer.front();
+  // Move the first item out of the output buffer to avoid a deep copy.
+  AudioSection result = std::move(m_outputBuffer.front());
   m_outputBuffer.pop_front();
   return result;
 }
@@ -39,8 +40,12 @@ bool AudioCorrection::isReady() const {
 void AudioCorrection::processQueue() {
   // TODO(sdi): this will never correct the very first and last sections
 
-  // Pop a section from the input buffer
-  m_correctionBuffer.push_back(m_inputBuffer.front());
+  // R-5: guard against an empty input buffer (defensive - the only caller
+  // pushes before calling, but an empty front() would be undefined behaviour).
+  if (m_inputBuffer.empty()) return;
+
+  // Pop a section from the input buffer (move to avoid a deep copy)
+  m_correctionBuffer.push_back(std::move(m_inputBuffer.front()));
   m_inputBuffer.pop_front();
 
   // Perform correction on the section in the middle of the correction buffer
@@ -87,6 +92,22 @@ void AudioCorrection::processQueue() {
       std::vector<uint8_t> correctedRightErrorSamples;
       std::vector<uint8_t> correctedRightPaddedSamples;
 
+      // P-3: each of these accessors builds a fresh 6-element vector, so hoist
+      // them out of the per-sample loop (previously ~70 allocations per frame).
+      const std::vector<int16_t> precLeft = precedingFrame.dataLeft();
+      const std::vector<uint8_t> precLeftErr = precedingFrame.errorDataLeft();
+      const std::vector<int16_t> precRight = precedingFrame.dataRight();
+      const std::vector<uint8_t> precRightErr = precedingFrame.errorDataRight();
+      const std::vector<int16_t> corrLeft = correctingFrame.dataLeft();
+      const std::vector<uint8_t> corrLeftErr = correctingFrame.errorDataLeft();
+      const std::vector<int16_t> corrRight = correctingFrame.dataRight();
+      const std::vector<uint8_t> corrRightErr =
+          correctingFrame.errorDataRight();
+      const std::vector<int16_t> follLeft = followingFrame.dataLeft();
+      const std::vector<uint8_t> follLeftErr = followingFrame.errorDataLeft();
+      const std::vector<int16_t> follRight = followingFrame.dataRight();
+      const std::vector<uint8_t> follRightErr = followingFrame.errorDataRight();
+
       for (int sampleOffset = 0; sampleOffset < 6; ++sampleOffset) {
         // Left channel
         // Get the preceding, correcting and following left samples
@@ -95,25 +116,22 @@ void AudioCorrection::processQueue() {
             followingLeftSampleError;
 
         if (sampleOffset == 0) {
-          precedingLeftSample = precedingFrame.dataLeft().at(5);
-          precedingLeftSampleError = precedingFrame.errorDataLeft().at(5);
+          precedingLeftSample = precLeft.at(5);
+          precedingLeftSampleError = precLeftErr.at(5);
         } else {
-          precedingLeftSample = correctingFrame.dataLeft().at(sampleOffset - 1);
-          precedingLeftSampleError =
-              correctingFrame.errorDataLeft().at(sampleOffset - 1);
+          precedingLeftSample = corrLeft.at(sampleOffset - 1);
+          precedingLeftSampleError = corrLeftErr.at(sampleOffset - 1);
         }
 
-        correctingLeftSample = correctingFrame.dataLeft().at(sampleOffset);
-        correctingLeftSampleError =
-            correctingFrame.errorDataLeft().at(sampleOffset);
+        correctingLeftSample = corrLeft.at(sampleOffset);
+        correctingLeftSampleError = corrLeftErr.at(sampleOffset);
 
         if (sampleOffset == 5) {
-          followingLeftSample = followingFrame.dataLeft().at(0);
-          followingLeftSampleError = followingFrame.errorDataLeft().at(0);
+          followingLeftSample = follLeft.at(0);
+          followingLeftSampleError = follLeftErr.at(0);
         } else {
-          followingLeftSample = correctingFrame.dataLeft().at(sampleOffset + 1);
-          followingLeftSampleError =
-              correctingFrame.errorDataLeft().at(sampleOffset + 1);
+          followingLeftSample = corrLeft.at(sampleOffset + 1);
+          followingLeftSampleError = corrLeftErr.at(sampleOffset + 1);
         }
 
         if (correctingLeftSampleError != 0) {
@@ -165,27 +183,22 @@ void AudioCorrection::processQueue() {
             followingRightSampleError;
 
         if (sampleOffset == 0) {
-          precedingRightSample = precedingFrame.dataRight().at(5);
-          precedingRightSampleError = precedingFrame.errorDataRight().at(5);
+          precedingRightSample = precRight.at(5);
+          precedingRightSampleError = precRightErr.at(5);
         } else {
-          precedingRightSample =
-              correctingFrame.dataRight().at(sampleOffset - 1);
-          precedingRightSampleError =
-              correctingFrame.errorDataRight().at(sampleOffset - 1);
+          precedingRightSample = corrRight.at(sampleOffset - 1);
+          precedingRightSampleError = corrRightErr.at(sampleOffset - 1);
         }
 
-        correctingRightSample = correctingFrame.dataRight().at(sampleOffset);
-        correctingRightSampleError =
-            correctingFrame.errorDataRight().at(sampleOffset);
+        correctingRightSample = corrRight.at(sampleOffset);
+        correctingRightSampleError = corrRightErr.at(sampleOffset);
 
         if (sampleOffset == 5) {
-          followingRightSample = followingFrame.dataRight().at(0);
-          followingRightSampleError = followingFrame.errorDataRight().at(0);
+          followingRightSample = follRight.at(0);
+          followingRightSampleError = follRightErr.at(0);
         } else {
-          followingRightSample =
-              correctingFrame.dataRight().at(sampleOffset + 1);
-          followingRightSampleError =
-              correctingFrame.errorDataRight().at(sampleOffset + 1);
+          followingRightSample = corrRight.at(sampleOffset + 1);
+          followingRightSampleError = corrRightErr.at(sampleOffset + 1);
         }
 
         if (correctingRightSampleError != 0) {

@@ -16,14 +16,10 @@
 class Audio {
  public:
   void setData(const std::vector<int16_t>& data);
-  void setDataLeftRight(const std::vector<int16_t>& dataLeft,
-                        const std::vector<int16_t>& dataRight);
   std::vector<int16_t> data() const;
   std::vector<int16_t> dataLeft() const;
   std::vector<int16_t> dataRight() const;
   void setErrorData(const std::vector<uint8_t>& errorData);
-  void setErrorDataLeftRight(const std::vector<uint8_t>& errorDataLeft,
-                             const std::vector<uint8_t>& errorDataRight);
   std::vector<uint8_t> errorData() const;
   std::vector<uint8_t> errorDataLeft() const;
   std::vector<uint8_t> errorDataRight() const;

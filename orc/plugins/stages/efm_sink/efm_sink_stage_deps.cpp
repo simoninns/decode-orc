@@ -114,6 +114,11 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
   } catch (const efm::EfmDecodeError& e) {
     ORC_LOG_ERROR("EFMSinkDeps: {}", e.what());
     return {false, std::string("Error: EFMSink: ") + e.what()};
+  } catch (const std::exception& e) {
+    // Backstop: any other escape from the decoder must fail this stage rather
+    // than propagate out of the worker thread and kill the host.
+    ORC_LOG_ERROR("EFMSinkDeps: unexpected exception: {}", e.what());
+    return {false, std::string("Error: EFMSink: ") + e.what()};
   }
 
   if (progress_callback_) {

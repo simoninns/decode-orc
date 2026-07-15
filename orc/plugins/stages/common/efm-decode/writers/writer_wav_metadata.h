@@ -49,6 +49,10 @@ class WriterWavMetadata {
   std::vector<SectionTime> m_trackAbsEndTimes;
   std::vector<SectionTime> m_trackStartTimes;
   std::vector<SectionTime> m_trackEndTimes;
+  // Q-8: record whether each track carries the 50/15 us pre-emphasis flag so it
+  // can be surfaced in the metadata (PCM from pre-emphasised discs otherwise
+  // plays back without de-emphasis and with no indication that it is needed).
+  std::vector<bool> m_trackPreemphasis;
 
   void flush();
   std::string convertToAudacityTimestamp(int32_t minutes, int32_t seconds,

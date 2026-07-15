@@ -112,6 +112,13 @@ EFMAudioDecodeResult EFMAudioDecodeDeps::decode_to_cache(
     std::filesystem::remove(cache_path, ec);
     ORC_LOG_ERROR("EFMAudioDecodeDeps: {}", e.what());
     return {false, e.what(), 0};
+  } catch (const std::exception& e) {
+    // Backstop: any other escape from the decoder must fail this stage (and
+    // clean up the partial cache file) rather than kill the host process.
+    std::error_code ec;
+    std::filesystem::remove(cache_path, ec);
+    ORC_LOG_ERROR("EFMAudioDecodeDeps: unexpected exception: {}", e.what());
+    return {false, e.what(), 0};
   }
 
   std::error_code ec;

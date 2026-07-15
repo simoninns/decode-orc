@@ -114,12 +114,14 @@ void F2SectionToF1Section::processQueue() {
 
       m_delayLine1.push(data, errorData, paddedData);
       if (data.empty()) {
-        // Output an empty F1 frame (ensures the section is complete)
-        // Note: This isn't an error frame, it's just an empty frame
+        // Output a substituted F1 frame while the CIRC delay lines fill (warm
+        // up). E-7: this is fabricated filler, not genuine decoded data, so
+        // mark it padded=1 rather than passing zeros off as valid data
+        // downstream.
         F1Frame f1Frame;
         f1Frame.setData(std::vector<uint8_t>(24, 0));
         f1Frame.setErrorData(std::vector<uint8_t>(24, 0));
-        f1Frame.setPaddedData(std::vector<uint8_t>(24, 0));
+        f1Frame.setPaddedData(std::vector<uint8_t>(24, 1));
         f1Section.pushFrame(f1Frame);
         m_dlLostFramesCount++;
         continue;
@@ -133,12 +135,14 @@ void F2SectionToF1Section::processQueue() {
 
       m_delayLineM.push(data, errorData, paddedData);
       if (data.empty()) {
-        // Output an empty F1 frame (ensures the section is complete)
-        // Note: This isn't an error frame, it's just an empty frame
+        // Output a substituted F1 frame while the CIRC delay lines fill (warm
+        // up). E-7: this is fabricated filler, not genuine decoded data, so
+        // mark it padded=1 rather than passing zeros off as valid data
+        // downstream.
         F1Frame f1Frame;
         f1Frame.setData(std::vector<uint8_t>(24, 0));
         f1Frame.setErrorData(std::vector<uint8_t>(24, 0));
-        f1Frame.setPaddedData(std::vector<uint8_t>(24, 0));
+        f1Frame.setPaddedData(std::vector<uint8_t>(24, 1));
         f1Section.pushFrame(f1Frame);
         m_dlLostFramesCount++;
         continue;
@@ -158,12 +162,14 @@ void F2SectionToF1Section::processQueue() {
 
       m_delayLine2.push(data, errorData, paddedData);
       if (data.empty()) {
-        // Output an empty F1 frame (ensures the section is complete)
-        // Note: This isn't an error frame, it's just an empty frame
+        // Output a substituted F1 frame while the CIRC delay lines fill (warm
+        // up). E-7: this is fabricated filler, not genuine decoded data, so
+        // mark it padded=1 rather than passing zeros off as valid data
+        // downstream.
         F1Frame f1Frame;
         f1Frame.setData(std::vector<uint8_t>(24, 0));
         f1Frame.setErrorData(std::vector<uint8_t>(24, 0));
-        f1Frame.setPaddedData(std::vector<uint8_t>(24, 0));
+        f1Frame.setPaddedData(std::vector<uint8_t>(24, 1));
         f1Section.pushFrame(f1Frame);
         m_dlLostFramesCount++;
         continue;

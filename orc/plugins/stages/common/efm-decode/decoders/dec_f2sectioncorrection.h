@@ -21,6 +21,7 @@ class F2SectionCorrection : public Decoder {
  public:
   F2SectionCorrection();
   void pushSection(const F2Section& data);
+  void pushSection(F2Section&& data);
   F2Section popSection();
   bool isReady() const;
   bool isValid() const;
@@ -46,6 +47,7 @@ class F2SectionCorrection : public Decoder {
 
   void processInternalBuffer();
   void outputSections();
+  void emitSection();
 
   std::queue<F2Section> m_inputBuffer;
   std::deque<F2Section> m_leadinBuffer;
@@ -55,7 +57,6 @@ class F2SectionCorrection : public Decoder {
 
   bool m_leadinComplete;
 
-  std::deque<F2Section> m_window;
   int32_t m_maximumGapSize;
   int32_t m_paddingWatermark;
 

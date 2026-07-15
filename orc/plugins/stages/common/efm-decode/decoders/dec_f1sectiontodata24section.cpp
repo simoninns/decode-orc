@@ -127,42 +127,49 @@ void F1SectionToData24Section::showStatistics() const {
   ORC_LOG_INFO("    Unpadded F1 frames: {}", m_unpaddedF1FramesCount);
 
   ORC_LOG_INFO("  Data:");
-  uint32_t validBytes = (m_validF1FramesCount + m_invalidF1FramesCount) * 24;
-  double totalSize = static_cast<double>(validBytes + m_corruptBytesCount);
+  // E-8/P-10: total decoded bytes = every F1 frame's 24 bytes (corrupt bytes
+  // are a subset of these, so they must not be added again). Compute in 64-bit
+  // to avoid truncating the uint64 frame counters through a 32-bit product.
+  const uint64_t totalBytes = (m_validF1FramesCount + m_invalidF1FramesCount) *
+                              static_cast<uint64_t>(24);
+  const uint64_t goodBytes =
+      totalBytes >= m_corruptBytesCount ? totalBytes - m_corruptBytesCount : 0;
+  const double totalSize = static_cast<double>(totalBytes);
 
   if (totalSize < 1024) {
     // Show in bytes if less than 1KB
-    ORC_LOG_INFO("    Total bytes: {}", validBytes + m_corruptBytesCount);
-    ORC_LOG_INFO("    Valid bytes: {}", validBytes);
+    ORC_LOG_INFO("    Total bytes: {}", totalBytes);
+    ORC_LOG_INFO("    Valid bytes: {}", goodBytes);
     ORC_LOG_INFO("    Corrupt bytes: {}", m_corruptBytesCount);
     ORC_LOG_INFO("    Padded bytes: {}", m_paddedBytesCount);
   } else if (totalSize < 1024 * 1024) {
     // Show in KB if less than 1MB
-    double validKBytes =
-        static_cast<double>(validBytes + m_corruptBytesCount) / 1024.0;
-    double validOnlyKBytes = static_cast<double>(validBytes) / 1024.0;
+    double totalKBytes = static_cast<double>(totalBytes) / 1024.0;
+    double validKBytes = static_cast<double>(goodBytes) / 1024.0;
     double corruptKBytes = static_cast<double>(m_corruptBytesCount) / 1024.0;
     double paddedKBytes = static_cast<double>(m_paddedBytesCount) / 1024.0;
-    ORC_LOG_INFO("    Total KBytes: {:.2f}", validKBytes);
-    ORC_LOG_INFO("    Valid KBytes: {:.2f}", validOnlyKBytes);
+    ORC_LOG_INFO("    Total KBytes: {:.2f}", totalKBytes);
+    ORC_LOG_INFO("    Valid KBytes: {:.2f}", validKBytes);
     ORC_LOG_INFO("    Corrupt KBytes: {:.2f}", corruptKBytes);
     ORC_LOG_INFO("    Padded KBytes: {:.2f}", paddedKBytes);
   } else {
     // Show in MB if 1MB or larger
-    double validMBytes = static_cast<double>(validBytes + m_corruptBytesCount) /
-                         (1024.0 * 1024.0);
-    double validOnlyMBytes =
-        static_cast<double>(validBytes) / (1024.0 * 1024.0);
+    double totalMBytes = static_cast<double>(totalBytes) / (1024.0 * 1024.0);
+    double validMBytes = static_cast<double>(goodBytes) / (1024.0 * 1024.0);
     double corruptMBytes =
         static_cast<double>(m_corruptBytesCount) / (1024.0 * 1024.0);
     double paddedMBytes =
         static_cast<double>(m_paddedBytesCount) / (1024.0 * 1024.0);
-    ORC_LOG_INFO("    Total MBytes: {:.2f}", validMBytes);
-    ORC_LOG_INFO("    Valid MBytes: {:.2f}", validOnlyMBytes);
+    ORC_LOG_INFO("    Total MBytes: {:.2f}", totalMBytes);
+    ORC_LOG_INFO("    Valid MBytes: {:.2f}", validMBytes);
     ORC_LOG_INFO("    Corrupt MBytes: {:.2f}", corruptMBytes);
     ORC_LOG_INFO("    Padded MBytes: {:.2f}", paddedMBytes);
   }
 
-  ORC_LOG_INFO("    Data loss: {:.3f}%",
-               (m_corruptBytesCount * 100.0) / validBytes);
+  // Guard against divide-by-zero when no frames were decoded.
+  const double dataLoss =
+      totalBytes > 0 ? (static_cast<double>(m_corruptBytesCount) * 100.0) /
+                           static_cast<double>(totalBytes)
+                     : 0.0;
+  ORC_LOG_INFO("    Data loss: {:.3f}%", dataLoss);
 }

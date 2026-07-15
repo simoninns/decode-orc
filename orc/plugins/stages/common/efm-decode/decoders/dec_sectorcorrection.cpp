@@ -10,6 +10,16 @@
 
 #include <orc/stage/logging.h>
 
+namespace {
+// A missing-sector gap is filled with one fabricated 2048-byte sector each, so
+// a corrupt sector address (best-effort sectors emitted by RawSectorToSector no
+// longer carry an EDC-verified address) could otherwise request an unbounded
+// fill and exhaust memory. Cap the fill; a larger jump is treated as an address
+// discontinuity and the baseline is simply re-anchored. 4500 sectors = 1 minute
+// at 75 sectors/s, far beyond any plausible real dropout.
+constexpr int32_t kMaxSectorGapFill = 4500;
+}  // namespace
+
 SectorCorrection::SectorCorrection()
     : m_haveLastSectorInfo(false),
       m_lastSectorAddress(0),
@@ -43,7 +53,8 @@ void SectorCorrection::processQueue() {
       // This is the first sector - we have to fill the missing leading sectors
       // if the address isn't 0
 
-      if (sector.address().frameNumber() != 0) {
+      if (sector.address().frameNumber() != 0 &&
+          sector.address().address() <= kMaxSectorGapFill) {
         // Fill the missing leading sectors from address 0 to the first decoded
         // sector address
         ORC_LOG_DEBUG(
@@ -82,6 +93,17 @@ void SectorCorrection::processQueue() {
             "{} {} Gap: {}",
             m_lastSectorAddress.address(), m_lastSectorAddress.toString(),
             sector.address().address(), sector.address().toString(), gap);
+
+        // An implausibly large gap indicates a corrupt/discontinuous address
+        // rather than a real run of missing sectors; skip the fill (re-anchor
+        // the baseline below) so a bad address cannot allocate unbounded RAM.
+        if (gap > kMaxSectorGapFill) {
+          ORC_LOG_WARN(
+              "SectorCorrection::processQueue(): Gap of {} sectors exceeds the "
+              "fill cap ({}); treating as an address discontinuity.",
+              gap, kMaxSectorGapFill);
+          gap = 0;
+        }
 
         // Add missing sectors
         for (int32_t i = 0; i < gap; ++i) {

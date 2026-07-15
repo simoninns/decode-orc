@@ -24,21 +24,16 @@ class AudioCorrection : public Decoder {
 
  private:
   void processQueue();
-  std::string convertToAudacityTimestamp(int32_t minutes, int32_t seconds,
-                                         int32_t frames, int32_t subsection,
-                                         int32_t sample);
 
   std::deque<AudioSection> m_inputBuffer;
   std::deque<AudioSection> m_outputBuffer;
 
   std::vector<AudioSection> m_correctionBuffer;
 
-  bool m_firstSectionFlag;
-
-  // Statistics
-  uint32_t m_concealedSamplesCount;
-  uint32_t m_silencedSamplesCount;
-  uint32_t m_validSamplesCount;
+  // Statistics (P-10: 64-bit so sample counters do not wrap on long captures).
+  uint64_t m_concealedSamplesCount;
+  uint64_t m_silencedSamplesCount;
+  uint64_t m_validSamplesCount;
 };
 
 #endif  // DEC_AUDIOCORRECTION_H

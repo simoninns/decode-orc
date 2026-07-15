@@ -12,8 +12,11 @@
 #include <cstdint>
 #include <vector>
 
-// ezpwd configuration is:
-// NAME, TYPE, SYMBOLS, PAYLOAD, POLY, INIT, FCR, AGR
+// ezpwd __RS() macro parameters are:
+// NAME, TYPE, SYMBOLS, PAYLOAD, POLY, FCR, PRIM, DUAL
+// (the ECMA-130 values below are POLY=0x11D, FCR=0, PRIM=1, DUAL=false -
+// mislabelling FCR/PRIM as INIT/AGR would invite a future mis-edit of the
+// safety-critical first-consecutive-root value.)
 
 // To find the integer representation of the polynomial P(x)=x^8+x^4+x^3+x^2+1
 // treat the coefficients as binary digits, where each coefficient corresponds

@@ -9,13 +9,28 @@ file(GLOB_RECURSE EFM_DECODE_SOURCES CONFIGURE_DEPENDS
 )
 
 if(NOT MSVC)
-    # Vendored EFM pipeline sources are noisy and performance-critical.
-    set_source_files_properties(${EFM_DECODE_SOURCES} PROPERTIES COMPILE_FLAGS "-w -O2")
+    # Performance-critical pipeline: force -O2 even in Debug. The EFM sources
+    # carry a lot of signed/unsigned comparison noise; suppress only those
+    # categories with targeted flags instead of the blanket "-w" (which hid all
+    # diagnostics, including genuinely useful ones).
+    set_source_files_properties(${EFM_DECODE_SOURCES} PROPERTIES
+        COMPILE_FLAGS "-O2 -Wno-sign-compare -Wno-sign-conversion")
 endif()
 
 add_library(orc-efm-decode STATIC
     ${EFM_DECODE_SOURCES}
 )
+
+# P-11: make the log-level choice deliberate. This library's decode path runs
+# ~26 million frames per stereo disc, with DEBUG/TRACE log sites in the per-frame
+# and per-byte inner loops. A compiled-in-but-runtime-disabled spdlog call still
+# costs ~10 ns (level check + argument marshalling), which measures in the tens
+# of seconds across a full disc. So DEBUG and TRACE are deliberately compiled out
+# here (SPDLOG_LEVEL_INFO) - the opposite trade-off to orc-core/orc-gui - keeping
+# INFO-level statistics while paying nothing for the hot-loop diagnostics. Raise
+# this to DEBUG/TRACE temporarily when diagnosing the pipeline internals.
+target_compile_definitions(orc-efm-decode PRIVATE
+    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO)
 
 # Consumers include the entry point as "efm-decode/efm_processor.h" so the
 # shared-library provenance is visible at every include site. The internal

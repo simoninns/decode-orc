@@ -11,6 +11,7 @@
 #include <orc/stage/logging.h>
 
 #include <algorithm>
+#include <cstddef>
 
 // See https://www.domesday86.com/?page_id=2678#CD_Sector_descrambling
 // for the code used to generate this look-up table
@@ -368,6 +369,22 @@ Data24ToRawSector::State Data24ToRawSector::waitingForSync() {
           "Data24ToRawSector::waitingForSync(): Discarding sync as false "
           "positive due to {} error bytes and {} padding bytes",
           errorByteCount, paddingByteCount);
+
+      // R-4: the rejected sync pattern is currently at position 0 (the bytes
+      // before it were already erased above). We MUST consume it before
+      // returning to WaitingForSync, otherwise the next call re-finds the same
+      // pattern at position 0, re-rejects it, and the buffers grow without
+      // bound for the rest of the stream. Erase the sync bytes so the next
+      // search starts after this false positive.
+      const auto skip = static_cast<std::ptrdiff_t>(
+          std::min(m_syncPattern.size(), m_sectorData.size()));
+      m_discardedBytes += static_cast<int32_t>(skip);
+      m_sectorData.erase(m_sectorData.begin(), m_sectorData.begin() + skip);
+      m_sectorErrorData.erase(m_sectorErrorData.begin(),
+                              m_sectorErrorData.begin() + skip);
+      m_sectorPaddedData.erase(m_sectorPaddedData.begin(),
+                               m_sectorPaddedData.begin() + skip);
+
       nextState = WaitingForSync;
     } else {
       ORC_LOG_INFO(

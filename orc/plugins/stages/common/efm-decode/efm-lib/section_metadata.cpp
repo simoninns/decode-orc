@@ -17,6 +17,18 @@
 #include "efm_exception.h"
 #include "hex_utils.h"
 
+// IEC 60908 §17.5.1: AMIN/MIN and ASEC/SEC are two BCD digits each (00-99).
+// Nothing limits the program area to 60 minutes; real discs run 74-80+ minutes.
+// The maximum representable absolute time is therefore 99:59:74, i.e.
+// (99*60 + 59)*75 + 74 = 449999 frames. Any frame count must be strictly below
+// one past that value.
+namespace {
+constexpr int32_t kMaxSectionFrames = 450000;  // 99:59:74 + 1
+constexpr uint8_t kMaxMinutes = 99;
+constexpr uint8_t kMaxSeconds = 59;
+constexpr uint8_t kMaxFrameOfSecond = 74;
+}  // namespace
+
 // SectionType class
 // ---------------------------------------------------------------------------------------------------
 std::string SectionType::toString() const {
@@ -53,9 +65,7 @@ QDataStream &operator<<(QDataStream &out, const SectionType &type)
 // Section time class
 // ---------------------------------------------------------------------------------------------------
 SectionTime::SectionTime() : m_frames(0) {
-  // There are 75 frames per second, 60 seconds per minute, and 60 minutes per
-  // hour so the maximum number of frames is 75 * 60 * 60 = 270000
-  if (m_frames < 0 || m_frames >= 270000) {
+  if (m_frames < 0 || m_frames >= kMaxSectionFrames) {
     ORC_LOG_ERROR("SectionTime::SectionTime(): Invalid frame value of {}",
                   m_frames);
     throw efm::EfmDecodeError(__func__);
@@ -63,7 +73,7 @@ SectionTime::SectionTime() : m_frames(0) {
 }
 
 SectionTime::SectionTime(int32_t frames) : m_frames(frames) {
-  if (m_frames < 0 || m_frames >= 270000) {
+  if (m_frames < 0 || m_frames >= kMaxSectionFrames) {
     ORC_LOG_ERROR("SectionTime::SectionTime(): Invalid frame value of {}",
                   m_frames);
     throw efm::EfmDecodeError(__func__);
@@ -75,7 +85,7 @@ SectionTime::SectionTime(uint8_t minutes, uint8_t seconds, uint8_t frames) {
 }
 
 void SectionTime::setFrames(int32_t frames) {
-  if (frames < 0 || frames >= 270000) {
+  if (frames < 0 || frames >= kMaxSectionFrames) {
     ORC_LOG_ERROR("SectionTime::setFrames(): Invalid frame value of {}",
                   frames);
     throw efm::EfmDecodeError(__func__);
@@ -87,24 +97,26 @@ void SectionTime::setFrames(int32_t frames) {
 void SectionTime::setTime(uint8_t minutes, uint8_t seconds, uint8_t frames) {
   // Set the time in minutes, seconds, and frames
 
-  // Ensure the time is sane
-  if (minutes >= 60) {
+  // Ensure the time is sane. IEC 60908 §17.5.1: minutes/seconds are BCD 00-99,
+  // but seconds are modulo 60 within a minute and frames modulo 75 within a
+  // second, so the true ceilings are 99:59:74.
+  if (minutes > kMaxMinutes) {
     ORC_LOG_DEBUG(
-        "SectionTime::setTime(): Invalid minutes value {}, setting to 59",
-        minutes);
-    minutes = 59;
+        "SectionTime::setTime(): Invalid minutes value {}, setting to {}",
+        minutes, kMaxMinutes);
+    minutes = kMaxMinutes;
   }
-  if (seconds >= 60) {
+  if (seconds > kMaxSeconds) {
     ORC_LOG_DEBUG(
-        "SectionTime::setTime(): Invalid seconds value {}, setting to 59",
-        seconds);
-    seconds = 59;
+        "SectionTime::setTime(): Invalid seconds value {}, setting to {}",
+        seconds, kMaxSeconds);
+    seconds = kMaxSeconds;
   }
-  if (frames >= 75) {
+  if (frames > kMaxFrameOfSecond) {
     ORC_LOG_DEBUG(
-        "SectionTime::setTime(): Invalid frames value {}, setting to 74",
-        frames);
-    frames = 74;
+        "SectionTime::setTime(): Invalid frames value {}, setting to {}",
+        frames, kMaxFrameOfSecond);
+    frames = kMaxFrameOfSecond;
   }
 
   m_frames = (minutes * 60 + seconds) * 75 + frames;
@@ -195,8 +207,9 @@ void SectionMetadata::setSectionType(const SectionType& sectionType,
       m_trackNumber = 0;
     }
   }
+  // IEC 60908 §17.5.1: "01-99: Track numbers, BCD encoded". Track 99 is legal.
   if ((m_sectionType.type() == SectionType::UserData) &&
-      (m_trackNumber < 1 || m_trackNumber > 98)) {
+      (m_trackNumber < 1 || m_trackNumber > 99)) {
     ORC_LOG_DEBUG(
         "SectionMetadata::setSectionType(): Setting track number to 1 for "
         "UserData section (was {})",
@@ -227,8 +240,9 @@ void SectionMetadata::setTrackNumber(uint8_t trackNumber) {
       m_trackNumber = 0;
     }
   }
+  // IEC 60908 §17.5.1: "01-99: Track numbers, BCD encoded". Track 99 is legal.
   if ((m_sectionType.type() == SectionType::UserData) &&
-      (m_trackNumber < 1 || m_trackNumber > 98)) {
+      (m_trackNumber < 1 || m_trackNumber > 99)) {
     ORC_LOG_DEBUG(
         "SectionMetadata::setSectionType(): Setting track number to 1 for "
         "UserData section (was {})",

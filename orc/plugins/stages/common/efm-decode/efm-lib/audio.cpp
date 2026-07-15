@@ -28,25 +28,6 @@ void Audio::setData(const std::vector<int16_t>& data) {
   m_audioData = data;
 }
 
-// Set the left and right channel data for the audio, ensuring they match the
-// frame size
-void Audio::setDataLeftRight(const std::vector<int16_t>& dataLeft,
-                             const std::vector<int16_t>& dataRight) {
-  if (dataLeft.size() + dataRight.size() != static_cast<size_t>(frameSize())) {
-    ORC_LOG_ERROR(
-        "Audio::setDataLeftRight(): Data size of {} does not match frame size "
-        "of {}",
-        dataLeft.size() + dataRight.size(), frameSize());
-    throw efm::EfmDecodeError(__func__);
-  }
-
-  m_audioData.clear();
-  for (int i = 0; i < frameSize(); i += 2) {
-    m_audioData.push_back(dataLeft[i]);
-    m_audioData.push_back(dataRight[i]);
-  }
-}
-
 // Get the data for the audio, returning a zero-filled vector if empty
 std::vector<int16_t> Audio::data() const {
   if (m_audioData.empty()) {
@@ -101,26 +82,6 @@ void Audio::setErrorData(const std::vector<uint8_t>& errorData) {
   m_audioErrorData = errorData;
 }
 
-// Set the left and right channel error data for the audio, ensuring they match
-// the frame size
-void Audio::setErrorDataLeftRight(const std::vector<uint8_t>& errorDataLeft,
-                                  const std::vector<uint8_t>& errorDataRight) {
-  if (errorDataLeft.size() + errorDataRight.size() !=
-      static_cast<size_t>(frameSize())) {
-    ORC_LOG_ERROR(
-        "Audio::setErrorDataLeftRight(): Error data size of {} does not match "
-        "frame size of {}",
-        errorDataLeft.size() + errorDataRight.size(), frameSize());
-    throw efm::EfmDecodeError(__func__);
-  }
-
-  m_audioErrorData.clear();
-  for (int i = 0; i < frameSize(); i += 2) {
-    m_audioErrorData.push_back(errorDataLeft[i]);
-    m_audioErrorData.push_back(errorDataRight[i]);
-  }
-}
-
 // Get the error_data for the audio, returning a zero-filled vector if empty
 std::vector<uint8_t> Audio::errorData() const {
   if (m_audioErrorData.empty()) {
@@ -166,8 +127,10 @@ std::vector<uint8_t> Audio::errorDataRight() const {
   return errorDataRight;
 }
 
-// Count the number of errors in the audio
+// Count the number of errors in the audio. R-5: a default-constructed Audio has
+// an empty error vector; guard against indexing it out of bounds.
 uint32_t Audio::countErrors() const {
+  if (m_audioErrorData.empty()) return 0;
   uint32_t errorCount = 0;
   for (int i = 0; i < frameSize(); ++i) {
     if (m_audioErrorData[i]) errorCount++;
@@ -177,6 +140,7 @@ uint32_t Audio::countErrors() const {
 
 // Count the number of errors in the left channel of the audio
 uint32_t Audio::countErrorsLeft() const {
+  if (m_audioErrorData.empty()) return 0;
   uint32_t errorCount = 0;
   for (int i = 0; i < frameSize(); i += 2) {
     if (m_audioErrorData[i]) errorCount++;
@@ -186,6 +150,7 @@ uint32_t Audio::countErrorsLeft() const {
 
 // Count the number of errors in the right channel of the audio
 uint32_t Audio::countErrorsRight() const {
+  if (m_audioErrorData.empty()) return 0;
   uint32_t errorCount = 0;
   for (int i = 1; i < frameSize(); i += 2) {
     if (m_audioErrorData[i]) errorCount++;
@@ -201,9 +166,13 @@ bool Audio::isEmpty() const { return m_audioData.empty(); }
 
 // Show the audio data and errors in debug
 void Audio::showData() {
+  if (!orc::get_logger()->should_log(spdlog::level::debug)) return;
+  // R-5: guard against an error vector shorter than the data vector (e.g. a
+  // frame with data set but no error data).
+  const bool haveErrors = m_audioErrorData.size() == m_audioData.size();
   std::string dataString;
   for (int i = 0; i < static_cast<int>(m_audioData.size()); ++i) {
-    if (m_audioErrorData[i] == false) {
+    if (!haveErrors || m_audioErrorData[i] == false) {
       char buf[10];
       snprintf(buf, sizeof(buf), "%c%04x ", m_audioData[i] < 0 ? '-' : '+',
                static_cast<unsigned>(std::abs(m_audioData[i])));

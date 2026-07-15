@@ -88,6 +88,7 @@ void WriterWavMetadata::write(const AudioSection& audioSection) {
       // Append the new track to the statistics
       if (metadata.trackNumber() != 0 && metadata.trackNumber() != 0xAA) {
         m_trackNumbers.push_back(metadata.trackNumber());
+        m_trackPreemphasis.push_back(metadata.hasPreemphasis());
 
         m_trackAbsStartTimes.push_back(m_absoluteSectionTime);
         m_trackStartTimes.push_back(m_sectionTime);
@@ -112,7 +113,6 @@ void WriterWavMetadata::write(const AudioSection& audioSection) {
   // Output metadata about errors
   for (int subSection = 0; subSection < 98; ++subSection) {
     const Audio& audio = audioSection.frame(subSection);
-    std::vector<int16_t> audioData = audio.data();
     const std::vector<uint8_t>& errors = audio.errorData();
     const std::vector<uint8_t>& concealed = audio.concealedData();
 
@@ -242,8 +242,13 @@ void WriterWavMetadata::flush() {
       std::string trackTime = "[" + m_trackStartTimes[i].toString() + "-" +
                               m_trackEndTimes[i].toString() + "]";
 
+      // Q-8: surface the pre-emphasis flag so the metadata records that the
+      // track needs 50/15 us de-emphasis on playback.
+      const bool preemphasis =
+          i < m_trackPreemphasis.size() && m_trackPreemphasis[i];
       std::string outputString = trackAbsStartTime + "\t" + trackAbsEndTime +
                                  "\tTrack: " + trackNumber + " " + trackTime +
+                                 (preemphasis ? " Preemphasis:50/15us" : "") +
                                  "\n";
       m_file.write(outputString.c_str(),
                    static_cast<std::streamsize>(outputString.size()));

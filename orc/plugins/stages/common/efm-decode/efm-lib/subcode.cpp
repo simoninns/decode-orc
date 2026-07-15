@@ -45,8 +45,12 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
   // Set the p-channel (p-channel is just repeating flag)
   // For correction purposes we will count the number of 0s and 1s
   // and set the flag to the majority value
+  // C-3: pChannelData is the already-extracted 12-byte (96-bit) P bitfield -
+  // the S0/S1 sync symbols were stripped during extraction above. The loop must
+  // count all 12 bytes; starting at index 2 skipped the first 16 P bits (a
+  // second, erroneous "skip S0/S1" offset) and biased the 96/2 majority vote.
   int oneCount = 0;
-  for (int index = 2; index < pChannelData.size(); ++index) {
+  for (int index = 0; index < pChannelData.size(); ++index) {
     // Count the number of bits set to 1 in pChannelData[index]
     oneCount += countBits(static_cast<uint8_t>(pChannelData[index]));
   }
@@ -79,8 +83,9 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
     uint8_t controlNybble = qChannelData[0] >> 4;
     uint8_t modeNybble = qChannelData[0] & 0x0F;
 
-    // Validate the mode nybble before processing
-    bool validMode = (modeNybble >= 0x0 && modeNybble <= 0x4);
+    // Validate the mode nybble before processing (it is an unsigned nybble, so
+    // the only bound that matters is the upper one).
+    bool validMode = (modeNybble <= 0x4);
 
     if (!validMode) {
       // Invalid mode nybble - treat as corrupted data even though CRC passed
@@ -96,7 +101,7 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
       int32_t frames = bcd2ToInt(qChannelData[9]);
 
       if (minutes < 0) minutes = 0;
-      if (minutes > 59) minutes = 59;
+      if (minutes > 99) minutes = 99;  // C-1: minutes are BCD 00-99
       if (seconds < 0) seconds = 0;
       if (seconds > 59) seconds = 59;
       if (frames < 0) frames = 0;
@@ -110,10 +115,25 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
       return sectionMetadata;
     }
 
+    // Q-1: Q-mode 0 must NOT be decoded as a mode-1 lead-in. IEC 60908 §17.5.4:
+    // mode 0 "shall contain, if used, only the CONTROL and CRC bits, all other
+    // bits are zero"; the NOTE says it MAY replace mode 1 on non-CD channels,
+    // not that it should be decoded AS mode 1. Decoding all-zero DATA-Q as mode
+    // 1 yields TNO=0 -> a "valid" lead-in at 00:00:00, so a mid-program mode-0
+    // block (relevant to LaserDisc) was dropped as out-of-order and its audio
+    // discarded. We still parse the control bits below (they are meaningful in
+    // mode 0), then mark the section invalid so its audio is preserved via the
+    // interpolation path like a CRC-failed section.
+    bool isQMode0 = false;
+
     // Set the q-channel mode
     switch (modeNybble) {
       case 0x0:
-        // IEC 60908 17.5.4 says to treat this as Q-mode 1
+        isQMode0 = true;
+        // Placeholder mode so the control-nybble decode below runs; the section
+        // is marked invalid before any mode-1 field decode.
+        sectionMetadata.setQMode(SectionMetadata::QMode1);
+        break;
       case 0x1:
         sectionMetadata.setQMode(SectionMetadata::QMode1);
         break;
@@ -130,7 +150,12 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
         break;
     }
 
-    // Validate the control nybble before processing
+    // Validate the control nybble before processing.
+    // C-4: control values 8-11 (1XXX) are decoded below as 4-channel audio.
+    // IEC 60908-1999 §17.5 NOTE 2 redefines 1XXX as "broadcasting use" (the
+    // 4-channel encoding is from the earlier Red Book / ECMA-130 edition); the
+    // legacy mapping is kept deliberately as it is more useful for real legacy
+    // discs. Values 12-15 (0xC-0xF) are treated as corrupt.
     bool validControl = (controlNybble <= 0x4) || (controlNybble == 0x6) ||
                         (controlNybble >= 0x8 && controlNybble <= 0xB);
 
@@ -147,7 +172,7 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
       int32_t frames = bcd2ToInt(qChannelData[9]);
 
       if (minutes < 0) minutes = 0;
-      if (minutes > 59) minutes = 59;
+      if (minutes > 99) minutes = 99;  // C-1: minutes are BCD 00-99
       if (seconds < 0) seconds = 0;
       if (seconds > 59) seconds = 59;
       if (frames < 0) frames = 0;
@@ -237,6 +262,18 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
         break;
     }
 
+    // Q-1: mode 0 carries no track/time fields; keep the parsed control bits
+    // but mark the section invalid so it is reconstructed by interpolation
+    // (audio preserved) instead of being misclassified as a valid 00:00:00
+    // lead-in.
+    if (isQMode0) {
+      ORC_LOG_DEBUG(
+          "Subcode::fromData(): Q-mode 0 section - control bits kept, marking "
+          "invalid for interpolation.");
+      sectionMetadata.setValid(false);
+      return sectionMetadata;
+    }
+
     if (sectionMetadata.qMode() == SectionMetadata::QMode1 ||
         sectionMetadata.qMode() == SectionMetadata::QMode4) {
       // Get the track number
@@ -260,11 +297,19 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
                                        trackNumber);
       }
 
+      // Q-6: byte 2 is INDEX in the program area (00 = pause) and POINT in the
+      // lead-in (TOC pointer). Record the raw value; downstream can distinguish
+      // pauses from audio. Full lead-in TOC (POINT/PMIN/PSEC/PFRAME) decoding
+      // is not yet built, so lead-in POINT is stored but not interpreted as
+      // TOC.
+      sectionMetadata.setIndex(bcd2ToInt(qChannelData[2]));
+
       // Set the frame time q_data_channel[3-5]
       // Validate BCD values to handle edge case where CRC passes but data is
-      // corrupt
+      // corrupt. C-1: minutes are BCD 00-99 (IEC 60908 §17.5.1), not capped at
+      // 59 - real discs exceed 60 minutes.
       int32_t sectionMinutes = validateAndClampTimeValue(
-          bcd2ToInt(qChannelData[3]), 59, "section minutes", sectionMetadata);
+          bcd2ToInt(qChannelData[3]), 99, "section minutes", sectionMetadata);
       int32_t sectionSeconds = validateAndClampTimeValue(
           bcd2ToInt(qChannelData[4]), 59, "section seconds", sectionMetadata);
       int32_t sectionFrames = validateAndClampTimeValue(
@@ -278,7 +323,7 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
       // Validate BCD values to handle edge case where CRC passes but data is
       // corrupt
       int32_t absMinutes = validateAndClampTimeValue(
-          bcd2ToInt(qChannelData[7]), 59, "absolute minutes", sectionMetadata);
+          bcd2ToInt(qChannelData[7]), 99, "absolute minutes", sectionMetadata);
       int32_t absSeconds = validateAndClampTimeValue(
           bcd2ToInt(qChannelData[8]), 59, "absolute seconds", sectionMetadata);
       int32_t absFrames = validateAndClampTimeValue(
@@ -300,17 +345,21 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
                 : static_cast<uint8_t>(qChannelData[byteIndex] & 0x0F);
         upc = upc * 10 + nibble;
       }
-      sectionMetadata.setUpcEanCode(upc);
-      // Show the UPC/EAN code as 13 digits padded with leading zeros
+      // Q-3: store the full 13-digit catalogue number as a string so leading
+      // zeros are preserved and the value is not truncated modulo 2^32.
       std::string upcString = std::to_string(upc);
       while (upcString.size() < 13) {
         upcString = "0" + upcString;
       }
+      sectionMetadata.setUpcEanCode(upcString);
 
       ORC_LOG_DEBUG("Subcode::fromData(): Q-Mode 2 has UPC/EAN code of: {}",
                     upcString);
 
-      // Only the absolute frame number is included for Q mode 2
+      // Only the absolute frame number is included for Q mode 2. Track number
+      // and track-relative time are reconstructed from the surrounding mode-1
+      // timeline in F2SectionCorrection (Q-2), so the values set here are just
+      // placeholders.
       sectionMetadata.setSectionType(SectionType(SectionType::UserData), 1);
       sectionMetadata.setSectionTime(SectionTime(0, 0, 0));
 
@@ -321,13 +370,31 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
           sectionMetadata);
       sectionMetadata.setAbsoluteSectionTime(SectionTime(0, 0, absFrames));
     } else if (sectionMetadata.qMode() == SectionMetadata::QMode3) {
-      // Q-Mode 3 (ISRC) subcode is not yet decoded. It is legitimate content
-      // on a real disc, so skip the section rather than aborting the decode.
+      // Q-4: Q-mode 3 (ISRC). Like mode 2 it encodes only a catalogue-style
+      // field (the ISRC) plus AFRAME; TNO/INDEX/track-time are reconstructed
+      // from the surrounding mode-1 timeline in F2SectionCorrection. Keep the
+      // section VALID (extract AFRAME for continuity and so the statistics
+      // count it) rather than discarding it - discarding forced its audio down
+      // the all-error interpolation path and left the mode-3 correction branch
+      // and statistic permanently dead.
+      //
+      // TODO(sdi): decode the ISRC characters themselves (I1-I5 as 6-bit chars,
+      // I6-I12 as BCD per IEC 60908 §17.5.3) into m_isrcCode. The 6-bit
+      // character table is not implemented yet, so only AFRAME is recovered
+      // here; the raw ISRC is left empty rather than risk emitting a wrong
+      // code.
+      sectionMetadata.setSectionType(SectionType(SectionType::UserData), 1);
+      sectionMetadata.setSectionTime(SectionTime(0, 0, 0));
+
+      int32_t absFrames = validateAndClampTimeValue(
+          bcd2ToInt(qChannelData[9]), 74, "absolute frames (QMode3)",
+          sectionMetadata);
+      sectionMetadata.setAbsoluteSectionTime(SectionTime(0, 0, absFrames));
+
       ORC_LOG_DEBUG(
-          "Subcode::fromData(): Q-Mode 3 (ISRC) metadata present - not yet "
-          "decoded, skipping section");
-      sectionMetadata.setValid(false);
-      return sectionMetadata;
+          "Subcode::fromData(): Q-Mode 3 (ISRC) section, absolute frame {} "
+          "(ISRC character decode not yet implemented)",
+          absFrames);
     } else {
       ORC_LOG_ERROR("Subcode::fromData(): Invalid Q-mode {}",
                     static_cast<int>(sectionMetadata.qMode()));
@@ -355,7 +422,7 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
     int32_t frames = bcd2ToInt(qChannelData[9]);
 
     if (minutes < 0) minutes = 0;
-    if (minutes > 59) minutes = 59;
+    if (minutes > 99) minutes = 99;  // C-1: minutes are BCD 00-99
     if (seconds < 0) seconds = 0;
     if (seconds > 59) seconds = 59;
     if (frames < 0) frames = 0;
@@ -376,14 +443,19 @@ SectionMetadata Subcode::fromData(const std::vector<uint8_t>& data) {
   // If the track number is 1-99, then this is a user data frame
   const auto track_num = sectionMetadata.trackNumber();
   const auto section_type = sectionMetadata.sectionType().type();
+  // Q-10: lead-out sections are internally track 0 (the 0xAA on the disc is
+  // mapped to track 0 by setSectionType), so track 0 is legitimate for both
+  // LeadIn and LeadOut. Only flag track 0 outside of those.
   const bool track0_mismatch =
-      (track_num == 0 && section_type != SectionType::LeadIn);
+      (track_num == 0 && section_type != SectionType::LeadIn &&
+       section_type != SectionType::LeadOut);
   const bool trackAA_mismatch =
       (track_num == 0xAA && section_type != SectionType::LeadOut);
   const bool track_out_of_range = (track_num > 99);
   if (track0_mismatch) {
     ORC_LOG_DEBUG(
-        "Subcode::fromData(): Track number 0 is only valid for lead-in frames");
+        "Subcode::fromData(): Track number 0 is only valid for lead-in/out "
+        "frames");
   }
   if (trackAA_mismatch) {
     ORC_LOG_DEBUG(
@@ -416,174 +488,6 @@ uint8_t Subcode::countBits(uint8_t byteValue) {
   return count;
 }
 
-// Takes a FrameMetadata object and returns 98 bytes of subcode data
-std::vector<uint8_t> Subcode::toData(const SectionMetadata& sectionMetadata) {
-  std::vector<uint8_t> pChannelData(12, 0);
-  std::vector<uint8_t> qChannelData(12, 0);
-
-  // Set the p-channel data
-  for (int i = 0; i < 12; ++i) {
-    if (sectionMetadata.pFlag()) {
-      pChannelData[i] = 0xFF;
-    } else {
-      pChannelData[i] = 0x00;
-    }
-  }
-
-  // Create the control and address nybbles
-  uint8_t controlNybble = 0;
-  uint8_t modeNybble = 0;
-
-  switch (sectionMetadata.qMode()) {
-    case SectionMetadata::QMode1:
-      modeNybble = 0x1;  // 0b0001
-      break;
-    case SectionMetadata::QMode2:
-      modeNybble = 0x2;  // 0b0010
-      break;
-    case SectionMetadata::QMode3:
-      modeNybble = 0x3;  // 0b0011
-      break;
-    case SectionMetadata::QMode4:
-      modeNybble = 0x4;  // 0b0100
-      break;
-    default:
-      ORC_LOG_ERROR("Subcode::toData(): Invalid Q-mode {}",
-                    static_cast<int>(sectionMetadata.qMode()));
-      throw efm::EfmDecodeError(__func__);
-  }
-
-  bool audio = sectionMetadata.isAudio();
-  bool copyProhibited = sectionMetadata.isCopyProhibited();
-  bool preemphasis = sectionMetadata.hasPreemphasis();
-  bool channels2 = sectionMetadata.is2Channel();
-
-  // These are the valid combinations of control nybble flags
-  if (audio && channels2 && !preemphasis && copyProhibited) {
-    controlNybble = 0x0;  // 0b0000 = AUDIO_2CH_NO_PREEMPHASIS_COPY_PROHIBITED
-  } else if (audio && channels2 && preemphasis && copyProhibited) {
-    controlNybble = 0x1;  // 0b0001 = AUDIO_2CH_PREEMPHASIS_COPY_PROHIBITED
-  } else if (audio && channels2 && !preemphasis && !copyProhibited) {
-    controlNybble = 0x2;  // 0b0010 = AUDIO_2CH_NO_PREEMPHASIS_COPY_PERMITTED
-  } else if (audio && channels2 && preemphasis && !copyProhibited) {
-    controlNybble = 0x3;  // 0b0011 = AUDIO_2CH_PREEMPHASIS_COPY_PERMITTED
-  } else if (!audio && copyProhibited) {
-    controlNybble = 0x4;  // 0b0100 = DIGITAL_COPY_PROHIBITED
-  } else if (!audio && !copyProhibited) {
-    controlNybble = 0x6;  // 0b0110 = DIGITAL_COPY_PERMITTED
-  } else if (audio && !channels2 && !preemphasis && copyProhibited) {
-    controlNybble = 0x8;  // 0b1000 = AUDIO_4CH_NO_PREEMPHASIS_COPY_PROHIBITED
-  } else if (audio && !channels2 && preemphasis && copyProhibited) {
-    controlNybble = 0x9;  // 0b1001 = AUDIO_4CH_PREEMPHASIS_COPY_PROHIBITED
-  } else if (audio && !channels2 && !preemphasis && !copyProhibited) {
-    controlNybble = 0xA;  // 0b1010 = AUDIO_4CH_NO_PREEMPHASIS_COPY_PERMITTED
-  } else if (audio && !channels2 && preemphasis && !copyProhibited) {
-    controlNybble = 0xB;  // 0b1011 = AUDIO_4CH_PREEMPHASIS_COPY_PERMITTED
-  } else {
-    ORC_LOG_ERROR(
-        "Subcode::toData(): Invalid control nybble! Must be 0-3, 4-7 or 8-11");
-    throw efm::EfmDecodeError(__func__);
-  }
-
-  // The Q-channel data is constructed from the Q-mode (4 bits) and control bits
-  // (4 bits) Q-mode is 0-3 and control is 4-7
-  qChannelData[0] = controlNybble << 4 | modeNybble;
-
-  // Get the frame metadata
-  SectionType frameType = sectionMetadata.sectionType();
-  SectionTime fTime = sectionMetadata.sectionTime();
-  SectionTime apTime = sectionMetadata.absoluteSectionTime();
-  uint8_t trackNumber = sectionMetadata.trackNumber();
-
-  // Sanity check the track number and frame type
-  //
-  // If the track number is 0, then this is a lead-in frame
-  // If the track number is 0xAA, then this is a lead-out frame
-  // If the track number is 1-99, then this is a user data frame
-  if (trackNumber == 0 && frameType.type() != SectionType::LeadIn) {
-    ORC_LOG_ERROR(
-        "Subcode::toData(): Track number 0 is only valid for lead-in frames");
-    throw efm::EfmDecodeError(__func__);
-  } else if (trackNumber == 0xAA && frameType.type() != SectionType::LeadOut) {
-    ORC_LOG_ERROR(
-        "Subcode::toData(): Track number 0xAA is only valid for lead-out "
-        "frames");
-    throw efm::EfmDecodeError(__func__);
-  } else if (trackNumber > 99) {
-    ORC_LOG_ERROR("Subcode::toData(): Track number {} is out of range",
-                  trackNumber);
-    throw efm::EfmDecodeError(__func__);
-  }
-
-  // Set the Q-channel data
-  if (frameType.type() == SectionType::LeadIn) {
-    uint16_t tno = 0x00;
-    uint16_t pointer = 0x00;
-    uint8_t zero = 0;
-
-    qChannelData[1] = tno;
-    qChannelData[2] = pointer;
-    qChannelData[3] = fTime.toBcd()[0];
-    qChannelData[4] = fTime.toBcd()[1];
-    qChannelData[5] = fTime.toBcd()[2];
-    qChannelData[6] = zero;
-    qChannelData[7] = apTime.toBcd()[0];
-    qChannelData[8] = apTime.toBcd()[1];
-    qChannelData[9] = apTime.toBcd()[2];
-  }
-
-  if (frameType.type() == SectionType::UserData) {
-    uint8_t tno = intToBcd2(trackNumber);
-    uint8_t index = 01;  // Not correct?
-    uint8_t zero = 0;
-
-    qChannelData[1] = tno;
-    qChannelData[2] = index;
-    qChannelData[3] = fTime.toBcd()[0];
-    qChannelData[4] = fTime.toBcd()[1];
-    qChannelData[5] = fTime.toBcd()[2];
-    qChannelData[6] = zero;
-    qChannelData[7] = apTime.toBcd()[0];
-    qChannelData[8] = apTime.toBcd()[1];
-    qChannelData[9] = apTime.toBcd()[2];
-  }
-
-  if (frameType.type() == SectionType::LeadOut) {
-    uint16_t tno = 0xAA;  // Hexadecimal AA for lead-out
-    uint16_t index = 01;  // Must be 01 for lead-out
-    uint8_t zero = 0;
-
-    qChannelData[1] = tno;
-    qChannelData[2] = index;
-    qChannelData[3] = fTime.toBcd()[0];
-    qChannelData[4] = fTime.toBcd()[1];
-    qChannelData[5] = fTime.toBcd()[2];
-    qChannelData[6] = zero;
-    qChannelData[7] = apTime.toBcd()[0];
-    qChannelData[8] = apTime.toBcd()[1];
-    qChannelData[9] = apTime.toBcd()[2];
-  }
-
-  // Set the CRC
-  setQChannelCrc(qChannelData);  // Sets data[10] and data[11]
-
-  // Now we need to convert the p-channel and q-channel data into a 98 byte
-  // array
-  std::vector<uint8_t> data;
-  data.resize(98);
-  data[0] = 0x00;  // Sync0
-  data[1] = 0x00;  // Sync1
-
-  for (int index = 2; index < 98; ++index) {
-    uint8_t m_subcodeByte = 0x00;
-    if (getBit(pChannelData, index - 2)) m_subcodeByte |= 0x80;
-    if (getBit(qChannelData, index - 2)) m_subcodeByte |= 0x40;
-    data[index] = m_subcodeByte;
-  }
-
-  return data;
-}
-
 // Set a bit in a byte array
 void Subcode::setBit(std::vector<uint8_t>& data, uint8_t bitPosition,
                      bool value) {
@@ -609,25 +513,7 @@ void Subcode::setBit(std::vector<uint8_t>& data, uint8_t bitPosition,
   }
 }
 
-// Get a bit from a byte array
-bool Subcode::getBit(const std::vector<uint8_t>& data, uint8_t bitPosition) {
-  // Check to ensure we don't overflow the data array
-  if (bitPosition >= data.size() * 8) {
-    ORC_LOG_ERROR(
-        "Subcode::getBit(): Bit position {} is out of range for data size {}",
-        bitPosition, static_cast<int>(data.size()));
-    throw efm::EfmDecodeError(__func__);
-  }
-
-  // We need to convert this to a byte number and bit number within that byte
-  uint8_t byteNumber = bitPosition / 8;
-  uint8_t bitNumber = 7 - (bitPosition % 8);
-
-  // Get the bit
-  return (data[byteNumber] & (1 << bitNumber)) != 0;
-}
-
-bool Subcode::isCrcValid(std::vector<uint8_t> qChannelData) {
+bool Subcode::isCrcValid(const std::vector<uint8_t>& qChannelData) {
   // Get the CRC from the data
   uint16_t dataCrc = getQChannelCrc(qChannelData);
 
@@ -638,19 +524,10 @@ bool Subcode::isCrcValid(std::vector<uint8_t> qChannelData) {
   return dataCrc == calculatedCrc;
 }
 
-uint16_t Subcode::getQChannelCrc(std::vector<uint8_t> qChannelData) {
+uint16_t Subcode::getQChannelCrc(const std::vector<uint8_t>& qChannelData) {
   // Get the CRC from the data
   return static_cast<uint16_t>(static_cast<uint8_t>(qChannelData[10]) << 8 |
                                static_cast<uint8_t>(qChannelData[11]));
-}
-
-void Subcode::setQChannelCrc(std::vector<uint8_t>& qChannelData) {
-  // Calculate the CRC
-  uint16_t calculatedCrc = calculateQChannelCrc16(qChannelData);
-
-  // Set the CRC in the data
-  qChannelData[10] = static_cast<uint8_t>(calculatedCrc >> 8);
-  qChannelData[11] = static_cast<uint8_t>(calculatedCrc & 0xFF);
 }
 
 // Generate a 16-bit CRC for the subcode data
@@ -700,29 +577,6 @@ bool Subcode::repairData(std::vector<uint8_t>& qChannelData) {
   }
 
   return false;
-}
-
-// Convert integer to BCD (Binary Coded Decimal)
-// Output is always 2 nybbles (00-99)
-uint8_t Subcode::intToBcd2(uint8_t value) {
-  if (value > 99) {
-    ORC_LOG_ERROR(
-        "Subcode::intToBcd2(): Value must be in the range 0 to 99. Got {}",
-        value);
-    throw efm::EfmDecodeError(__func__);
-  }
-
-  uint16_t bcd = 0;
-  uint16_t factor = 1;
-
-  while (value > 0) {
-    bcd += (value % 10) * factor;
-    value /= 10;
-    factor *= 16;
-  }
-
-  // Ensure the result is always 2 bytes (00-99)
-  return bcd & 0xFF;
 }
 
 // Validate and clamp time component values, marking section as repaired if

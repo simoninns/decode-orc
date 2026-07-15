@@ -10,9 +10,11 @@
 
 #include <orc/stage/logging.h>
 
+#include <algorithm>
 #include <cmath>
 #include <queue>
-#include <stdexcept>
+
+#include "efm_exception.h"
 
 ChannelToF3Frame::ChannelToF3Frame() {
   // Statistics
@@ -107,6 +109,8 @@ F3Frame ChannelToF3Frame::createF3Frame(const std::vector<uint8_t>& tValues) {
   // Extract the data values in bits 44-587 ignoring the merging bits
   std::vector<uint8_t> dataValues;
   std::vector<uint8_t> errorValues;
+  dataValues.reserve(32);  // P-7: 32 data symbols per frame
+  errorValues.reserve(32);
   for (int i = 44; i < (frameData.size() * 8) - 13; i += 17) {
     uint16_t dataValue = m_efm.fourteenToEight(getBits(frameData, i, i + 13));
 
@@ -148,19 +152,27 @@ F3Frame ChannelToF3Frame::createF3Frame(const std::vector<uint8_t>& tValues) {
 
 std::vector<uint8_t> ChannelToF3Frame::tvaluesToData(
     const std::vector<uint8_t>& tValues) {
-  // Pre-allocate output buffer (each T-value generates at least 1 bit)
+  // P-7: each T-value emits 3-11 *bits* (not 1), so a full 588-bit frame is ~74
+  // bytes. Reserving tValues.size()/8 under-reserved ~4x and caused several
+  // reallocations per frame; reserve for the maximum 11 bits per T-value.
   std::vector<uint8_t> outputData;
-  outputData.reserve((tValues.size() + 7) / 8);
+  outputData.reserve((tValues.size() * 11 + 7) / 8);
 
   uint32_t bitBuffer = 0;  // Use 32-bit buffer to avoid frequent byte writes
   int bitsInBuffer = 0;
 
   for (uint8_t tValue : tValues) {
-    // Validate T-value
+    // R-1: an out-of-range T-value on this path is dirty-capture data, not an
+    // invariant violation, so clamp into the valid IEC 60908 §13 range [3, 11]
+    // instead of aborting the whole decode. A clamped symbol corrupts the local
+    // bit alignment, which the downstream 14->8 EFM decode flags as an invalid
+    // symbol (erasure) - the correct degradation for a bad capture.
     if (tValue < 3 || tValue > 11) {
-      throw std::runtime_error(
-          "ChannelToF3Frame::tvaluesToData(): T-value must be in the range 3 "
-          "to 11.");
+      ORC_LOG_DEBUG(
+          "ChannelToF3Frame::tvaluesToData(): T-value {} out of range [3,11], "
+          "clamping.",
+          tValue);
+      tValue = std::clamp<uint8_t>(tValue, 3, 11);
     }
 
     // Shift in 1 followed by (tValue-1) zeros
@@ -188,15 +200,19 @@ uint16_t ChannelToF3Frame::getBits(const std::vector<uint8_t>& data,
   // Validate input
   if (startBit < 0 || startBit > 587 || endBit < 0 || endBit > 587 ||
       startBit > endBit) {
-    throw std::runtime_error("ChannelToF3Frame::getBits(): Invalid bit range");
+    ORC_LOG_ERROR("ChannelToF3Frame::getBits(): Invalid bit range {}-{}",
+                  startBit, endBit);
+    throw efm::EfmDecodeError(__func__);
   }
 
   int startByte = startBit / 8;
   int endByte = endBit / 8;
 
   if (endByte >= data.size()) {
-    throw std::runtime_error(
-        "ChannelToF3Frame::getBits(): Byte index exceeds data size");
+    ORC_LOG_ERROR(
+        "ChannelToF3Frame::getBits(): Byte index {} exceeds data size {}",
+        endByte, data.size());
+    throw efm::EfmDecodeError(__func__);
   }
 
   // Fast path for bits within a single byte

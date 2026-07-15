@@ -136,8 +136,9 @@ class SectionMetadata {
         m_isCopyProhibited(true),
         m_hasPreemphasis(false),
         m_is2Channel(true),
-        m_upcEanCode(0),
-        m_isrcCode(0) {}
+        m_index(1),
+        m_upcEanCode(),
+        m_isrcCode() {}
 
   SectionType sectionType() const { return m_sectionType; }
   void setSectionType(const SectionType& sectionType, uint8_t trackNumber);
@@ -169,10 +170,22 @@ class SectionMetadata {
   bool is2Channel() const { return m_is2Channel; }
   void set2Channel(bool is2Channel) { m_is2Channel = is2Channel; }
 
-  void setUpcEanCode(uint32_t upcEanCode) { m_upcEanCode = upcEanCode; }
-  uint32_t upcEanCode() const { return m_upcEanCode; }
-  void setIsrcCode(uint32_t isrcCode) { m_isrcCode = isrcCode; }
-  uint32_t isrcCode() const { return m_isrcCode; }
+  // IEC 60908 §17.5.1 INDEX (program area) / POINT (lead-in), the Q-channel
+  // byte 2. In the program area INDEX 00 marks a pause; 01+ are the running
+  // index within a track.
+  uint8_t index() const { return m_index; }
+  void setIndex(uint8_t index) { m_index = index; }
+  bool isPause() const { return m_index == 0; }
+
+  // IEC 60908 §17.5.2 media catalogue number (13-digit UPC/EAN) and §17.5.3
+  // ISRC. Stored as strings to preserve leading zeros and full width (a
+  // 13-digit EAN-13 overflows uint32_t; the ISRC is 12 characters).
+  void setUpcEanCode(const std::string& upcEanCode) {
+    m_upcEanCode = upcEanCode;
+  }
+  const std::string& upcEanCode() const { return m_upcEanCode; }
+  void setIsrcCode(const std::string& isrcCode) { m_isrcCode = isrcCode; }
+  const std::string& isrcCode() const { return m_isrcCode; }
 
   bool pFlag() const { return m_pFlag; }
   void setPFlag(bool pFlag) { m_pFlag = pFlag; }
@@ -206,9 +219,12 @@ class SectionMetadata {
   bool m_hasPreemphasis;
   bool m_is2Channel;
 
+  // Q-Channel INDEX / POINT byte (IEC 60908 §17.5.1)
+  uint8_t m_index;
+
   // Q-Channel mode 2 and 3 metadata
-  uint32_t m_upcEanCode;
-  uint32_t m_isrcCode;
+  std::string m_upcEanCode;
+  std::string m_isrcCode;
 };
 
 #endif  // SECTION_METADATA_H

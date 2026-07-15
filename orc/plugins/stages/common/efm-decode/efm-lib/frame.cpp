@@ -163,13 +163,11 @@ Data24::Data24() {
 void Data24::setData(const std::vector<uint8_t>& data) {
   m_frameData = data;
 
-  // If there are less than 24 bytes, pad data with zeros to 24 bytes
-  if (m_frameData.size() < 24) {
-    m_frameData.resize(24);
-    for (int i = static_cast<int>(m_frameData.size()); i < 24; ++i) {
-      m_frameData[i] = 0;
-    }
-  }
+  // Data24 tolerates a short final frame (fewer than 24 bytes), padding it with
+  // zeros; a longer input is truncated. resize() does both. (P-11: the previous
+  // manual pad loop was a no-op - it started at size()==24 - and silently
+  // accepted oversized input.)
+  m_frameData.resize(24, 0);
 }
 
 void Data24::setErrorData(const std::vector<uint8_t>& errorData) {
@@ -255,6 +253,9 @@ F2Frame::F2Frame() {
 int F2Frame::frameSize() const { return 32; }
 
 void F2Frame::showData() {
+  // P-5: skip the per-frame hex string build when the level this logs at is
+  // off.
+  if (!orc::get_logger()->should_log(spdlog::level::info)) return;
   std::string dataString;
   bool hasError = false;
   char buffer[4];
@@ -327,6 +328,9 @@ std::string F3Frame::f3FrameTypeAsString() const {
 uint8_t F3Frame::subcodeByte() const { return m_subcodeByte; }
 
 void F3Frame::showData() {
+  // P-5: skip the per-frame hex string build when the level this logs at is
+  // off.
+  if (!orc::get_logger()->should_log(spdlog::level::info)) return;
   std::string dataString;
   bool hasError = false;
   for (size_t i = 0; i < m_frameData.size(); ++i) {

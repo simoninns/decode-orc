@@ -10,6 +10,7 @@
 
 #include <orc/stage/logging.h>
 
+#include <algorithm>
 #include <cstdlib>
 
 #include "efm_exception.h"
@@ -22,8 +23,6 @@ template <size_t PAYLOAD>
 struct C1RS<255, PAYLOAD>
     : public __RS(C1RS, uint8_t, 255, PAYLOAD, 0x11D, 0, 1, false);
 
-C1RS<255, 255 - 4> c1rs;
-
 // ezpwd C2 ECMA-130 CIRC configuration
 template <size_t SYMBOLS, size_t PAYLOAD>
 struct C2RS;
@@ -31,6 +30,13 @@ template <size_t PAYLOAD>
 struct C2RS<255, PAYLOAD>
     : public __RS(C2RS, uint8_t, 255, PAYLOAD, 0x11D, 0, 1, false);
 
+// P-12: the RS codecs carry precomputed Galois-field tables. ezpwd's decode()
+// is a const method - it only reads those tables and works in local scratch -
+// so a single shared instance is safe for concurrent decode() calls from
+// multiple pipelines. A file-scope instance (constructed once) is used rather
+// than thread_local because this CIRC path calls decode() ~26M times per stereo
+// disc and is sensitive to per-access thread-local storage overhead.
+C1RS<255, 255 - 4> c1rs;
 C2RS<255, 255 - 4> c2rs;
 
 ReedSolomon::ReedSolomon() {
@@ -68,10 +74,16 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
     if (errorData[index]) erasures.push_back(index);
   }
 
-  if (erasures.size() > 2) {
-    // If there are more than 2 erasures, then we can't correct the data - copy
-    // the input data to the output data and flag it with errors
-    inputData.assign(tmpData.begin(), tmpData.end() - 4);
+  // Snapshot the supplied erasures before decode prunes them (see c2Decode).
+  const std::vector<int> suppliedErasures = erasures;
+
+  // E-2: the (32,28) C1 code has minimum distance 5, so it can attempt an
+  // in-capacity erasure decode for up to 4 supplied erasures. C1 erasure flags
+  // come from the EFM demodulator (invalid 14-bit symbols - reliable erasures),
+  // so passing 3-4 of them straight through as uncorrectable without attempting
+  // the decode discarded correctable words. More than 4 exceeds capacity.
+  if (suppliedErasures.size() > 4) {
+    inputData.resize(inputData.size() - 4);  // keep received bytes 0..27
     errorData.assign(inputData.size(), 1);
     ++m_errorC1s;
     return;
@@ -79,16 +91,27 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
 
   // Decode the data
   int result = c1rs.decode(tmpData, erasures, &position);
-  if (result > 2) result = -1;
 
-  // Strip the parity bytes (32 → 28)
-  inputData.assign(tmpData.begin(), tmpData.end() - 4);
-  errorData.resize(inputData.size());
-
-  // If result >= 0, then the Reed-Solomon decode was successful
+  // Accept combinations satisfying 2e + s <= 4 (see c2Decode for the
+  // rationale).
+  bool accept = false;
   if (result >= 0) {
-    // Mark all the data as correct
-    std::fill(errorData.begin(), errorData.end(), static_cast<uint8_t>(0));
+    int locatedErrors = 0;
+    for (int p : position) {
+      if (std::find(suppliedErasures.begin(), suppliedErasures.end(), p) ==
+          suppliedErasures.end()) {
+        ++locatedErrors;
+      }
+    }
+    if (2 * locatedErrors + static_cast<int>(suppliedErasures.size()) <= 4) {
+      accept = true;
+    }
+  }
+
+  if (accept) {
+    // Strip the parity bytes (32 → 28) from the corrected data
+    inputData.assign(tmpData.begin(), tmpData.end() - 4);
+    errorData.assign(inputData.size(), 0);
 
     if (result == 0) {
       ++m_validC1s;
@@ -98,11 +121,10 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
     return;
   }
 
-  // If result < 0, the Reed-Solomon decode completely failed and the data is
-  // corrupt Mark all the data as corrupt
-  std::fill(errorData.begin(), errorData.end(), static_cast<uint8_t>(1));
+  // Rejected: propagate the RECEIVED bytes (first 28) and flag all as corrupt.
+  inputData.resize(inputData.size() - 4);
+  errorData.assign(inputData.size(), 1);
   ++m_errorC1s;
-
   return;
 }
 
@@ -135,10 +157,14 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
     if (errorData[index] != 0) erasures.push_back(index);
   }
 
-  // Since we know the erasure positions, we can correct a maximum of 4 errors.
-  // If the number of know input erasures is greater than 4, then we can't
-  // correct the data.
-  if (erasures.size() > 4) {
+  // Snapshot the supplied erasures: ezpwd's decode() prunes erasures it finds
+  // were actually correct, so we need the original list to classify the
+  // corrections it reports in 'position'.
+  const std::vector<int> suppliedErasures = erasures;
+
+  // The (28,24) C2 code has minimum distance 5, so more than 4 supplied
+  // erasures already exceeds capacity and cannot be corrected.
+  if (suppliedErasures.size() > 4) {
     // Remove parity byte positions 12-15 and assign result
     inputData.erase(inputData.begin() + 12, inputData.begin() + 16);
     errorData.assign(inputData.size(), 1);
@@ -148,17 +174,35 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
 
   // Decode the data
   int result = c2rs.decode(tmpData, erasures, &position);
-  if (result > 2) result = -1;
 
-  // Remove parity byte positions 12-15 from decoded data
-  tmpData.erase(tmpData.begin() + 12, tmpData.begin() + 16);
-  inputData = std::move(tmpData);
-  errorData.resize(inputData.size());
-
-  // If result >= 0, then the Reed-Solomon decode was successful
+  // E-1: accept erasure-dominated corrections up to the code's full capacity.
+  // IEC 60908 §16.3 / ECMA-130 Annex C: the (28,24) C2 code corrects any
+  // combination of e located errors and s supplied erasures with 2e + s <= 4.
+  // After a C1 burst failure all 28 inputs are flagged and the cross-interleave
+  // spreads them so 3-4 erasures per C2 word is the *normal* burst case; the
+  // previous "reject any decode that changed > 2 symbols" clamp discarded those
+  // guaranteed-valid corrections, roughly halving CIRC's designed burst
+  // tolerance. 'position' lists the positions ezpwd actually changed; any that
+  // was not a supplied erasure is a located error.
+  bool accept = false;
   if (result >= 0) {
-    // Clear the error data
-    std::fill(errorData.begin(), errorData.end(), static_cast<uint8_t>(0));
+    int locatedErrors = 0;
+    for (int p : position) {
+      if (std::find(suppliedErasures.begin(), suppliedErasures.end(), p) ==
+          suppliedErasures.end()) {
+        ++locatedErrors;
+      }
+    }
+    if (2 * locatedErrors + static_cast<int>(suppliedErasures.size()) <= 4) {
+      accept = true;
+    }
+  }
+
+  if (accept) {
+    // Remove parity byte positions 12-15 from the decoded (corrected) data
+    tmpData.erase(tmpData.begin() + 12, tmpData.begin() + 16);
+    inputData = std::move(tmpData);
+    errorData.assign(inputData.size(), 0);
 
     if (result == 0) {
       ++m_validC2s;
@@ -168,10 +212,10 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
     return;
   }
 
-  // If result < 0, then the Reed-Solomon decode failed and the data should be
-  // flagged as corrupt Set the error data
-  std::fill(errorData.begin(), errorData.end(), static_cast<uint8_t>(1));
-
+  // Rejected: propagate the RECEIVED bytes (not the decoder-modified tmpData,
+  // which may hold a miscorrection) and flag all outputs as corrupt.
+  inputData.erase(inputData.begin() + 12, inputData.begin() + 16);
+  errorData.assign(inputData.size(), 1);
   ++m_errorC2s;
   return;
 }

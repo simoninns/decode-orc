@@ -89,9 +89,9 @@ class RawSector {
   void pushData(const std::vector<uint8_t>& inData);
   void pushErrorData(const std::vector<uint8_t>& inData);
   void pushPaddedData(const std::vector<uint8_t>& inData);
-  std::vector<uint8_t> data() const;
-  std::vector<uint8_t> errorData() const;
-  std::vector<uint8_t> paddedData() const;
+  const std::vector<uint8_t>& data() const;
+  const std::vector<uint8_t>& errorData() const;
+  const std::vector<uint8_t>& paddedData() const;
   uint32_t size() const;
   void showData();
 
@@ -109,9 +109,9 @@ class Sector {
   void pushData(const std::vector<uint8_t>& inData);
   void pushErrorData(const std::vector<uint8_t>& inData);
   void pushPaddedData(const std::vector<uint8_t>& inData);
-  std::vector<uint8_t> data() const;
-  std::vector<uint8_t> errorData() const;
-  std::vector<uint8_t> paddedData() const;
+  const std::vector<uint8_t>& data() const;
+  const std::vector<uint8_t>& errorData() const;
+  const std::vector<uint8_t>& paddedData() const;
   uint32_t size() const;
   void showData();
 

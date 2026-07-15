@@ -41,18 +41,19 @@ class TvaluesToChannel : public Decoder {
     HandleUndershoot
   };
 
-  // Statistics
-  uint32_t m_consumedTValues;
-  uint32_t m_discardedTValues;
-  uint32_t m_channelFrameCount;
+  // Statistics (P-10: 64-bit so cumulative T-value counters do not wrap on a
+  // long capture - a 32-bit T-value count wraps after ~95 minutes of audio).
+  uint64_t m_consumedTValues;
+  uint64_t m_discardedTValues;
+  uint64_t m_channelFrameCount;
 
-  uint32_t m_perfectFrames;
-  uint32_t m_longFrames;
-  uint32_t m_shortFrames;
+  uint64_t m_perfectFrames;
+  uint64_t m_longFrames;
+  uint64_t m_shortFrames;
 
-  uint32_t m_overshootSyncs;
-  uint32_t m_undershootSyncs;
-  uint32_t m_perfectSyncs;
+  uint64_t m_overshootSyncs;
+  uint64_t m_undershootSyncs;
+  uint64_t m_perfectSyncs;
 
   State m_currentState;
   std::vector<uint8_t> m_internalBuffer;
@@ -62,7 +63,7 @@ class TvaluesToChannel : public Decoder {
   std::queue<std::vector<uint8_t>> m_outputBuffer;
 
   Tvalues m_tvalues;
-  uint32_t m_tvalueDiscardCount;
+  uint64_t m_tvalueDiscardCount;
 
   State expectingInitialSync();
   State expectingSync();

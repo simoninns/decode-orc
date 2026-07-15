@@ -14,7 +14,8 @@
 #include <cmath>
 #include <cstddef>
 #include <queue>
-#include <stdexcept>
+
+#include "efm_exception.h"
 
 TvaluesToChannel::TvaluesToChannel() {
   // Statistics
@@ -427,9 +428,12 @@ TvaluesToChannel::State TvaluesToChannel::handleOvershoot() {
           m_consumedTValues += singleFrameData.size();
           m_channelFrameCount++;
 
+          // E-8: a frame with fewer bits than nominal is a *short* frame and
+          // more bits is a *long* frame (matching the convention above); these
+          // were inverted.
           if (singleFrameBitCount == frameSize) m_perfectFrames++;
-          if (singleFrameBitCount < frameSize) m_longFrames++;
-          if (singleFrameBitCount > frameSize) m_shortFrames++;
+          if (singleFrameBitCount > frameSize) m_longFrames++;
+          if (singleFrameBitCount < frameSize) m_shortFrames++;
         }
         break;
       }
@@ -452,9 +456,10 @@ TvaluesToChannel::State TvaluesToChannel::handleOvershoot() {
       nextState = ExpectingSync;
     }
   } else {
-    throw std::runtime_error(
+    ORC_LOG_ERROR(
         "TvaluesToChannel::handleOvershoot() - Overshoot frame detected but no "
         "second sync header found, even though it should have been there.");
+    throw efm::EfmDecodeError(__func__);
   }
 
   return nextState;

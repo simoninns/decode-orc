@@ -33,7 +33,8 @@ class MockEFMAudioDecodeDeps : public orc::IEFMAudioDecodeDeps {
  public:
   MOCK_METHOD(orc::EFMAudioDecodeResult, decode_to_cache,
               (const orc::VideoFrameRepresentation& representation,
-               const orc::EFMAudioDecodeOptions& options),
+               const orc::EFMAudioDecodeOptions& options,
+               (const orc::IEFMAudioDecodeDeps::ProgressFn&)progress),
               (override));
   MOCK_METHOD((std::vector<int16_t>), read_cache_pairs,
               (uint64_t first_pair, uint32_t pair_count), (const, override));
@@ -242,7 +243,7 @@ TEST(EFMAudioDecodeStageTest, SampleAccess_DecodesResamplesAndCachesOnce_Pal) {
 
   // No decode so far (StrictMock would have failed). The first sample access
   // triggers exactly one decode → raw read → convert → cache-write sequence.
-  EXPECT_CALL(*deps, decode_to_cache(_, _))
+  EXPECT_CALL(*deps, decode_to_cache(_, _, _))
       .Times(1)
       .WillOnce(Return(orc::EFMAudioDecodeResult{true, "", kRawPairs}));
   EXPECT_CALL(*deps, read_cache_pairs(0, static_cast<uint32_t>(kRawPairs)))
@@ -272,6 +273,50 @@ TEST(EFMAudioDecodeStageTest, SampleAccess_DecodesResamplesAndCachesOnce_Pal) {
   EXPECT_EQ(output->get_audio_samples(1, orc::FrameID(1)), frame1_block);
 }
 
+TEST(EFMAudioDecodeStageTest, Prime_RunsDecodeOnceAndForwardsProgress) {
+  orc::EFMAudioDecodeStage stage;
+  auto deps = std::make_shared<StrictMock<MockEFMAudioDecodeDeps>>();
+  stage.set_deps_override(deps);
+
+  auto vfr = std::make_shared<NiceMock<MockVideoFrameRepresentationArtifact>>();
+  constexpr size_t kFrames = 2;
+  configure_video(*vfr, orc::VideoSystem::PAL, kFrames);
+  auto output = make_output(stage, vfr, 0);
+
+  constexpr uint64_t kRawPairs = 44100 / 25 * kFrames;
+  // The deps invoke the forwarded progress callback so we can assert it reaches
+  // the caller, then fail the decode to keep the test focused on the priming
+  // plumbing (a failed decode still counts as "decoded once").
+  EXPECT_CALL(*deps, decode_to_cache(_, _, _))
+      .Times(1)
+      .WillOnce([](const orc::VideoFrameRepresentation&,
+                   const orc::EFMAudioDecodeOptions&,
+                   const orc::IEFMAudioDecodeDeps::ProgressFn& progress) {
+        if (progress) progress(1, kFrames, "Decoding EFM audio...");
+        return orc::EFMAudioDecodeResult{false, "stop here", 0};
+      });
+
+  // The output exposes the priming capability.
+  const auto* primer =
+      dynamic_cast<const orc::IAudioDecodePrimer*>(output.get());
+  ASSERT_NE(primer, nullptr);
+
+  bool progress_seen = false;
+  primer->prime_audio_decode(
+      [&](uint64_t done, uint64_t total, const std::string& message) {
+        progress_seen = true;
+        EXPECT_EQ(done, 1u);
+        EXPECT_EQ(total, kFrames);
+        EXPECT_FALSE(message.empty());
+      });
+  EXPECT_TRUE(progress_seen);
+
+  // Priming already ran the (single) decode; a later sample access must not
+  // trigger a second one — StrictMock would fail if decode_to_cache ran again.
+  const auto samples = output->get_audio_samples(0, orc::FrameID(0));
+  EXPECT_EQ(samples.size(), 1920u * 2);  // silence, cadence-sized
+}
+
 TEST(EFMAudioDecodeStageTest, SampleAccess_ServesNtscCadenceSizedBlocks) {
   orc::EFMAudioDecodeStage stage;
   auto deps = std::make_shared<StrictMock<MockEFMAudioDecodeDeps>>();
@@ -283,7 +328,7 @@ TEST(EFMAudioDecodeStageTest, SampleAccess_ServesNtscCadenceSizedBlocks) {
   auto output = make_output(stage, vfr, 0);
 
   constexpr uint64_t kRawPairs = 7357;  // ≈ 5 NTSC frames at 44.1 kHz
-  EXPECT_CALL(*deps, decode_to_cache(_, _))
+  EXPECT_CALL(*deps, decode_to_cache(_, _, _))
       .Times(1)
       .WillOnce(Return(orc::EFMAudioDecodeResult{true, "", kRawPairs}));
   EXPECT_CALL(*deps, read_cache_pairs(0, static_cast<uint32_t>(kRawPairs)))
@@ -317,7 +362,7 @@ TEST(EFMAudioDecodeStageTest, ShortCacheRead_IsSilencePaddedToCadenceSize) {
   configure_video(*vfr, orc::VideoSystem::PAL, 1);
   auto output = make_output(stage, vfr, 0);
 
-  EXPECT_CALL(*deps, decode_to_cache(_, _))
+  EXPECT_CALL(*deps, decode_to_cache(_, _, _))
       .WillOnce(Return(orc::EFMAudioDecodeResult{true, "", 10}));
   EXPECT_CALL(*deps, read_cache_pairs(0, 10))
       .WillOnce(Return(std::vector<int16_t>(20, 0)));
@@ -348,7 +393,7 @@ TEST(EFMAudioDecodeStageTest, FailedDecode_ServesSilenceAndDecodesOnlyOnce) {
   // A failed decode (e.g. an EFM data disc) is attempted only once and
   // leaves the appended pair silent — cadence-sized zero blocks, and the
   // synchronous cache is never touched (StrictMock).
-  EXPECT_CALL(*deps, decode_to_cache(_, _))
+  EXPECT_CALL(*deps, decode_to_cache(_, _, _))
       .Times(1)
       .WillOnce(
           Return(orc::EFMAudioDecodeResult{false, "no EFM t-values found", 0}));
@@ -382,9 +427,10 @@ TEST(EFMAudioDecodeStageTest, Parameters_ArePassedToDecode) {
       outputs[0]);
   ASSERT_NE(output, nullptr);
 
-  EXPECT_CALL(*deps, decode_to_cache(_, _))
+  EXPECT_CALL(*deps, decode_to_cache(_, _, _))
       .WillOnce([](const orc::VideoFrameRepresentation&,
-                   const orc::EFMAudioDecodeOptions& options) {
+                   const orc::EFMAudioDecodeOptions& options,
+                   const orc::IEFMAudioDecodeDeps::ProgressFn&) {
         EXPECT_TRUE(options.no_timecodes);
         EXPECT_TRUE(options.no_audio_concealment);
         EXPECT_EQ(options.report_path, "/tmp/decode.txt");
@@ -413,9 +459,10 @@ TEST(EFMAudioDecodeStageTest, ReportPath_IsSuppressedWhenCheckboxOff) {
       outputs[0]);
   ASSERT_NE(output, nullptr);
 
-  EXPECT_CALL(*deps, decode_to_cache(_, _))
+  EXPECT_CALL(*deps, decode_to_cache(_, _, _))
       .WillOnce([](const orc::VideoFrameRepresentation&,
-                   const orc::EFMAudioDecodeOptions& options) {
+                   const orc::EFMAudioDecodeOptions& options,
+                   const orc::IEFMAudioDecodeDeps::ProgressFn&) {
         EXPECT_TRUE(options.report_path.empty());
         return orc::EFMAudioDecodeResult{false, "stop here", 0};
       });

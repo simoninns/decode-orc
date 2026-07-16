@@ -75,8 +75,9 @@ std::vector<int32_t> EFMAudioChannelPairRepresentation::get_audio_samples(
   return samples;
 }
 
-void EFMAudioChannelPairRepresentation::ensure_decoded() const {
-  std::call_once(decode_once_, [this] {
+void EFMAudioChannelPairRepresentation::ensure_decoded(
+    const ProgressFn& progress) const {
+  std::call_once(decode_once_, [this, &progress] {
     if (!source_) {
       ORC_LOG_ERROR(
           "EFMAudioDecode: no source representation; the EFM audio channel "
@@ -95,7 +96,7 @@ void EFMAudioChannelPairRepresentation::ensure_decoded() const {
 
     ORC_LOG_INFO("EFMAudioDecode: starting lazy EFM audio decode");
     const EFMAudioDecodeResult decode_result =
-        deps_->decode_to_cache(*source_, options_);
+        deps_->decode_to_cache(*source_, options_, progress);
     if (!decode_result.success) {
       ORC_LOG_ERROR(
           "EFMAudioDecode: EFM audio decode failed ({}); the EFM audio "
@@ -115,6 +116,12 @@ void EFMAudioChannelPairRepresentation::ensure_decoded() const {
     // Scope the widened 44.1 kHz carrier so it is freed the moment resampling
     // returns; otherwise it would sit alongside the per-frame blocks and the
     // flattened output below, tripling the converted-stream footprint at peak.
+    // The resample of the full stream is itself multi-second work; surface it
+    // as a distinct phase so the dialog does not appear to stall after decode.
+    if (progress) {
+      progress(frame_count, frame_count,
+               "Converting EFM audio (resampling)...");
+    }
     std::vector<std::vector<int32_t>> frames;
     {
       const std::vector<int32_t> widened =

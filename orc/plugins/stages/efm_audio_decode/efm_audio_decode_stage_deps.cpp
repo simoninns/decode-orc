@@ -54,10 +54,11 @@ EFMAudioDecodeDeps::~EFMAudioDecodeDeps() {
 
 EFMAudioDecodeResult EFMAudioDecodeDeps::decode_to_cache(
     const VideoFrameRepresentation& representation,
-    const EFMAudioDecodeOptions& options) {
+    const EFMAudioDecodeOptions& options, const ProgressFn& progress) {
   const auto frame_rng = representation.frame_range();
   const FrameID start_fid = frame_rng.first;
   const FrameID end_fid = frame_rng.last;
+  const uint64_t total_frames = frame_rng.count();
 
   ORC_LOG_DEBUG("EFMAudioDecodeDeps: counting EFM t-values across {} frames",
                 frame_rng.count());
@@ -102,7 +103,16 @@ EFMAudioDecodeResult EFMAudioDecodeDeps::decode_to_cache(
     constexpr size_t kChunkSize = 1024;
     std::vector<uint8_t> staging;
     staging.reserve(kChunkSize);
+    // Report every ~1% of the range (and always the first frame) so the sink's
+    // progress dialog advances instead of freezing for the whole decode.
+    const uint64_t report_stride = std::max<uint64_t>(1, total_frames / 100);
     for (FrameID fid = start_fid; fid <= end_fid; ++fid) {
+      if (progress) {
+        const uint64_t done = static_cast<uint64_t>(fid - start_fid);
+        if (done % report_stride == 0) {
+          progress(done, total_frames, "Decoding EFM audio...");
+        }
+      }
       const auto samples = representation.get_efm_samples(fid);
       size_t pos = 0;
       while (pos < samples.size()) {

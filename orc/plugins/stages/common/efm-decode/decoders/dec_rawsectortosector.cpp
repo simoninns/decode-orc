@@ -10,6 +10,12 @@
 
 #include <orc/stage/logging.h>
 
+#include <utility>
+#include <vector>
+
+#include "../efm-lib/efm_constants.h"
+#include "../efm-lib/efm_exception.h"
+
 // This table is the CRC32 look-up for the EDC data
 static constexpr uint32_t crc32Lut[256] = {
     0x00000000, 0x90910101, 0x91210201, 0x01B00300, 0x92410401, 0x02D00500,
@@ -63,7 +69,11 @@ RawSectorToSector::RawSectorToSector()
       m_mode0Sectors(0),
       m_mode1Sectors(0),
       m_mode2Sectors(0),
-      m_invalidModeSectors(0) {}
+      m_invalidModeSectors(0),
+      m_rspcQCleanCodewords(0),
+      m_rspcQCorrectedCodewords(0),
+      m_rspcPCleanCodewords(0),
+      m_rspcPCorrectedCodewords(0) {}
 
 void RawSectorToSector::pushSector(const RawSector& rawSector) {
   // Add the data to the input buffer
@@ -74,8 +84,8 @@ void RawSectorToSector::pushSector(const RawSector& rawSector) {
 }
 
 Sector RawSectorToSector::popSector() {
-  // Return the first item in the output buffer
-  Sector sector = m_outputBuffer.front();
+  // Move the first item out of the output buffer to avoid a deep copy.
+  Sector sector = std::move(m_outputBuffer.front());
   m_outputBuffer.pop_front();
   return sector;
 }
@@ -89,23 +99,23 @@ bool RawSectorToSector::isReady() const {
 // Note: Does not fill missing sectors
 void RawSectorToSector::processQueue() {
   while (!m_inputBuffer.empty()) {
-    // Get the first item in the input buffer
-    RawSector rawSector = m_inputBuffer.front();
+    // Get the first item in the input buffer (move to avoid a deep copy)
+    RawSector rawSector = std::move(m_inputBuffer.front());
     m_inputBuffer.pop_front();
     bool rawSectorValid = false;
 
     // Verify the data sizes (sanity check)
-    if (rawSector.data().size() != 2352) {
+    if (rawSector.data().size() != efm::kRawSectorSize) {
       ORC_LOG_DEBUG(
           "RawSectorToSector::processQueue(): Sector data size is incorrect. "
           "Expected 2352 bytes, got {} bytes",
           rawSector.data().size());
       ORC_LOG_CRITICAL(
           "RawSectorToSector::processQueue(): Sector data size is incorrect");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
-    if (rawSector.errorData().size() != 2352) {
+    if (rawSector.errorData().size() != efm::kRawSectorSize) {
       ORC_LOG_DEBUG(
           "RawSectorToSector::processQueue(): Sector error data size is "
           "incorrect. Expected 2352 bytes, got {} bytes",
@@ -113,10 +123,10 @@ void RawSectorToSector::processQueue() {
       ORC_LOG_CRITICAL(
           "RawSectorToSector::processQueue(): Sector error data size is "
           "incorrect");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
-    if (rawSector.paddedData().size() != 2352) {
+    if (rawSector.paddedData().size() != efm::kRawSectorSize) {
       ORC_LOG_DEBUG(
           "RawSectorToSector::processQueue(): Sector padded data size is "
           "incorrect. Expected 2352 bytes, got {} bytes",
@@ -124,7 +134,7 @@ void RawSectorToSector::processQueue() {
       ORC_LOG_CRITICAL(
           "RawSectorToSector::processQueue(): Sector padded data size is "
           "incorrect");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
     // Determine the sector mode (for modes 0 and 2 there is no correction
@@ -183,39 +193,60 @@ void RawSectorToSector::processQueue() {
             "corrupt. EDC: {} Calculated: {} attempting to correct",
             originalEdcWord, edcWord);
 
-        // Attempt Q and P parity error correction on the sector data
+        // Attempt Q and P parity error correction on the sector data.
+        //
+        // E-3: RSPC is a product code - P corrections create newly-correctable
+        // Q words and vice versa - so iterate {Q pass; P pass} until the EDC
+        // passes, a pass makes no change, or an iteration cap is reached
+        // (standard CD-ROM decoders iterate 2-4 rounds). E-4 makes the flag
+        // maintenance across passes effective.
         Rspc rspc;
 
-        // Make a local copy of the sector data
         std::vector<uint8_t> correctedData = rawSector.data();
         std::vector<uint8_t> correctedErrorData = rawSector.errorData();
 
-        rspc.qParityEcc(correctedData, correctedErrorData);
-        rspc.pParityEcc(correctedData, correctedErrorData);
+        constexpr int kMaxRspcIterations = 4;
+        uint32_t correctedEdcWord = 0;
+        bool edcNowValid = false;
+        for (int iteration = 0; iteration < kMaxRspcIterations; ++iteration) {
+          const std::vector<uint8_t> beforeData = correctedData;
+          const std::vector<uint8_t> beforeErrors = correctedErrorData;
 
-        // Copy the corrected data back to the raw sector
+          rspc.qParityEcc(correctedData, correctedErrorData);
+          rspc.pParityEcc(correctedData, correctedErrorData);
+
+          correctedEdcWord =
+              (static_cast<uint32_t>(correctedData[2064]) << 0) |
+              (static_cast<uint32_t>(correctedData[2065]) << 8) |
+              (static_cast<uint32_t>(correctedData[2066]) << 16) |
+              (static_cast<uint32_t>(correctedData[2067]) << 24);
+          edcWord = crc32(correctedData, 2064);
+
+          if (correctedEdcWord == edcWord) {
+            edcNowValid = true;
+            break;
+          }
+          // Convergence check: if a full round changed nothing, further passes
+          // cannot help.
+          if (correctedData == beforeData &&
+              correctedErrorData == beforeErrors) {
+            break;
+          }
+        }
+
+        // E-8(e): fold this sector's codeword-level RSPC activity into the
+        // cumulative statistics before the rspc instance goes out of scope.
+        m_rspcQCleanCodewords += rspc.qCleanCodewords();
+        m_rspcQCorrectedCodewords += rspc.qCorrectedCodewords();
+        m_rspcPCleanCodewords += rspc.pCleanCodewords();
+        m_rspcPCorrectedCodewords += rspc.pCorrectedCodewords();
+
+        // Copy the (best-effort) corrected data back to the raw sector
         rawSector.pushData(correctedData);
         rawSector.pushErrorData(correctedErrorData);
 
-        // Computer CRC32 again for the corrected data
-        uint32_t correctedEdcWord =
-            ((static_cast<uint32_t>(
-                 static_cast<uint8_t>(rawSector.data()[2064])))
-             << 0) |
-            ((static_cast<uint32_t>(
-                 static_cast<uint8_t>(rawSector.data()[2065])))
-             << 8) |
-            ((static_cast<uint32_t>(
-                 static_cast<uint8_t>(rawSector.data()[2066])))
-             << 16) |
-            ((static_cast<uint32_t>(
-                 static_cast<uint8_t>(rawSector.data()[2067])))
-             << 24);
-
-        edcWord = crc32(rawSector.data(), 2064);
-
         // Is the CRC now correct?
-        if (correctedEdcWord != edcWord) {
+        if (!edcNowValid) {
           // Error correction failed - sector is invalid and there's nothing
           // more we can do
 
@@ -224,7 +255,6 @@ void RawSectorToSector::processQueue() {
                 "RawSectorToSector::processQueue(): CRC32 error - sector data "
                 "cannot be recovered. EDC: {} Calculated: {} post correction",
                 correctedEdcWord, edcWord);
-            m_mode1Sectors++;
             rawSectorValid = false;
           } else {
             // Mode was invalid as the sector is completely invalid.  This is
@@ -242,6 +272,7 @@ void RawSectorToSector::processQueue() {
               "{} Calculated: {}",
               correctedEdcWord, edcWord);
           m_correctedSectors++;
+          m_mode1Sectors++;  // E-8: count the successfully-corrected mode-1
           rawSectorValid = true;
           mode = 1;  // If error correction worked... this a mode 1 sector
         }
@@ -270,83 +301,126 @@ void RawSectorToSector::processQueue() {
         } else if (mode == 2) {
           m_mode2Sectors++;
         } else {
+          // R-2: a 32-bit EDC admits a rare false-valid, so an out-of-range
+          // mode byte here is a disc condition (corrupt sector that happened to
+          // pass EDC), not an invariant violation. Discard this sector - the
+          // same treatment as the failed-EDC invalid-mode path above - rather
+          // than aborting the entire decode.
           ORC_LOG_DEBUG(
-              "RawSectorToSector::processQueue(): EDC: {} Calculated: {} Mode "
-              "byte: {}",
+              "RawSectorToSector::processQueue(): EDC passed (EDC: {} "
+              "Calculated: {}) but mode byte {} is out of range - discarding "
+              "sector.",
               originalEdcWord, edcWord,
               static_cast<uint8_t>(rawSector.data()[15]));
-          ORC_LOG_CRITICAL(
-              "RawSectorToSector::processQueue(): Invalid sector mode of {} - "
-              "even though sector data was valid - bug?",
-              mode);
-          std::exit(1);
+          m_validSectors--;  // undo the increment above - not a valid sector
+          m_invalidModeSectors++;
+          rawSectorValid = false;
         }
       }
     } else {
-      // Mode 0 and Mode 2 sectors are not corrected
+      // Mode 0 and Mode 2 sectors carry no P/Q EDC, so they are not corrected.
       if (mode == 0) {
         m_mode0Sectors++;
+        // C-5: ECMA-130 §14.2 - a mode-0 sector's bytes 16-2351 shall all be
+        // (00). Verify and warn if not, so genuinely non-zero mode-0 data is
+        // surfaced rather than silently accepted.
+        const std::vector<uint8_t>& d = rawSector.data();
+        bool allZero = true;
+        for (size_t i = 16; i < efm::kRawSectorSize && allZero; ++i) {
+          if (d[i] != 0) allZero = false;
+        }
+        if (!allZero) {
+          ORC_LOG_WARN(
+              "RawSectorToSector::processQueue(): Mode 0 sector contains "
+              "non-zero user data (ECMA-130 §14.2 requires all-zero).");
+        }
       } else if (mode == 2) {
         m_mode2Sectors++;
+        // C-5: ECMA-130 §14.2 - a mode-2 sector's user data is 2336 bytes
+        // (16-2351). These are now emitted in full below (sized by mode); the
+        // sink writes sector.size() bytes so the larger payload round-trips.
       }
       rawSectorValid = true;
-
-      ORC_LOG_WARN(
-          "RawSectorToSector::processQueue(): Mode 0 and Mode 2 sectors are "
-          "probably not handled correctly - consider submitting this as test "
-          "data");
     }
 
-    // Determine the sector's metadata
-    SectorAddress sectorAddress(0, 0, 0);
+    // E-5: even a sector that still fails EDC is more useful emitted with
+    // per-byte flags (dataValid=false) than dropped and replaced downstream by
+    // an all-zero dummy - but only when its 4-byte header (address + mode,
+    // bytes 12-15) is itself reliable, otherwise we cannot trust the address
+    // and would misplace the sector in SectorCorrection's gap logic.
+    const std::vector<uint8_t>& sectorData = rawSector.data();
+    const std::vector<uint8_t>& sectorErrorData = rawSector.errorData();
+    const bool headerReliable =
+        sectorErrorData[12] == 0 && sectorErrorData[13] == 0 &&
+        sectorErrorData[14] == 0 && sectorErrorData[15] == 0;
 
-    // If the raw sector data is valid, form a sector from it
-    if (rawSectorValid) {
-      // Extract the sector address data
-      int32_t min = bcdToInt(rawSector.data()[12]);
-      int32_t sec = bcdToInt(rawSector.data()[13]);
-      int32_t frame = bcdToInt(rawSector.data()[14]);
-      sectorAddress = SectorAddress(min, sec, frame);
-
-      // Extract the sector mode data
-      if (static_cast<uint8_t>(rawSector.data()[15]) == 0) {
-        mode = 0;
-      } else if (static_cast<uint8_t>(rawSector.data()[15]) == 1) {
-        mode = 1;
-      } else if (static_cast<uint8_t>(rawSector.data()[15]) == 2) {
-        mode = 2;
-      } else {
-        mode = -1;
-      }
-
-      // Create an output sector
-      Sector sector;
-      sector.dataValid(rawSectorValid);
-      sector.setAddress(sectorAddress);
-      sector.setMode(mode);
-
-      // Push only the user data to the output sector (bytes 16 to 2063 =
-      // 2KBytes data) Extract using iterators: .mid(16, 2048) equivalent Note:
-      // data() returns by value, so we must capture each result in a local
-      // variable before taking iterators — otherwise two calls produce two
-      // separate temporaries whose iterators cannot validly form a range.
-      const std::vector<uint8_t> sectorDataCopy = rawSector.data();
-      const std::vector<uint8_t> sectorErrorDataCopy = rawSector.errorData();
-      std::vector<uint8_t> userData(sectorDataCopy.begin() + 16,
-                                    sectorDataCopy.begin() + 16 + 2048);
-      std::vector<uint8_t> userErrorData(
-          sectorErrorDataCopy.begin() + 16,
-          sectorErrorDataCopy.begin() + 16 + 2048);
-
-      sector.pushData(userData);
-      sector.pushErrorData(userErrorData);
-
-      // Add the sector to the output buffer
-      m_outputBuffer.push_back(sector);
-    } else {
-      // Sector is invalid - discard it
+    if (!rawSectorValid && !headerReliable) {
+      // No trustworthy address - discard and let SectorCorrection fill the gap.
       m_invalidSectors++;
+      continue;
     }
+    if (!rawSectorValid) m_invalidSectors++;
+
+    // Extract the sector address data
+    int32_t min = bcdToInt(sectorData[12]);
+    int32_t sec = bcdToInt(sectorData[13]);
+    int32_t frame = bcdToInt(sectorData[14]);
+
+    // C-6: lead-in-area data sector headers use MIN + 0xA0 (ECMA-130 §14.2(a)),
+    // so bcdToInt(0xA0..) yields >= 100. Such sectors are not program-area
+    // data; discard them rather than emitting a clamped bogus address.
+    if (sectorData[12] >= 0xA0) {
+      ORC_LOG_DEBUG(
+          "RawSectorToSector::processQueue(): Lead-in sector header (MIN byte "
+          "{:#04x}) - discarding.",
+          static_cast<uint8_t>(sectorData[12]));
+      if (rawSectorValid) m_invalidSectors++;
+      continue;
+    }
+
+    SectorAddress sectorAddress(min, sec, frame);
+
+    // Extract the sector mode data
+    if (sectorData[15] == 0) {
+      mode = 0;
+    } else if (sectorData[15] == 1) {
+      mode = 1;
+    } else if (sectorData[15] == 2) {
+      mode = 2;
+    } else {
+      mode = -1;
+    }
+
+    // Create an output sector
+    Sector sector;
+    sector.dataValid(rawSectorValid);
+    sector.setAddress(sectorAddress);
+    sector.setMode(mode);
+
+    // C-5: size the emitted user-data payload by sector mode (ECMA-130 §14).
+    // Mode 1 carries 2048 user bytes (16..2063); mode 2 (CD-ROM XA) carries
+    // 2336 (16..2351). Mode 0 / unknown fall back to the 2048 layout so the
+    // mode-1 output length is unchanged. The downstream sink writes
+    // sector.size() bytes, so a variable-length payload round-trips intact.
+    // data()/errorData() now return const references, so we index them
+    // directly (P-2: no defensive whole-sector copies).
+    constexpr std::vector<uint8_t>::difference_type kUserDataOffset = 16;
+    constexpr std::vector<uint8_t>::difference_type kUserDataSizeMode1 =
+        2048;  // ECMA-130 §14 (Mode 1 user data)
+    constexpr std::vector<uint8_t>::difference_type kUserDataSizeMode2 =
+        2336;  // ECMA-130 §14 (Mode 2 user data)
+    const std::vector<uint8_t>::difference_type userDataSize =
+        (mode == 2) ? kUserDataSizeMode2 : kUserDataSizeMode1;
+
+    sector.pushData(std::vector<uint8_t>(
+        sectorData.begin() + kUserDataOffset,
+        sectorData.begin() + kUserDataOffset + userDataSize));
+    sector.pushErrorData(std::vector<uint8_t>(
+        sectorErrorData.begin() + kUserDataOffset,
+        sectorErrorData.begin() + kUserDataOffset + userDataSize));
+
+    // Add the sector to the output buffer
+    m_outputBuffer.push_back(sector);
   }
 }
 
@@ -380,4 +454,12 @@ void RawSectorToSector::showStatistics() const {
   ORC_LOG_INFO("    Mode 1 sectors: {}", m_mode1Sectors);
   ORC_LOG_INFO("    Mode 2 sectors: {}", m_mode2Sectors);
   ORC_LOG_INFO("    Invalid mode sectors: {}", m_invalidModeSectors);
+
+  // E-8(e): report genuine RSPC repair activity separately from codewords that
+  // decoded clean, so "already valid" is not conflated with "repaired".
+  ORC_LOG_INFO("  RSPC codewords (on corrected sectors):");
+  ORC_LOG_INFO("    Q-parity: {} corrected, {} clean",
+               m_rspcQCorrectedCodewords, m_rspcQCleanCodewords);
+  ORC_LOG_INFO("    P-parity: {} corrected, {} clean",
+               m_rspcPCorrectedCodewords, m_rspcPCleanCodewords);
 }

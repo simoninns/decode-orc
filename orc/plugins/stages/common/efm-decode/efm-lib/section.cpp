@@ -12,12 +12,14 @@
 
 #include <cstdlib>
 
+#include "efm_exception.h"
+
 F2Section::F2Section() { m_frames.reserve(98); }
 
 void F2Section::pushFrame(const F2Frame& inFrame) {
   if (m_frames.size() >= 98) {
     ORC_LOG_ERROR("F2Section::pushFrame - Section is full");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames.push_back(inFrame);
 }
@@ -25,7 +27,7 @@ void F2Section::pushFrame(const F2Frame& inFrame) {
 const F2Frame& F2Section::frame(int32_t index) const {
   if (index >= static_cast<int32_t>(m_frames.size()) || index < 0) {
     ORC_LOG_ERROR("F2Section::frame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   return m_frames[index];
 }
@@ -33,7 +35,7 @@ const F2Frame& F2Section::frame(int32_t index) const {
 void F2Section::setFrame(int32_t index, const F2Frame& inFrame) {
   if (index >= m_frames.size() || index < 0) {
     ORC_LOG_ERROR("F2Section::setFrame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames[index] = inFrame;
 }
@@ -42,18 +44,12 @@ bool F2Section::isComplete() const { return m_frames.size() == 98; }
 
 void F2Section::clear() { m_frames.clear(); }
 
-void F2Section::showData() {
-  for (int32_t i = 0; i < m_frames.size(); ++i) {
-    m_frames[i].showData();
-  }
-}
-
 F1Section::F1Section() { m_frames.reserve(98); }
 
 void F1Section::pushFrame(const F1Frame& inFrame) {
   if (m_frames.size() >= 98) {
     ORC_LOG_ERROR("F1Section::pushFrame - Section is full");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames.push_back(inFrame);
 }
@@ -61,7 +57,7 @@ void F1Section::pushFrame(const F1Frame& inFrame) {
 const F1Frame& F1Section::frame(int32_t index) const {
   if (index >= static_cast<int32_t>(m_frames.size()) || index < 0) {
     ORC_LOG_ERROR("F1Section::frame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   return m_frames[index];
 }
@@ -69,7 +65,7 @@ const F1Frame& F1Section::frame(int32_t index) const {
 void F1Section::setFrame(int32_t index, const F1Frame& inFrame) {
   if (index >= 98 || index < 0) {
     ORC_LOG_ERROR("F1Section::setFrame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames[index] = inFrame;
 }
@@ -89,7 +85,7 @@ Data24Section::Data24Section() { m_frames.reserve(98); }
 void Data24Section::pushFrame(const Data24& inFrame) {
   if (m_frames.size() >= 98) {
     ORC_LOG_ERROR("Data24Section::pushFrame - Section is full");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames.push_back(inFrame);
 }
@@ -97,7 +93,7 @@ void Data24Section::pushFrame(const Data24& inFrame) {
 const Data24& Data24Section::frame(int32_t index) const {
   if (index >= static_cast<int32_t>(m_frames.size()) || index < 0) {
     ORC_LOG_ERROR("Data24Section::frame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   return m_frames[index];
 }
@@ -105,7 +101,7 @@ const Data24& Data24Section::frame(int32_t index) const {
 void Data24Section::setFrame(int32_t index, const Data24& inFrame) {
   if (index >= m_frames.size() || index < 0) {
     ORC_LOG_ERROR("Data24Section::setFrame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames[index] = inFrame;
 }
@@ -125,7 +121,7 @@ AudioSection::AudioSection() { m_frames.reserve(98); }
 void AudioSection::pushFrame(const Audio& inFrame) {
   if (m_frames.size() >= 98) {
     ORC_LOG_ERROR("AudioSection::pushFrame - Section is full");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames.push_back(inFrame);
 }
@@ -133,7 +129,7 @@ void AudioSection::pushFrame(const Audio& inFrame) {
 const Audio& AudioSection::frame(int32_t index) const {
   if (index >= static_cast<int32_t>(m_frames.size()) || index < 0) {
     ORC_LOG_ERROR("AudioSection::frame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   return m_frames[index];
 }
@@ -141,7 +137,7 @@ const Audio& AudioSection::frame(int32_t index) const {
 void AudioSection::setFrame(int32_t index, const Audio& inFrame) {
   if (index >= m_frames.size() || index < 0) {
     ORC_LOG_ERROR("AudioSection::setFrame - Index {} out of range", index);
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frames[index] = inFrame;
 }
@@ -155,84 +151,3 @@ void AudioSection::showData() {
     m_frames[i].showData();
   }
 }
-
-// Stream write and read operators for F2Section and Data24Section
-// NOTE: QDataStream operators disabled for C++17 migration
-// Serialization of Section objects is not currently supported
-/*
-QDataStream& operator<<(QDataStream& stream, const F2Section& section)
-{
-    // Write metadata
-    stream << section.metadata;
-
-    // Write number of frames
-    stream << static_cast<int32_t>(section.m_frames.size());
-
-    // Write frames
-    for (const auto& frame : section.m_frames) {
-        stream << frame;
-    }
-
-    return stream;
-}
-
-QDataStream& operator>>(QDataStream& stream, F2Section& section)
-{
-    // Clear existing data
-    section.clear();
-
-    // Read metadata
-    stream >> section.metadata;
-
-    // Read number of frames
-    int32_t frameCount;
-    stream >> frameCount;
-
-    // Read frames
-    for (int32_t i = 0; i < frameCount; ++i) {
-        F2Frame frame;
-        stream >> frame;
-        section.pushFrame(frame);
-    }
-
-    return stream;
-}
-
-QDataStream& operator<<(QDataStream& stream, const Data24Section& section)
-{
-    // Write metadata
-    stream << section.metadata;
-
-    // Write number of frames
-    stream << static_cast<int32_t>(section.m_frames.size());
-
-    // Write frames
-    for (const auto& frame : section.m_frames) {
-        stream << frame;
-    }
-
-    return stream;
-}
-
-QDataStream& operator>>(QDataStream& stream, Data24Section& section)
-{
-    // Clear existing data
-    section.clear();
-
-    // Read metadata
-    stream >> section.metadata;
-
-    // Read number of frames
-    int32_t frameCount;
-    stream >> frameCount;
-
-    // Read frames
-    for (int32_t i = 0; i < frameCount; ++i) {
-        Data24 frame;
-        stream >> frame;
-        section.pushFrame(frame);
-    }
-
-    return stream;
-}
-*/

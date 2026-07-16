@@ -28,6 +28,9 @@ Boolean, default `false`. Disable timecode verification during decode. Needed fo
 ### no_audio_concealment
 Boolean, default `false`. Disable interpolation-based audio error concealment; uncorrectable samples are left as decoded instead of being concealed.
 
+### ignore_preemphasis
+Boolean, default `false`. Ignore the 50/15 µs pre-emphasis CONTROL flag (IEC 60908 §17.5) and decode the audio exactly as stored. When unchecked (default), sections flagged as pre-emphasised are de-emphasised during decode with a 50/15 µs filter, so the appended channel pair has a flat response. Enable this only if you want the raw pre-emphasised samples.
+
 ### pair_name
 String, default `EFM digital audio`. Human-readable name for the decoded EFM audio channel pair. It surfaces in the CVBS container and as the embedded stream title in the Video Sink. If left empty it falls back to `EFM digital audio`.
 

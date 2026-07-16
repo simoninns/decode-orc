@@ -13,6 +13,8 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "efm_exception.h"
+
 DelayLines::DelayLines(std::vector<int32_t> delayLengths) {
   m_delayLines.reserve(delayLengths.size());
   for (int32_t i = 0; i < static_cast<int32_t>(delayLengths.size()); ++i) {
@@ -25,7 +27,7 @@ void DelayLines::push(std::vector<uint8_t>& data,
                       std::vector<uint8_t>& paddedData) {
   if (data.size() != m_delayLines.size()) {
     ORC_LOG_ERROR("Input data size does not match the number of delay lines.");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // Process each input value through its corresponding delay line

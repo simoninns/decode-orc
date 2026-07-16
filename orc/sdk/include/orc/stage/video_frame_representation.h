@@ -19,11 +19,19 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
+#include <string>
 #include <vector>
 
 namespace orc {
+
+// Progress callback for a deferred whole-stream audio decode driven through
+// prime_audio_decode(): (done, total, message). |total| may be 0 when the work
+// size is not yet known, in which case only |message| is meaningful.
+using AudioDecodeProgressFn =
+    std::function<void(uint64_t done, uint64_t total, const std::string&)>;
 
 // ============================================================================
 // VideoFrameRepresentation
@@ -179,6 +187,18 @@ class VideoFrameRepresentation {
     return {};
   }
 
+  // Force any deferred whole-stream audio decode backing this representation to
+  // run now, reporting progress through |progress|. The default is a no-op:
+  // representations whose audio is cheap or already resident need do nothing.
+  // Representations that defer an expensive decode (e.g. EFM audio, run lazily
+  // on first sample access) override this so a sink can meter the decode on its
+  // progress dialog instead of stalling silently inside the first
+  // get_audio_samples() call. Wrappers forward it down the chain so the hook
+  // reaches a nested producer through any number of intervening stages.
+  // Idempotent and safe to call with an empty |progress|.
+  virtual void prime_audio_decode(
+      const AudioDecodeProgressFn& /*progress*/) const {}
+
   // --------------------------------------------------------------------------
   // EFM
   // --------------------------------------------------------------------------
@@ -318,6 +338,14 @@ class VideoFrameRepresentationWrapper : public VideoFrameRepresentation {
                                          FrameID id) const override {
     return source_ ? source_->get_audio_samples(pair, id)
                    : std::vector<int32_t>{};
+  }
+  // Forward priming down the chain so a deferred decode nested beneath any
+  // number of wrappers (e.g. an audio_channel_map between EFM decode and the
+  // sink) is still reached. A wrapper that itself owns a deferred decode
+  // overrides this instead of forwarding.
+  void prime_audio_decode(
+      const AudioDecodeProgressFn& progress) const override {
+    if (source_) source_->prime_audio_decode(progress);
   }
 
   // EFM

@@ -10,8 +10,34 @@
 
 #include <fmt/format.h>
 
+#include <cmath>
+#include <utility>
+
+#include "../efm-lib/efm_constants.h"
+
+namespace {
+
+// Section/frame geometry (98 frames of 12 mono samples = 6 stereo pairs each).
+constexpr int kFramesPerSection = efm::kFramesPerSection;
+constexpr int kSamplesPerChannelPerFrame = 6;
+constexpr int kSamplesPerFrame = 12;  // 6 stereo pairs, interleaved L,R
+constexpr int kSamplesPerChannel =
+    kFramesPerSection * kSamplesPerChannelPerFrame;  // 588
+
+// E-6 concealment strategy: bridge short bursts (up to this many consecutive
+// flagged samples, per channel) by linear interpolation between the flanking
+// clean samples; mute anything longer.  A single-sample gap reduces to the mean
+// of its neighbours, matching the original conceal behaviour.
+constexpr int kMaxInterpolationGap = 8;
+
+// Length (per channel) of the fade applied at each end of a muted burst so that
+// the transition to/from silence does not produce an audible click.
+constexpr int kMuteRampSamples = 4;
+
+}  // namespace
+
 AudioCorrection::AudioCorrection()
-    : m_firstSectionFlag(true),
+    : m_firstSectionCorrected(false),
       m_concealedSamplesCount(0),
       m_silencedSamplesCount(0),
       m_validSamplesCount(0) {}
@@ -24,9 +50,17 @@ void AudioCorrection::pushSection(const AudioSection& audioSection) {
   processQueue();
 }
 
+void AudioCorrection::pushSection(AudioSection&& audioSection) {
+  // Move the data into the input buffer to avoid a deep copy.
+  m_inputBuffer.push_back(std::move(audioSection));
+
+  // Process the queue
+  processQueue();
+}
+
 AudioSection AudioCorrection::popSection() {
-  // Return the first item in the output buffer
-  AudioSection result = m_outputBuffer.front();
+  // Move the first item out of the output buffer to avoid a deep copy.
+  AudioSection result = std::move(m_outputBuffer.front());
   m_outputBuffer.pop_front();
   return result;
 }
@@ -37,228 +71,205 @@ bool AudioCorrection::isReady() const {
 }
 
 void AudioCorrection::processQueue() {
-  // TODO(sdi): this will never correct the very first and last sections
+  // R-5: guard against an empty input buffer (defensive - the only caller
+  // pushes before calling, but an empty front() would be undefined behaviour).
+  if (m_inputBuffer.empty()) return;
 
-  // Pop a section from the input buffer
-  m_correctionBuffer.push_back(m_inputBuffer.front());
+  // Pop a section from the input buffer (move to avoid a deep copy)
+  m_correctionBuffer.push_back(std::move(m_inputBuffer.front()));
   m_inputBuffer.pop_front();
 
-  // Perform correction on the section in the middle of the correction buffer
+  // A section can be corrected once its following neighbour is available.  When
+  // the buffer is full its layout is:
+  //   [0] preceding (already corrected), [1] correcting, [2] following (raw)
   if (m_correctionBuffer.size() == 3) {
-    AudioSection correctedSection;
-
-    // Process all 98 frames in the section
-    for (int subSection = 0; subSection < 98; ++subSection) {
-      Audio correctedFrame;
-
-      // Get the preceding, correcting and following frames
-      Audio precedingFrame, correctingFrame, followingFrame;
-      if (subSection == 0) {
-        // If this is the first frame, use the first frame in the section as the
-        // preceding frame
-        precedingFrame = m_correctionBuffer.at(0).frame(97);
-      } else {
-        precedingFrame = m_correctionBuffer.at(1).frame(subSection - 1);
-      }
-
-      correctingFrame = m_correctionBuffer.at(1).frame(subSection);
-
-      if (correctingFrame.countErrors() == 0) {
-        // No errors in this frame - just copy it
-        correctedSection.pushFrame(correctingFrame);
-        m_validSamplesCount +=
-            correctingFrame.frameSize();  // 6 left + 6 right mono samples
-        continue;
-      }
-
-      if (subSection == 97) {
-        // If this is the last frame, use the last frame in the section as the
-        // following frame
-        followingFrame = m_correctionBuffer.at(2).frame(0);
-      } else {
-        followingFrame = m_correctionBuffer.at(1).frame(subSection + 1);
-      }
-
-      // Sample correction
-      std::vector<int16_t> correctedLeftSamples;
-      std::vector<uint8_t> correctedLeftErrorSamples;
-      std::vector<uint8_t> correctedLeftPaddedSamples;
-      std::vector<int16_t> correctedRightSamples;
-      std::vector<uint8_t> correctedRightErrorSamples;
-      std::vector<uint8_t> correctedRightPaddedSamples;
-
-      for (int sampleOffset = 0; sampleOffset < 6; ++sampleOffset) {
-        // Left channel
-        // Get the preceding, correcting and following left samples
-        int16_t precedingLeftSample, correctingLeftSample, followingLeftSample;
-        int16_t precedingLeftSampleError, correctingLeftSampleError,
-            followingLeftSampleError;
-
-        if (sampleOffset == 0) {
-          precedingLeftSample = precedingFrame.dataLeft().at(5);
-          precedingLeftSampleError = precedingFrame.errorDataLeft().at(5);
-        } else {
-          precedingLeftSample = correctingFrame.dataLeft().at(sampleOffset - 1);
-          precedingLeftSampleError =
-              correctingFrame.errorDataLeft().at(sampleOffset - 1);
-        }
-
-        correctingLeftSample = correctingFrame.dataLeft().at(sampleOffset);
-        correctingLeftSampleError =
-            correctingFrame.errorDataLeft().at(sampleOffset);
-
-        if (sampleOffset == 5) {
-          followingLeftSample = followingFrame.dataLeft().at(0);
-          followingLeftSampleError = followingFrame.errorDataLeft().at(0);
-        } else {
-          followingLeftSample = correctingFrame.dataLeft().at(sampleOffset + 1);
-          followingLeftSampleError =
-              correctingFrame.errorDataLeft().at(sampleOffset + 1);
-        }
-
-        if (correctingLeftSampleError != 0) {
-          // Do we have a valid preceding and following sample?
-          if (precedingLeftSampleError || followingLeftSampleError) {
-            // Silence the sample
-            ORC_LOG_DEBUG(
-                "AudioCorrection::processQueue() -  Left  Silencing: Section "
-                "address {} - Frame {}, sample {}",
-                m_correctionBuffer.at(1)
-                    .metadata.absoluteSectionTime()
-                    .toString(),
-                subSection, sampleOffset);
-            correctedLeftSamples.push_back(0);
-            correctedLeftErrorSamples.push_back(1);
-            correctedLeftPaddedSamples.push_back(0);
-            ++m_silencedSamplesCount;
-          } else {
-            // Conceal the sample
-            ORC_LOG_DEBUG(
-                "AudioCorrection::processQueue() -  Left Concealing: Section "
-                "address {} - Frame {}, sample {} - Preceding = {}, Following "
-                "= {}, Average = {}",
-                m_correctionBuffer.at(1)
-                    .metadata.absoluteSectionTime()
-                    .toString(),
-                subSection, sampleOffset, precedingLeftSample,
-                followingLeftSample,
-                (precedingLeftSample + followingLeftSample) / 2);
-            correctedLeftSamples.push_back(static_cast<int16_t>(
-                (precedingLeftSample + followingLeftSample) / 2));
-            correctedLeftErrorSamples.push_back(0);
-            correctedLeftPaddedSamples.push_back(1);
-            ++m_concealedSamplesCount;
-          }
-        } else {
-          // The sample is valid - just copy it
-          correctedLeftSamples.push_back(correctingLeftSample);
-          correctedLeftErrorSamples.push_back(0);
-          correctedLeftPaddedSamples.push_back(0);
-          ++m_validSamplesCount;
-        }
-
-        // Right channel
-        // Get the preceding, correcting and following right samples
-        int16_t precedingRightSample, correctingRightSample,
-            followingRightSample;
-        int16_t precedingRightSampleError, correctingRightSampleError,
-            followingRightSampleError;
-
-        if (sampleOffset == 0) {
-          precedingRightSample = precedingFrame.dataRight().at(5);
-          precedingRightSampleError = precedingFrame.errorDataRight().at(5);
-        } else {
-          precedingRightSample =
-              correctingFrame.dataRight().at(sampleOffset - 1);
-          precedingRightSampleError =
-              correctingFrame.errorDataRight().at(sampleOffset - 1);
-        }
-
-        correctingRightSample = correctingFrame.dataRight().at(sampleOffset);
-        correctingRightSampleError =
-            correctingFrame.errorDataRight().at(sampleOffset);
-
-        if (sampleOffset == 5) {
-          followingRightSample = followingFrame.dataRight().at(0);
-          followingRightSampleError = followingFrame.errorDataRight().at(0);
-        } else {
-          followingRightSample =
-              correctingFrame.dataRight().at(sampleOffset + 1);
-          followingRightSampleError =
-              correctingFrame.errorDataRight().at(sampleOffset + 1);
-        }
-
-        if (correctingRightSampleError != 0) {
-          // Do we have a valid preceding and following sample?
-          if (precedingRightSampleError || followingRightSampleError) {
-            // Silence the sample
-            ORC_LOG_DEBUG(
-                "AudioCorrection::processQueue() - Right  Silencing: Section "
-                "address {} - Frame {}, sample {}",
-                m_correctionBuffer.at(1)
-                    .metadata.absoluteSectionTime()
-                    .toString(),
-                subSection, sampleOffset);
-            correctedRightSamples.push_back(0);
-            correctedRightErrorSamples.push_back(1);
-            correctedRightPaddedSamples.push_back(0);
-            ++m_silencedSamplesCount;
-          } else {
-            // Conceal the sample
-            ORC_LOG_DEBUG(
-                "AudioCorrection::processQueue() - Right Concealing: Section "
-                "address {} - Frame {}, sample {} - Preceding = {}, Following "
-                "= {}, Average = {}",
-                m_correctionBuffer.at(1)
-                    .metadata.absoluteSectionTime()
-                    .toString(),
-                subSection, sampleOffset, precedingRightSample,
-                followingRightSample,
-                (precedingRightSample + followingRightSample) / 2);
-            correctedRightSamples.push_back(static_cast<int16_t>(
-                (precedingRightSample + followingRightSample) / 2));
-            correctedRightErrorSamples.push_back(0);
-            correctedRightPaddedSamples.push_back(1);
-            ++m_concealedSamplesCount;
-          }
-        } else {
-          // The sample is valid - just copy it
-          correctedRightSamples.push_back(correctingRightSample);
-          correctedRightErrorSamples.push_back(0);
-          correctedRightPaddedSamples.push_back(0);
-          ++m_validSamplesCount;
-        }
-      }
-
-      // Combine the left and right channel data (and error data)
-      std::vector<int16_t> correctedSamples;
-      std::vector<uint8_t> correctedErrorSamples;
-      std::vector<uint8_t> correctedPaddedSamples;
-
-      for (int i = 0; i < 6; ++i) {
-        correctedSamples.push_back(correctedLeftSamples.at(i));
-        correctedSamples.push_back(correctedRightSamples.at(i));
-        correctedErrorSamples.push_back(correctedLeftErrorSamples.at(i));
-        correctedErrorSamples.push_back(correctedRightErrorSamples.at(i));
-        correctedPaddedSamples.push_back(correctedLeftPaddedSamples.at(i));
-        correctedPaddedSamples.push_back(correctedRightPaddedSamples.at(i));
-      }
-
-      // Write the channel data back to the correction buffer's frame
-      correctedFrame.setData(correctedSamples);
-      correctedFrame.setErrorData(correctedErrorSamples);
-      correctedFrame.setConcealedData(correctedPaddedSamples);
-
-      correctedSection.pushFrame(correctedFrame);
+    // E-6 edge priming (start of stream): the very first section has no
+    // preceding neighbour, so correct it now - using the second section as its
+    // following context - before it is emitted.
+    if (!m_firstSectionCorrected) {
+      m_correctionBuffer[0] = correctSection(nullptr, m_correctionBuffer.at(0),
+                                             &m_correctionBuffer.at(1));
+      m_firstSectionCorrected = true;
     }
 
-    correctedSection.metadata = m_correctionBuffer.at(1).metadata;
-    m_correctionBuffer[1] = correctedSection;
+    m_correctionBuffer[1] =
+        correctSection(&m_correctionBuffer.at(0), m_correctionBuffer.at(1),
+                       &m_correctionBuffer.at(2));
 
-    // Write the first section in the correction buffer to the output buffer
-    m_outputBuffer.push_back(m_correctionBuffer.at(0));
+    // Emit the (now fully corrected) preceding section.
+    m_outputBuffer.push_back(std::move(m_correctionBuffer.at(0)));
     m_correctionBuffer.erase(m_correctionBuffer.begin());
   }
+}
+
+void AudioCorrection::appendChannelSamples(const AudioSection& section,
+                                           std::vector<int16_t>& valLeft,
+                                           std::vector<uint8_t>& errLeft,
+                                           std::vector<int16_t>& valRight,
+                                           std::vector<uint8_t>& errRight) {
+  for (int frameIndex = 0; frameIndex < kFramesPerSection; ++frameIndex) {
+    const Audio& frame = section.frame(frameIndex);
+    // Reference each vector once per frame (P-3: no per-frame copy or
+    // per-sample allocation).  data() and errorData() return a shared
+    // zero-filled 12-element vector for empty frames.
+    const std::vector<int16_t>& data = frame.data();
+    const std::vector<uint8_t>& errorData = frame.errorData();
+    for (int sample = 0; sample < kSamplesPerChannelPerFrame; ++sample) {
+      const int left = sample * 2;
+      const int right = left + 1;
+      valLeft.push_back(data[left]);
+      errLeft.push_back(errorData[left]);
+      valRight.push_back(data[right]);
+      errRight.push_back(errorData[right]);
+    }
+  }
+}
+
+void AudioCorrection::correctChannel(std::vector<int16_t>& val,
+                                     std::vector<uint8_t>& err,
+                                     std::vector<uint8_t>& concealed,
+                                     int midStart, int midEnd) {
+  const int total = static_cast<int>(val.size());
+
+  int index = midStart;
+  while (index < midEnd) {
+    if (err[index] == 0) {
+      // Valid sample - leave it untouched.
+      ++m_validSamplesCount;
+      ++index;
+      continue;
+    }
+
+    // Extent of the flagged run inside the region we are allowed to write.
+    int runStart = index;
+    int runEnd = index;
+    while (runEnd < midEnd && err[runEnd] != 0) ++runEnd;
+
+    // Nearest clean anchor to the left (may lie in the preceding section).
+    int leftAnchor = runStart - 1;
+    while (leftAnchor >= 0 && err[leftAnchor] != 0) --leftAnchor;
+    const bool haveLeft = leftAnchor >= 0;
+
+    // Nearest clean anchor to the right (may lie in the following section); the
+    // flagged run can continue past our writable region into that neighbour.
+    int rightAnchor = runEnd;
+    while (rightAnchor < total && err[rightAnchor] != 0) ++rightAnchor;
+    const bool haveRight = rightAnchor < total;
+
+    // Full flagged burst spans (leftAnchor, rightAnchor); its length decides
+    // interpolate-vs-mute even when it straddles a section boundary.
+    const int gapLength =
+        (haveLeft && haveRight) ? rightAnchor - leftAnchor - 1 : total;
+
+    if (haveLeft && haveRight && gapLength <= kMaxInterpolationGap) {
+      // Bridge the gap with linear interpolation between the flanking clean
+      // samples.
+      const int32_t v0 = val[leftAnchor];
+      const int32_t v1 = val[rightAnchor];
+      const int span = rightAnchor - leftAnchor;
+      for (int j = runStart; j < runEnd; ++j) {
+        // Result stays between v0 and v1, so it cannot overflow int16.
+        val[j] =
+            static_cast<int16_t>(v0 + ((v1 - v0) * (j - leftAnchor)) / span);
+        err[j] = 0;
+        concealed[j] = 1;
+        ++m_concealedSamplesCount;
+      }
+    } else {
+      // Burst too long to bridge (or unbounded at a stream edge): mute it, with
+      // a short fade to/from the flanking clean samples to avoid a click.  The
+      // fade is positioned relative to the full burst so that a burst split
+      // across a section boundary ramps consistently.
+      const int burstStart = haveLeft ? leftAnchor + 1 : runStart;
+      const int burstEnd = haveRight ? rightAnchor - 1 : runEnd - 1;
+      for (int j = runStart; j < runEnd; ++j) {
+        double sample = 0.0;
+        if (haveLeft) {
+          const int distance = j - burstStart;  // from the start of the burst
+          if (distance < kMuteRampSamples) {
+            const double weight = 1.0 - static_cast<double>(distance + 1) /
+                                            (kMuteRampSamples + 1);
+            sample += val[leftAnchor] * weight;
+          }
+        }
+        if (haveRight) {
+          const int distance = burstEnd - j;  // from the end of the burst
+          if (distance < kMuteRampSamples) {
+            const double weight = 1.0 - static_cast<double>(distance + 1) /
+                                            (kMuteRampSamples + 1);
+            sample += val[rightAnchor] * weight;
+          }
+        }
+        val[j] = static_cast<int16_t>(std::lround(sample));
+        err[j] = 1;
+        concealed[j] = 0;
+        ++m_silencedSamplesCount;
+      }
+    }
+
+    index = runEnd;
+  }
+}
+
+AudioSection AudioCorrection::correctSection(const AudioSection* preceding,
+                                             const AudioSection& correcting,
+                                             const AudioSection* following) {
+  // Build contiguous per-channel sample streams spanning
+  // [preceding | correcting | following].  Only the correcting section is
+  // written back; the neighbours provide concealment anchors.
+  std::vector<int16_t> valLeft, valRight;
+  std::vector<uint8_t> errLeft, errRight;
+  const int reserveSize = kSamplesPerChannel * 3;
+  valLeft.reserve(reserveSize);
+  valRight.reserve(reserveSize);
+  errLeft.reserve(reserveSize);
+  errRight.reserve(reserveSize);
+
+  if (preceding != nullptr) {
+    appendChannelSamples(*preceding, valLeft, errLeft, valRight, errRight);
+  }
+  const int midStart = (preceding != nullptr) ? kSamplesPerChannel : 0;
+  appendChannelSamples(correcting, valLeft, errLeft, valRight, errRight);
+  const int midEnd = midStart + kSamplesPerChannel;
+  if (following != nullptr) {
+    appendChannelSamples(*following, valLeft, errLeft, valRight, errRight);
+  }
+
+  // Concealment flags for the middle region (sized to the full stream so it can
+  // be indexed with the same offsets as the sample vectors).
+  std::vector<uint8_t> concealedLeft(valLeft.size(), 0);
+  std::vector<uint8_t> concealedRight(valRight.size(), 0);
+
+  correctChannel(valLeft, errLeft, concealedLeft, midStart, midEnd);
+  correctChannel(valRight, errRight, concealedRight, midStart, midEnd);
+
+  // Reassemble the corrected middle section from the per-channel streams.
+  AudioSection corrected;
+  for (int frameIndex = 0; frameIndex < kFramesPerSection; ++frameIndex) {
+    std::vector<int16_t> data(kSamplesPerFrame);
+    std::vector<uint8_t> errorData(kSamplesPerFrame);
+    std::vector<uint8_t> concealedData(kSamplesPerFrame);
+    const int frameBase = midStart + frameIndex * kSamplesPerChannelPerFrame;
+    for (int sample = 0; sample < kSamplesPerChannelPerFrame; ++sample) {
+      const int ext = frameBase + sample;
+      const int left = sample * 2;
+      const int right = left + 1;
+      data[left] = valLeft[ext];
+      data[right] = valRight[ext];
+      errorData[left] = errLeft[ext];
+      errorData[right] = errRight[ext];
+      concealedData[left] = concealedLeft[ext];
+      concealedData[right] = concealedRight[ext];
+    }
+    Audio frame;
+    frame.setData(data);
+    frame.setErrorData(errorData);
+    frame.setConcealedData(concealedData);
+    corrected.pushFrame(frame);
+  }
+
+  corrected.metadata = correcting.metadata;
+  return corrected;
 }
 
 void AudioCorrection::showStatistics() const {
@@ -272,11 +283,30 @@ void AudioCorrection::showStatistics() const {
 }
 
 void AudioCorrection::flush() {
-  // Output any remaining sections in the correction buffer
-  // Since we can't perform correction on the last sections (no following data),
-  // we output them as-is
-  while (!m_correctionBuffer.empty()) {
-    m_outputBuffer.push_back(m_correctionBuffer.front());
-    m_correctionBuffer.erase(m_correctionBuffer.begin());
+  // E-6 edge priming (end of stream): correct and emit every section still held
+  // in the lookahead buffer.  The final section has no following neighbour, and
+  // for a stream shorter than three sections the first was never corrected
+  // either - both cases fall out of the null-neighbour handling.
+  if (m_correctionBuffer.empty()) return;
+
+  const int count = static_cast<int>(m_correctionBuffer.size());
+
+  // If the first section has already been corrected then only the final section
+  // remains uncorrected; otherwise the whole (short) buffer still needs it.
+  const int firstUncorrected = m_firstSectionCorrected ? count - 1 : 0;
+
+  for (int i = firstUncorrected; i < count; ++i) {
+    const AudioSection* preceding =
+        (i == 0) ? nullptr : &m_correctionBuffer.at(i - 1);
+    const AudioSection* following =
+        (i + 1 < count) ? &m_correctionBuffer.at(i + 1) : nullptr;
+    m_correctionBuffer[i] =
+        correctSection(preceding, m_correctionBuffer.at(i), following);
   }
+  m_firstSectionCorrected = true;
+
+  for (auto& section : m_correctionBuffer) {
+    m_outputBuffer.push_back(std::move(section));
+  }
+  m_correctionBuffer.clear();
 }

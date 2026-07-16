@@ -11,6 +11,9 @@
 #include <orc/stage/logging.h>
 
 #include <cstdlib>
+#include <utility>
+
+#include "efm_exception.h"
 
 Interleave::Interleave() {}
 
@@ -21,7 +24,7 @@ void Interleave::deinterleave(std::vector<uint8_t>& inputData,
   if (inputData.size() != 24) {
     ORC_LOG_ERROR(
         "Interleave::deinterleave - Input data must be 24 bytes long");
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   // De-Interleave the input data
@@ -104,7 +107,8 @@ void Interleave::deinterleave(std::vector<uint8_t>& inputData,
   outputPadded[22] = inputPadded[22];
   outputPadded[23] = inputPadded[23];
 
-  inputData = outputData;
-  inputError = outputError;
-  inputPadded = outputPadded;
+  // P-6: move the deinterleaved buffers back rather than copy-assigning them.
+  inputData = std::move(outputData);
+  inputError = std::move(outputError);
+  inputPadded = std::move(outputPadded);
 }

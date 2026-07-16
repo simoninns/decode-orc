@@ -14,6 +14,8 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "efm_exception.h"
+
 // Audio class
 // Set the data for the audio, ensuring it matches the frame size
 void Audio::setData(const std::vector<int16_t>& data) {
@@ -21,70 +23,21 @@ void Audio::setData(const std::vector<int16_t>& data) {
     ORC_LOG_ERROR(
         "Audio::setData(): Data size of {} does not match frame size of {}",
         data.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_audioData = data;
 }
 
-// Set the left and right channel data for the audio, ensuring they match the
-// frame size
-void Audio::setDataLeftRight(const std::vector<int16_t>& dataLeft,
-                             const std::vector<int16_t>& dataRight) {
-  if (dataLeft.size() + dataRight.size() != static_cast<size_t>(frameSize())) {
-    ORC_LOG_ERROR(
-        "Audio::setDataLeftRight(): Data size of {} does not match frame size "
-        "of {}",
-        dataLeft.size() + dataRight.size(), frameSize());
-    std::exit(1);
-  }
-
-  m_audioData.clear();
-  for (int i = 0; i < frameSize(); i += 2) {
-    m_audioData.push_back(dataLeft[i]);
-    m_audioData.push_back(dataRight[i]);
-  }
-}
-
-// Get the data for the audio, returning a zero-filled vector if empty
-std::vector<int16_t> Audio::data() const {
+// Get the interleaved L,R data for the audio, returning a shared zero-filled
+// vector if empty.
+const std::vector<int16_t>& Audio::data() const {
+  static const std::vector<int16_t> emptyData(12, 0);
   if (m_audioData.empty()) {
     ORC_LOG_DEBUG(
         "Audio::data(): Frame is empty, returning zero-filled vector");
-    return std::vector<int16_t>(frameSize(), 0);
+    return emptyData;
   }
   return m_audioData;
-}
-
-// Get the left channel data for the audio, returning a zero-filled vector if
-// empty
-std::vector<int16_t> Audio::dataLeft() const {
-  if (m_audioData.empty()) {
-    ORC_LOG_DEBUG(
-        "Audio::dataLeft(): Frame is empty, returning zero-filled vector");
-    return std::vector<int16_t>(frameSize(), 0);
-  }
-
-  std::vector<int16_t> dataLeft;
-  for (int i = 0; i < frameSize(); i += 2) {
-    dataLeft.push_back(m_audioData[i]);
-  }
-  return dataLeft;
-}
-
-// Get the right channel data for the audio, returning a zero-filled vector if
-// empty
-std::vector<int16_t> Audio::dataRight() const {
-  if (m_audioData.empty()) {
-    ORC_LOG_DEBUG(
-        "Audio::dataRight(): Frame is empty, returning zero-filled vector");
-    return std::vector<int16_t>(frameSize(), 0);
-  }
-
-  std::vector<int16_t> dataRight;
-  for (int i = 1; i < frameSize(); i += 2) {
-    dataRight.push_back(m_audioData[i]);
-  }
-  return dataRight;
 }
 
 // Set the error data for the audio, ensuring it matches the frame size
@@ -94,78 +47,28 @@ void Audio::setErrorData(const std::vector<uint8_t>& errorData) {
         "Audio::setErrorData(): Error data size of {} does not match frame "
         "size of {}",
         errorData.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_audioErrorData = errorData;
 }
 
-// Set the left and right channel error data for the audio, ensuring they match
-// the frame size
-void Audio::setErrorDataLeftRight(const std::vector<uint8_t>& errorDataLeft,
-                                  const std::vector<uint8_t>& errorDataRight) {
-  if (errorDataLeft.size() + errorDataRight.size() !=
-      static_cast<size_t>(frameSize())) {
-    ORC_LOG_ERROR(
-        "Audio::setErrorDataLeftRight(): Error data size of {} does not match "
-        "frame size of {}",
-        errorDataLeft.size() + errorDataRight.size(), frameSize());
-    std::exit(1);
-  }
-
-  m_audioErrorData.clear();
-  for (int i = 0; i < frameSize(); i += 2) {
-    m_audioErrorData.push_back(errorDataLeft[i]);
-    m_audioErrorData.push_back(errorDataRight[i]);
-  }
-}
-
-// Get the error_data for the audio, returning a zero-filled vector if empty
-std::vector<uint8_t> Audio::errorData() const {
+// Get the interleaved L,R error data for the audio, returning a shared
+// zero-filled vector if empty.
+const std::vector<uint8_t>& Audio::errorData() const {
+  static const std::vector<uint8_t> emptyError(12, 0);
   if (m_audioErrorData.empty()) {
     ORC_LOG_DEBUG(
         "Audio::errorData(): Error frame is empty, returning zero-filled "
         "vector");
-    return std::vector<uint8_t>(frameSize(), 0);
+    return emptyError;
   }
   return m_audioErrorData;
 }
 
-// Get the left channel error data for the audio, returning a zero-filled vector
-// if empty
-std::vector<uint8_t> Audio::errorDataLeft() const {
-  if (m_audioErrorData.empty()) {
-    ORC_LOG_DEBUG(
-        "Audio::errorDataLeft(): Error frame is empty, returning zero-filled "
-        "vector");
-    return std::vector<uint8_t>(frameSize(), 0);
-  }
-
-  std::vector<uint8_t> errorDataLeft;
-  for (int i = 0; i < frameSize(); i += 2) {
-    errorDataLeft.push_back(m_audioErrorData[i]);
-  }
-  return errorDataLeft;
-}
-
-// Get the right channel error data for the audio, returning a zero-filled
-// vector if empty
-std::vector<uint8_t> Audio::errorDataRight() const {
-  if (m_audioErrorData.empty()) {
-    ORC_LOG_DEBUG(
-        "Audio::errorDataRight(): Error frame is empty, returning zero-filled "
-        "vector");
-    return std::vector<uint8_t>(frameSize(), 0);
-  }
-
-  std::vector<uint8_t> errorDataRight;
-  for (int i = 1; i < frameSize(); i += 2) {
-    errorDataRight.push_back(m_audioErrorData[i]);
-  }
-  return errorDataRight;
-}
-
-// Count the number of errors in the audio
+// Count the number of errors in the audio. R-5: a default-constructed Audio has
+// an empty error vector; guard against indexing it out of bounds.
 uint32_t Audio::countErrors() const {
+  if (m_audioErrorData.empty()) return 0;
   uint32_t errorCount = 0;
   for (int i = 0; i < frameSize(); ++i) {
     if (m_audioErrorData[i]) errorCount++;
@@ -175,6 +78,7 @@ uint32_t Audio::countErrors() const {
 
 // Count the number of errors in the left channel of the audio
 uint32_t Audio::countErrorsLeft() const {
+  if (m_audioErrorData.empty()) return 0;
   uint32_t errorCount = 0;
   for (int i = 0; i < frameSize(); i += 2) {
     if (m_audioErrorData[i]) errorCount++;
@@ -184,6 +88,7 @@ uint32_t Audio::countErrorsLeft() const {
 
 // Count the number of errors in the right channel of the audio
 uint32_t Audio::countErrorsRight() const {
+  if (m_audioErrorData.empty()) return 0;
   uint32_t errorCount = 0;
   for (int i = 1; i < frameSize(); i += 2) {
     if (m_audioErrorData[i]) errorCount++;
@@ -199,9 +104,13 @@ bool Audio::isEmpty() const { return m_audioData.empty(); }
 
 // Show the audio data and errors in debug
 void Audio::showData() {
+  if (!orc::get_logger()->should_log(spdlog::level::debug)) return;
+  // R-5: guard against an error vector shorter than the data vector (e.g. a
+  // frame with data set but no error data).
+  const bool haveErrors = m_audioErrorData.size() == m_audioData.size();
   std::string dataString;
   for (int i = 0; i < static_cast<int>(m_audioData.size()); ++i) {
-    if (m_audioErrorData[i] == false) {
+    if (!haveErrors || m_audioErrorData[i] == false) {
       char buf[10];
       snprintf(buf, sizeof(buf), "%c%04x ", m_audioData[i] < 0 ? '-' : '+',
                static_cast<unsigned>(std::abs(m_audioData[i])));
@@ -229,17 +138,18 @@ void Audio::setConcealedData(const std::vector<uint8_t>& concealedData) {
         "Audio::setConcealedData(): Concealed data size of {} does not match "
         "frame size of {}",
         concealedData.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_audioConcealedData = concealedData;
 }
 
-std::vector<uint8_t> Audio::concealedData() const {
+const std::vector<uint8_t>& Audio::concealedData() const {
+  static const std::vector<uint8_t> emptyConcealed(12, 0);
   if (m_audioConcealedData.empty()) {
     ORC_LOG_DEBUG(
         "Audio::concealedData(): Concealed data is empty, returning "
         "zero-filled vector");
-    return std::vector<uint8_t>(frameSize(), 0);
+    return emptyConcealed;
   }
   return m_audioConcealedData;
 }

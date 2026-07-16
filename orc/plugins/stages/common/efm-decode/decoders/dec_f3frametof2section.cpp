@@ -12,7 +12,9 @@
 
 #include <cmath>
 #include <cstddef>
-#include <stdexcept>
+
+#include "efm_constants.h"
+#include "efm_exception.h"
 
 F3FrameToF2Section::F3FrameToF2Section()
     : m_badSyncCounter(0),
@@ -34,8 +36,16 @@ void F3FrameToF2Section::pushFrame(const F3Frame& data) {
   processStateMachine();
 }
 
+void F3FrameToF2Section::pushFrame(F3Frame&& data) {
+  // Move the frame into the internal buffer to avoid a deep copy.
+  m_internalBuffer.push_back(std::move(data));
+  m_inputF3Frames++;
+  processStateMachine();
+}
+
 F2Section F3FrameToF2Section::popSection() {
-  F2Section section = m_outputBuffer.front();
+  // Move the first item out of the output buffer to avoid a deep copy.
+  F2Section section = std::move(m_outputBuffer.front());
   m_outputBuffer.pop();
   return section;
 }
@@ -142,13 +152,13 @@ F3FrameToF2Section::State F3FrameToF2Section::expectingSync() {
 
   // Do we have a valid number of frames in the section?
   // Or do we have overshoot or undershoot?
-  if (m_sectionFrames.size() == 98) {
+  if (m_sectionFrames.size() == efm::kFramesPerSection) {
     m_goodSync0++;
     nextState = HandleValid;
-  } else if (m_sectionFrames.size() < 98) {
+  } else if (m_sectionFrames.size() < efm::kFramesPerSection) {
     m_undershootSync0++;
     nextState = HandleUndershoot;
-  } else if (m_sectionFrames.size() > 98) {
+  } else if (m_sectionFrames.size() > efm::kFramesPerSection) {
     m_overshootSync0++;
     nextState = HandleOvershoot;
   }
@@ -179,7 +189,8 @@ F3FrameToF2Section::State F3FrameToF2Section::handleUndershoot() {
   m_badSyncCounter++;
 
   // How much undershoot do we have?
-  int padding = 98 - static_cast<int>(m_sectionFrames.size());
+  int padding =
+      efm::kFramesPerSection - static_cast<int>(m_sectionFrames.size());
 
   if (padding > 4) {
     ORC_LOG_DEBUG(
@@ -198,19 +209,17 @@ F3FrameToF2Section::State F3FrameToF2Section::handleUndershoot() {
         "F3FrameToF2Section::handleUndershoot - Padding section with {} frames",
         padding);
 
-    // If we are padding, we are introducing errors... The CIRC can correct
-    // these provided they are distributed across the section; so the best
-    // policy here is to interleave the padding with the (hopefully) valid
-    // section frames
-
+    // If we are padding, we are introducing errors that the CIRC must later
+    // absorb.
     F3Frame emptyFrame;
     emptyFrame.setData(std::vector<uint8_t>(32, 0));
     emptyFrame.setErrorData(std::vector<uint8_t>(32, 1));
     emptyFrame.setPaddedData(std::vector<uint8_t>(32, 0));
     emptyFrame.setFrameTypeAsSubcode(0);
 
-    // The padding is interleaved with the section frames start
-    // at position 4 (to avoid the sync0 and sync1 frames)
+    // The padding frames are inserted as one contiguous block starting at
+    // position 4 (immediately after the sync0 and sync1 frames, which must stay
+    // at the front of the section).
     for (int i = 0; i < padding; ++i) {
       m_sectionFrames.insert(m_sectionFrames.begin() + 4 + i, emptyFrame);
     }
@@ -226,8 +235,10 @@ F3FrameToF2Section::State F3FrameToF2Section::handleOvershoot() {
   State nextState = HandleOvershoot;
 
   // How many sections worth of data do we have?
-  int frameCount = static_cast<int>(m_sectionFrames.size() / 98);
-  int remainder = static_cast<int>(m_sectionFrames.size() % 98);
+  int frameCount =
+      static_cast<int>(m_sectionFrames.size() / efm::kFramesPerSection);
+  int remainder =
+      static_cast<int>(m_sectionFrames.size() % efm::kFramesPerSection);
   ORC_LOG_DEBUG(
       "F3FrameToF2Section::handleOvershoot - Got {} frames, which is {} "
       "sections with a remainder of {} frames",
@@ -249,10 +260,12 @@ F3FrameToF2Section::State F3FrameToF2Section::handleOvershoot() {
     // Break the section buffer into 98 frame sections and output them
     std::vector<F3Frame> tempSectionFrames = m_sectionFrames;
     for (int i = 0; i < frameCount; ++i) {
-      m_sectionFrames = std::vector<F3Frame>(tempSectionFrames.begin(),
-                                             tempSectionFrames.begin() + 98);
-      tempSectionFrames = std::vector<F3Frame>(tempSectionFrames.begin() + 98,
-                                               tempSectionFrames.end());
+      m_sectionFrames = std::vector<F3Frame>(
+          tempSectionFrames.begin(),
+          tempSectionFrames.begin() + efm::kFramesPerSection);
+      tempSectionFrames = std::vector<F3Frame>(
+          tempSectionFrames.begin() + efm::kFramesPerSection,
+          tempSectionFrames.end());
       outputSection(true);
     }
   }
@@ -275,21 +288,25 @@ F3FrameToF2Section::State F3FrameToF2Section::lostSync() {
 }
 
 void F3FrameToF2Section::outputSection(bool showAddress) {
-  if (m_sectionFrames.size() != 98) {
-    throw std::runtime_error(
-        "F3FrameToF2Section::outputSection - Section size is not 98");
+  if (m_sectionFrames.size() != efm::kFramesPerSection) {
+    ORC_LOG_ERROR(
+        "F3FrameToF2Section::outputSection - Section size is {} not 98",
+        m_sectionFrames.size());
+    throw efm::EfmDecodeError(__func__);
   }
 
   Subcode subcode;
 
   std::vector<uint8_t> subcodeData;
-  for (size_t i = 0; i < 98; ++i) {
+  subcodeData.reserve(
+      efm::kFramesPerSection);  // P-7: one subcode byte per frame
+  for (size_t i = 0; i < efm::kFramesPerSection; ++i) {
     subcodeData.push_back(m_sectionFrames[i].subcodeByte());
   }
   SectionMetadata sectionMetadata = subcode.fromData(subcodeData);
 
   F2Section f2Section;
-  for (uint32_t index = 0; index < 98; ++index) {
+  for (uint32_t index = 0; index < efm::kFramesPerSection; ++index) {
     F2Frame f2Frame;
     f2Frame.setData(m_sectionFrames[index].data());
     f2Frame.setErrorData(m_sectionFrames[index].errorData());

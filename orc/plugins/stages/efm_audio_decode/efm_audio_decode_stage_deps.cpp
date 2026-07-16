@@ -11,10 +11,12 @@
 
 #include <orc/stage/logging.h>
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <system_error>
 
+#include "efm-decode/efm-lib/efm_exception.h"
 #include "efm-decode/efm_processor.h"
 
 namespace orc {
@@ -52,10 +54,11 @@ EFMAudioDecodeDeps::~EFMAudioDecodeDeps() {
 
 EFMAudioDecodeResult EFMAudioDecodeDeps::decode_to_cache(
     const VideoFrameRepresentation& representation,
-    const EFMAudioDecodeOptions& options) {
+    const EFMAudioDecodeOptions& options, const ProgressFn& progress) {
   const auto frame_rng = representation.frame_range();
   const FrameID start_fid = frame_rng.first;
   const FrameID end_fid = frame_rng.last;
+  const uint64_t total_frames = frame_rng.count();
 
   ORC_LOG_DEBUG("EFMAudioDecodeDeps: counting EFM t-values across {} frames",
                 frame_rng.count());
@@ -68,14 +71,6 @@ EFMAudioDecodeResult EFMAudioDecodeDeps::decode_to_cache(
     return {false, "no EFM t-values found in frame range", 0};
   }
 
-  std::vector<uint8_t> efm_buffer;
-  efm_buffer.reserve(total_tvalues);
-  for (FrameID fid = start_fid; fid <= end_fid; ++fid) {
-    auto samples = representation.get_efm_samples(fid);
-    efm_buffer.insert(efm_buffer.end(), samples.begin(), samples.end());
-  }
-  ORC_LOG_DEBUG("EFMAudioDecodeDeps: buffered {} t-values", efm_buffer.size());
-
   const std::filesystem::path cache_path = make_cache_path(this, ".pcm");
 
   // Audio-mode decode to headerless PCM: the cache holds exactly the decoded
@@ -86,6 +81,7 @@ EFMAudioDecodeResult EFMAudioDecodeDeps::decode_to_cache(
   processor.setNoWavHeader(true);
   processor.setNoTimecodes(options.no_timecodes);
   processor.setNoAudioConcealment(options.no_audio_concealment);
+  processor.setIgnorePreemphasis(options.ignore_preemphasis);
 
   // The decode targets a scratch cache, so point the report at the
   // user-chosen path rather than letting it default to "<cache>.txt".
@@ -94,14 +90,70 @@ EFMAudioDecodeResult EFMAudioDecodeDeps::decode_to_cache(
     processor.setReportFilename(options.report_path);
   }
 
-  if (!processor.processFromBuffer(efm_buffer, cache_path.string())) {
+  // The EFM decoder throws efm::EfmDecodeError on unrecoverable conditions;
+  // catch it so a bad decode fails this stage rather than killing the process.
+  try {
+    processor.beginStream(cache_path.string(),
+                          static_cast<int64_t>(total_tvalues));
+
+    // Stream each frame's t-values straight into the decoder, accumulating into
+    // a bounded staging buffer only to preserve the 1024-byte chunk sizing of
+    // the old buffered path (so decoded output stays byte-identical). Peak RSS
+    // is now ~one chunk, independent of capture length.
+    constexpr size_t kChunkSize = 1024;
+    std::vector<uint8_t> staging;
+    staging.reserve(kChunkSize);
+    // Report every ~1% of the range (and always the first frame) so the sink's
+    // progress dialog advances instead of freezing for the whole decode.
+    const uint64_t report_stride = std::max<uint64_t>(1, total_frames / 100);
+    for (FrameID fid = start_fid; fid <= end_fid; ++fid) {
+      if (progress) {
+        const uint64_t done = static_cast<uint64_t>(fid - start_fid);
+        if (done % report_stride == 0) {
+          progress(done, total_frames, "Decoding EFM audio...");
+        }
+      }
+      const auto samples = representation.get_efm_samples(fid);
+      size_t pos = 0;
+      while (pos < samples.size()) {
+        const size_t take =
+            std::min(kChunkSize - staging.size(), samples.size() - pos);
+        staging.insert(
+            staging.end(), samples.begin() + static_cast<std::ptrdiff_t>(pos),
+            samples.begin() + static_cast<std::ptrdiff_t>(pos + take));
+        pos += take;
+        if (staging.size() == kChunkSize) {
+          processor.pushChunk(staging);
+          staging.clear();
+        }
+      }
+    }
+    // Flush the final partial chunk (fewer than kChunkSize t-values).
+    if (!staging.empty()) {
+      processor.pushChunk(staging);
+    }
+
+    if (!processor.finishStream()) {
+      std::error_code ec;
+      std::filesystem::remove(cache_path, ec);
+      std::string reason = processor.lastError();
+      if (reason.empty()) {
+        reason = "EFM decoding did not complete successfully";
+      }
+      return {false, reason, 0};
+    }
+  } catch (const efm::EfmDecodeError& e) {
     std::error_code ec;
     std::filesystem::remove(cache_path, ec);
-    std::string reason = processor.lastError();
-    if (reason.empty()) {
-      reason = "EFM decoding did not complete successfully";
-    }
-    return {false, reason, 0};
+    ORC_LOG_ERROR("EFMAudioDecodeDeps: {}", e.what());
+    return {false, e.what(), 0};
+  } catch (const std::exception& e) {
+    // Backstop: any other escape from the decoder must fail this stage (and
+    // clean up the partial cache file) rather than kill the host process.
+    std::error_code ec;
+    std::filesystem::remove(cache_path, ec);
+    ORC_LOG_ERROR("EFMAudioDecodeDeps: unexpected exception: {}", e.what());
+    return {false, e.what(), 0};
   }
 
   std::error_code ec;

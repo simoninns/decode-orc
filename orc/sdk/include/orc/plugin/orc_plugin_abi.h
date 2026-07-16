@@ -83,14 +83,19 @@ struct OrcPluginServices;
 ///        orc/stage/audio_track.h is replaced by
 ///        orc/stage/audio_channel_pair.h. The vtable layout change requires
 ///        all plugins to be rebuilt.
-inline constexpr uint32_t kStagePluginHostAbiVersion = 7;
+///   8 — VideoFrameRepresentation gains prime_audio_decode(): a hook that
+///        forces a deferred whole-stream audio decode (e.g. EFM audio) to run
+///        up front with progress reporting, forwarded down the wrapper chain so
+///        sinks can meter it on the progress dialog. The appended virtual
+///        changes the vtable layout, requiring all plugins to be rebuilt.
+inline constexpr uint32_t kStagePluginHostAbiVersion = 8;
 
 /// Preprocessor alias for kStagePluginHostAbiVersion.  Allows plugin code to
 /// use conditional compilation:
 ///   #if ORC_SDK_ABI_VERSION >= 4
 ///     // use VideoFrameRepresentation
 ///   #endif
-#define ORC_SDK_ABI_VERSION 7
+#define ORC_SDK_ABI_VERSION 8
 
 static_assert(kStagePluginHostAbiVersion == ORC_SDK_ABI_VERSION,
               "ORC_SDK_ABI_VERSION must be kept in sync with "

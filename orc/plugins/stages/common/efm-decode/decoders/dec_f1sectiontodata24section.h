@@ -16,10 +16,19 @@ class F1SectionToData24Section : public Decoder {
  public:
   F1SectionToData24Section();
   void pushSection(const F1Section& f1Section);
+  void pushSection(F1Section&& f1Section);
   Data24Section popSection();
   bool isReady() const;
 
   void showStatistics() const;
+
+  // Accessors for the curated decode report (byte-level data integrity).
+  uint64_t totalBytes() const {
+    return (m_validF1FramesCount + m_invalidF1FramesCount) *
+           static_cast<uint64_t>(24);
+  }
+  uint64_t corruptBytes() const { return m_corruptBytesCount; }
+  uint64_t paddedBytes() const { return m_paddedBytesCount; }
 
  private:
   void processQueue();

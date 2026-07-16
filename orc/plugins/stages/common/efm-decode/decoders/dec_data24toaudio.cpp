@@ -8,13 +8,20 @@
 
 #include "dec_data24toaudio.h"
 
+#include "../efm-lib/efm_constants.h"
+#include "../efm-lib/efm_exception.h"
+
 Data24ToAudio::Data24ToAudio()
     : m_invalidData24FramesCount(0),
       m_validData24FramesCount(0),
       m_invalidSamplesCount(0),
       m_validSamplesCount(0),
       m_invalidByteCount(0),
-      m_startTime(SectionTime(59, 59, 74)),
+      // C-1: this is a min-finder seed, so it must be the maximum representable
+      // time (IEC 60908 §17.5.1 ceiling 99:59:74). A 59:59:74 seed never
+      // updates for a disc whose earliest section lies past 60 min, corrupting
+      // the reported start/total time.
+      m_startTime(SectionTime(99, 59, 74)),
       m_endTime(SectionTime(0, 0, 0)) {}
 
 void Data24ToAudio::pushSection(const Data24Section& data24Section) {
@@ -25,9 +32,17 @@ void Data24ToAudio::pushSection(const Data24Section& data24Section) {
   processQueue();
 }
 
+void Data24ToAudio::pushSection(Data24Section&& data24Section) {
+  // Move the data into the input buffer to avoid a deep copy.
+  m_inputBuffer.push_back(std::move(data24Section));
+
+  // Process the queue
+  processQueue();
+}
+
 AudioSection Data24ToAudio::popSection() {
-  // Return the first item in the output buffer
-  AudioSection result = m_outputBuffer.front();
+  // Move the first item out of the output buffer to avoid a deep copy.
+  AudioSection result = std::move(m_outputBuffer.front());
   m_outputBuffer.pop_front();
   return result;
 }
@@ -48,10 +63,10 @@ void Data24ToAudio::processQueue() {
     if (!data24Section.isComplete()) {
       ORC_LOG_CRITICAL(
           "Data24ToAudio::processQueue - Data24 Section is not complete");
-      std::exit(1);
+      throw efm::EfmDecodeError(__func__);
     }
 
-    for (int index = 0; index < 98; ++index) {
+    for (int index = 0; index < efm::kFramesPerSection; ++index) {
       const Data24& d24Frame = data24Section.frame(index);
       std::vector<uint8_t> data24Data = d24Frame.data();
       std::vector<uint8_t> data24ErrorData = d24Frame.errorData();

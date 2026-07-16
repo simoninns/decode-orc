@@ -9,10 +9,9 @@
 #include "efm.h"
 
 #include <stdexcept>
-#include <unordered_map>
 
-// The following table provides the 10-bit EFM code (padded with leading
-// zeros to 16-bit) corresponding to 0 to 255.  The represented number is
+// The following table provides the 14-bit EFM code (stored in a 16-bit word)
+// corresponding to 0 to 255.  The represented number is
 // given by the position in the array (i.e. position 0 = EFM code for
 // decimal 0 and so on).  Symbols 256 and 257 are the sync symbols sync0
 // and sync1 respectively.
@@ -85,21 +84,19 @@ static constexpr uint16_t efmLut[256 + 2] = {
 };
 
 Efm::Efm() noexcept {
-  // Pre-allocate hash table to avoid rehashing
-  m_efmHash.reserve(EFM_LUT_SIZE);
-
-  // Initialise the hash table
+  // Build the flat reverse table once: default every code to invalid, then map
+  // each valid 14-bit EFM code back to its 8-bit value (or sync symbol index).
+  m_efmReverse.fill(INVALID_EFM);
   for (uint16_t i = 0; i < EFM_LUT_SIZE; ++i) {
-    m_efmHash.insert({efmLut[i], i});
+    m_efmReverse[efmLut[i]] = i;
   }
 }
 
-// Note: There are 257 EFM symbols: 0 to 255 and two additional sync0 and sync1
+// Note: There are 258 EFM symbols: 0 to 255 and two additional sync0 and sync1
 // symbols A value of 300 is returned for an invalid EFM symbol
 uint16_t Efm::fourteenToEight(uint16_t efm) const noexcept {
-  // Use hash table for O(1) lookup instead of linear search
-  auto it = m_efmHash.find(efm);
-  return it != m_efmHash.end() ? it->second : INVALID_EFM;
+  // Direct indexed load into the flat reverse table (P-8).
+  return efm < EFM_CODE_SPACE ? m_efmReverse[efm] : INVALID_EFM;
 }
 
 std::string Efm::eightToFourteen(uint16_t value) const {

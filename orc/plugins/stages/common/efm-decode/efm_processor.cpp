@@ -11,15 +11,31 @@
 #include <orc/stage/logging.h>
 #include <spdlog/sinks/basic_file_sink.h>
 
+#include <algorithm>
+#include <cstdio>
+#include <ctime>
+#include <string>
+#include <utility>
+
 EfmProcessor::EfmProcessor()
     : m_audioMode(true),
       m_noTimecodes(false),
       m_audacityLabels(false),
       m_noAudioConcealment(false),
+      m_ignorePreemphasis(false),
       m_zeroPad(false),
       m_noWavHeader(false),
       m_outputMetadata(false),
       m_reportOutput(false) {}
+
+EfmProcessor::~EfmProcessor() {
+  // If beginStream() started the back-end thread but finishStream() was never
+  // reached (e.g. the caller cancelled mid-stream and destroyed the processor,
+  // or the front end threw), tear the thread down cleanly instead of letting a
+  // still-joinable std::thread call std::terminate.
+  if (m_sectionQueue) m_sectionQueue->abort();
+  if (m_backEndThread.joinable()) m_backEndThread.join();
+}
 
 // ---------------------------------------------------------------------------
 // Configuration setters
@@ -37,6 +53,10 @@ void EfmProcessor::setAudacityLabels(bool audacityLabels) {
 
 void EfmProcessor::setNoAudioConcealment(bool noAudioConcealment) {
   m_noAudioConcealment = noAudioConcealment;
+}
+
+void EfmProcessor::setIgnorePreemphasis(bool ignorePreemphasis) {
+  m_ignorePreemphasis = ignorePreemphasis;
 }
 
 void EfmProcessor::setZeroPad(bool zeroPad) { m_zeroPad = zeroPad; }
@@ -89,7 +109,8 @@ bool EfmProcessor::beginStream(const std::string& outputFilename,
       } else {
         labelsFilename += ".txt";
       }
-      m_writerWavMetadata.open(labelsFilename, m_noAudioConcealment);
+      m_writerWavMetadata.open(labelsFilename, m_noAudioConcealment,
+                               !m_ignorePreemphasis);
     }
   } else {
     m_writerSector.open(outputFilename);
@@ -101,6 +122,13 @@ bool EfmProcessor::beginStream(const std::string& outputFilename,
 
   // Record overall wall-clock start time
   m_startTime = std::chrono::high_resolution_clock::now();
+
+  // P-9: start the section-level back-end thread. The front end runs on the
+  // caller's thread (pushChunk) and feeds F2 sections through m_sectionQueue.
+  m_backEndError = nullptr;
+  m_sectionQueue =
+      std::make_unique<BoundedQueue<F2Section>>(kSectionQueueCapacity);
+  m_backEndThread = std::thread([this] { backEndLoop(); });
 
   return true;
 }
@@ -123,31 +151,34 @@ void EfmProcessor::pushChunk(const std::vector<uint8_t>& chunk) {
   }
 
   m_tValuesToChannel.pushFrame(chunk);
-  drainPipeline(m_zeroPadApplied);
+  drainFrontEnd();
 }
 
 bool EfmProcessor::finishStream() {
-  // Final drain with no new input (mirrors the empty-chunk end-of-data pass
-  // that the old buffer loop performed before breaking).
-  drainPipeline(m_zeroPadApplied);
+  // Final front-end drain with no new input (mirrors the empty-chunk
+  // end-of-data pass that the old buffer loop performed before breaking).
+  drainFrontEnd();
 
-  // Flush decoders that require an explicit flush, then do a final drain.
-  // F2SectionCorrection must be flushed first; its output (through the
-  // full pipeline) must all reach AudioCorrection before we flush
-  // AudioCorrection, otherwise the final corrected frames are lost.
+  // Flush the front-end tail. F2SectionCorrection must be flushed here; its
+  // output is enqueued for the back end, which will not flush its own tail
+  // (F2SectionToF1Section / AudioCorrection) until every real section has been
+  // consumed - preserving the original flush ordering across the thread split.
   ORC_LOG_INFO("Flushing decoding pipelines");
   m_f2SectionCorrection.flush();
+  drainFrontEnd();
 
-  // Drain everything that the F2SectionCorrection flush produces,
-  // pushing the final Data24 sections into the audio/data pipeline.
+  // No more sections will be produced: close the hand-off queue and wait for
+  // the back-end thread to drain it, flush its tail (E-7), and finish writing.
   ORC_LOG_INFO("Processing final pipeline data");
-  drainPipeline(m_zeroPadApplied);
+  m_sectionQueue->close();
+  if (m_backEndThread.joinable()) m_backEndThread.join();
 
-  // Now all Data24 sections have been pushed into AudioCorrection;
-  // flush it to release its internal lookahead buffer, then drain once more.
-  if (m_audioMode && !m_noAudioConcealment) {
-    m_audioCorrection.flush();
-    drainAudioPipeline();
+  // Re-raise any exception the back-end thread caught, on this thread, so the
+  // efm::EfmDecodeError stage-boundary handler still catches it (R-1).
+  if (m_backEndError) {
+    std::exception_ptr e = m_backEndError;
+    m_backEndError = nullptr;
+    std::rethrow_exception(e);
   }
 
   // Validate and show statistics
@@ -216,34 +247,12 @@ bool EfmProcessor::finishStream() {
 }
 
 // ---------------------------------------------------------------------------
-// Convenience wrapper: buffers all t-values then uses the streaming API
-// ---------------------------------------------------------------------------
-
-bool EfmProcessor::processFromBuffer(const std::vector<uint8_t>& tValues,
-                                     const std::string& outputFilename) {
-  beginStream(outputFilename, static_cast<int64_t>(tValues.size()));
-
-  // Feed through the pipeline in 1024-byte strides (same stride as before)
-  size_t offset = 0;
-  while (offset < tValues.size()) {
-    size_t count = std::min<size_t>(1024, tValues.size() - offset);
-    std::vector<uint8_t> chunk(
-        tValues.begin() + static_cast<std::ptrdiff_t>(offset),
-        tValues.begin() + static_cast<std::ptrdiff_t>(offset + count));
-    offset += count;
-    pushChunk(chunk);
-  }
-
-  return finishStream();
-}
-
-// ---------------------------------------------------------------------------
 // Internal pipeline helpers
 // ---------------------------------------------------------------------------
 
-void EfmProcessor::drainPipeline(bool& zeroPadApplied) {
+bool EfmProcessor::drainFrontEnd() {
   // -----------------------------------------------------------------------
-  // General pipeline: T-values → Channel → F3 → F2Section → F2SectionCorrection
+  // Front end: T-values → Channel → F3 → F2Section → F2SectionCorrection
   // -----------------------------------------------------------------------
 
   auto t0 = std::chrono::high_resolution_clock::now();
@@ -258,7 +267,8 @@ void EfmProcessor::drainPipeline(bool& zeroPadApplied) {
   t0 = std::chrono::high_resolution_clock::now();
   while (m_channelToF3.isReady()) {
     F3Frame f3Frame = m_channelToF3.popFrame();
-    m_f3FrameToF2Section.pushFrame(f3Frame);
+    // P-1: move the frame into the next stage to avoid a deep copy.
+    m_f3FrameToF2Section.pushFrame(std::move(f3Frame));
   }
   m_pipelineStats.f3ToF2Time +=
       std::chrono::duration_cast<std::chrono::microseconds>(
@@ -267,34 +277,76 @@ void EfmProcessor::drainPipeline(bool& zeroPadApplied) {
 
   t0 = std::chrono::high_resolution_clock::now();
   while (m_f3FrameToF2Section.isReady()) {
-    F2Section f2Section = m_f3FrameToF2Section.popSection();
-    m_f2SectionCorrection.pushSection(f2Section);
+    // P-1: move the section into the next stage (F2SectionCorrection has an
+    // rvalue pushSection overload) to avoid a whole-section deep copy.
+    m_f2SectionCorrection.pushSection(m_f3FrameToF2Section.popSection());
   }
   m_pipelineStats.f2CorrectionTime +=
       std::chrono::duration_cast<std::chrono::microseconds>(
           std::chrono::high_resolution_clock::now() - t0)
           .count();
 
-  // -----------------------------------------------------------------------
-  // D24 pipeline: F2SectionCorrection → F2SectionToF1Section →
-  // F1SectionToData24Section
-  // -----------------------------------------------------------------------
-
-  t0 = std::chrono::high_resolution_clock::now();
+  // Hand every completed F2 section to the back-end thread. push() blocks while
+  // the queue is full (back-pressure) and returns false only if the back end
+  // has aborted (error / cancel), in which case we stop feeding - the stored
+  // error is re-raised from finishStream().
   while (m_f2SectionCorrection.isReady()) {
-    F2Section f2Section = m_f2SectionCorrection.popSection();
-    m_f2SectionToF1Section.pushSection(f2Section);
+    if (!m_sectionQueue->push(m_f2SectionCorrection.popSection())) {
+      return false;
+    }
   }
-  m_pipelineStats.f2ToF1Time +=
-      std::chrono::duration_cast<std::chrono::microseconds>(
-          std::chrono::high_resolution_clock::now() - t0)
-          .count();
+  return true;
+}
 
-  t0 = std::chrono::high_resolution_clock::now();
+void EfmProcessor::backEndLoop() {
+  // Runs on m_backEndThread. Any decoder exception is captured and re-raised on
+  // the caller's thread in finishStream() (R-1); it must never escape here.
+  try {
+    // -------------------------------------------------------------------
+    // Back end: F2Section → F2SectionToF1Section → F1SectionToData24Section
+    // → audio / data pipeline → writers.
+    // -------------------------------------------------------------------
+    F2Section f2Section;
+    while (m_sectionQueue->pop(f2Section)) {
+      auto t0 = std::chrono::high_resolution_clock::now();
+      // P-1: move the section into the next stage to avoid a deep copy.
+      m_f2SectionToF1Section.pushSection(std::move(f2Section));
+      m_pipelineStats.f2ToF1Time +=
+          std::chrono::duration_cast<std::chrono::microseconds>(
+              std::chrono::high_resolution_clock::now() - t0)
+              .count();
+      drainBackEnd(m_zeroPadApplied);
+    }
+
+    // Queue closed and drained: every real F2 section has now been pushed into
+    // F2SectionToF1Section. E-7: recover the CIRC delay-line tail - the newest
+    // ~111 genuine F2 frames are still held inside its delay lines; flush
+    // pushes padding through the chain to carry that trapped tail out as F1
+    // sections.
+    m_f2SectionToF1Section.flush();
+    drainBackEnd(m_zeroPadApplied);
+
+    // Now all Data24 sections have been pushed into AudioCorrection; flush it
+    // to release its internal lookahead buffer, then drain once more.
+    if (m_audioMode && !m_noAudioConcealment) {
+      m_audioCorrection.flush();
+      drainAudioPipeline();
+    }
+  } catch (...) {
+    m_backEndError = std::current_exception();
+    // Wake any front-end producer blocked on a full queue so finishStream()
+    // (or the destructor) can join without deadlocking.
+    m_sectionQueue->abort();
+  }
+}
+
+void EfmProcessor::drainBackEnd(bool& zeroPadApplied) {
+  auto t0 = std::chrono::high_resolution_clock::now();
   while (m_f2SectionToF1Section.isReady()) {
     F1Section f1Section = m_f2SectionToF1Section.popSection();
     f1Section.showData();
-    m_f1SectionToData24Section.pushSection(f1Section);
+    // P-1: move the section into the next stage to avoid a deep copy.
+    m_f1SectionToData24Section.pushSection(std::move(f1Section));
   }
   m_pipelineStats.f1ToData24Time +=
       std::chrono::duration_cast<std::chrono::microseconds>(
@@ -352,7 +404,8 @@ void EfmProcessor::drainPipeline(bool& zeroPadApplied) {
       }
 
       auto audio_t0 = std::chrono::high_resolution_clock::now();
-      m_data24ToAudio.pushSection(data24Section);
+      // P-1: last use of data24Section on this branch - move it in.
+      m_data24ToAudio.pushSection(std::move(data24Section));
       m_pipelineStats.data24ToAudioTime +=
           std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::high_resolution_clock::now() - audio_t0)
@@ -361,7 +414,8 @@ void EfmProcessor::drainPipeline(bool& zeroPadApplied) {
 
     } else {
       auto data_t0 = std::chrono::high_resolution_clock::now();
-      m_data24ToRawSector.pushSection(data24Section);
+      // P-1: last use of data24Section on this branch - move it in.
+      m_data24ToRawSector.pushSection(std::move(data24Section));
       m_pipelineStats.data24ToRawSectorTime +=
           std::chrono::duration_cast<std::chrono::microseconds>(
               std::chrono::high_resolution_clock::now() - data_t0)
@@ -376,6 +430,8 @@ void EfmProcessor::drainAudioPipeline() {
     // Bypass correction — write decoded audio directly
     while (m_data24ToAudio.isReady()) {
       AudioSection audioSection = m_data24ToAudio.popSection();
+      // Q-8: undo 50/15 us pre-emphasis before writing (unless disabled).
+      if (!m_ignorePreemphasis) m_audioDeemphasis.applySection(audioSection);
       if (m_noWavHeader) {
         m_writerRaw.write(audioSection);
       } else {
@@ -390,7 +446,8 @@ void EfmProcessor::drainAudioPipeline() {
     auto t0 = std::chrono::high_resolution_clock::now();
     while (m_data24ToAudio.isReady()) {
       AudioSection audioSection = m_data24ToAudio.popSection();
-      m_audioCorrection.pushSection(audioSection);
+      // P-1: move the section into correction to avoid a deep copy.
+      m_audioCorrection.pushSection(std::move(audioSection));
     }
     m_pipelineStats.audioCorrectionTime +=
         std::chrono::duration_cast<std::chrono::microseconds>(
@@ -399,6 +456,8 @@ void EfmProcessor::drainAudioPipeline() {
 
     while (m_audioCorrection.isReady()) {
       AudioSection audioSection = m_audioCorrection.popSection();
+      // Q-8: undo 50/15 us pre-emphasis before writing (unless disabled).
+      if (!m_ignorePreemphasis) m_audioDeemphasis.applySection(audioSection);
       if (m_noWavHeader) {
         m_writerRaw.write(audioSection);
       } else {
@@ -497,8 +556,586 @@ void EfmProcessor::showDataPipelineStatistics() const {
   ORC_LOG_INFO("");
 }
 
+// ---------------------------------------------------------------------------
+// Curated decode report (Parts A-E)
+// ---------------------------------------------------------------------------
+//
+// The report is written line-by-line via ORC_LOG_INFO (the report sink uses a
+// raw "%v" pattern). Part A/B/C are the user-facing summary, disc contents and
+// quality figures; Part D is the raw per-stage diagnostics; Part E is timing.
+// The most decision-relevant information is deliberately at the top.
+
+namespace {
+
+// Repeat a (possibly multi-byte UTF-8) unit string `count` times.
+std::string repeatStr(const char* unit, int count) {
+  std::string s;
+  for (int i = 0; i < count; ++i) s += unit;
+  return s;
+}
+
+// Group an integer with thousands separators: 1234567 -> "1,234,567".
+std::string commas(uint64_t value) {
+  std::string digits = std::to_string(value);
+  std::string out;
+  int count = 0;
+  for (auto it = digits.rbegin(); it != digits.rend(); ++it) {
+    if (count != 0 && count % 3 == 0) out.push_back(',');
+    out.push_back(*it);
+    ++count;
+  }
+  std::reverse(out.begin(), out.end());
+  return out;
+}
+
+template <typename N, typename D>
+double percentOf(N numerator, D denominator) {
+  const double d = static_cast<double>(denominator);
+  return d > 0.0 ? (static_cast<double>(numerator) * 100.0 / d) : 0.0;
+}
+
+template <typename N, typename D>
+std::string fmtPercent(N numerator, D denominator, int precision) {
+  char buf[32];
+  std::snprintf(buf, sizeof(buf), "%.*f %%", precision,
+                percentOf(numerator, denominator));
+  return buf;
+}
+
+std::string fmtBytes(uint64_t bytes) {
+  char buf[48];
+  double b = static_cast<double>(bytes);
+  if (b < 1024.0) {
+    std::snprintf(buf, sizeof(buf), "%llu B",
+                  static_cast<unsigned long long>(bytes));
+  } else if (b < 1024.0 * 1024.0) {
+    std::snprintf(buf, sizeof(buf), "%.2f KB", b / 1024.0);
+  } else if (b < 1024.0 * 1024.0 * 1024.0) {
+    std::snprintf(buf, sizeof(buf), "%.2f MB", b / (1024.0 * 1024.0));
+  } else {
+    std::snprintf(buf, sizeof(buf), "%.2f GB", b / (1024.0 * 1024.0 * 1024.0));
+  }
+  return buf;
+}
+
+// Format a raw 12-character ISRC as CC-OOO-YY-NNNNN; "-" if blank.
+std::string fmtIsrc(const std::string& raw) {
+  if (raw.empty()) return "-";
+  if (raw.size() != 12) return raw;
+  return raw.substr(0, 2) + "-" + raw.substr(2, 3) + "-" + raw.substr(5, 2) +
+         "-" + raw.substr(7, 5);
+}
+
+// Place an ASCII string into a fixed-width field. Table cell contents are all
+// ASCII, so byte width equals display width here.
+std::string cell(const std::string& content, int width, char align) {
+  std::string s = content;
+  if (static_cast<int>(s.size()) > width) s = s.substr(0, width);
+  int pad = width - static_cast<int>(s.size());
+  if (align == 'r') return std::string(pad, ' ') + s;
+  if (align == 'l') return s + std::string(pad, ' ');
+  int left = pad / 2;  // centre
+  return std::string(left, ' ') + s + std::string(pad - left, ' ');
+}
+
+// 80-column double rule and centred title used for the report head/foot.
+std::string ruleDouble() { return repeatStr("═", 80); }
+std::string centred(const std::string& text) {
+  int pad = 80 - static_cast<int>(text.size());
+  if (pad <= 0) return text;
+  return std::string(pad / 2, ' ') + text;
+}
+
+// Part banner (ASCII title so the 78-wide interior stays byte-aligned).
+std::string bannerTop() { return "╔" + repeatStr("═", 78) + "╗"; }
+std::string bannerBottom() { return "╚" + repeatStr("═", 78) + "╝"; }
+std::string bannerMid(const std::string& title) {
+  return "║" + cell("  " + title, 78, 'l') + "║";
+}
+
+// Track-table geometry (interior column widths).
+constexpr int kW_Trk = 5;
+constexpr int kW_Time = 12;
+constexpr int kW_Type = 9;
+constexpr int kW_Pre = 5;
+constexpr int kW_Cpy = 6;
+constexpr int kW_Isrc = 17;
+
+std::string trackBorder(const char* left, const char* mid, const char* right) {
+  const int widths[] = {kW_Trk,  kW_Time, kW_Time, kW_Time,
+                        kW_Type, kW_Pre,  kW_Cpy,  kW_Isrc};
+  std::string s = left;
+  for (int i = 0; i < 8; ++i) {
+    s += repeatStr("─", widths[i]);
+    s += (i < 7) ? mid : right;
+  }
+  return s;
+}
+
+std::string trackRow(const std::string& trk, const std::string& start,
+                     const std::string& end, const std::string& dur,
+                     const std::string& type, const std::string& pre,
+                     const std::string& cpy, const std::string& isrc) {
+  return "│" + cell(trk, kW_Trk, 'c') + "│" + cell(start, kW_Time, 'c') + "│" +
+         cell(end, kW_Time, 'c') + "│" + cell(dur, kW_Time, 'c') + "│" +
+         cell(" " + type, kW_Type, 'l') + "│" + cell(pre, kW_Pre, 'c') + "│" +
+         cell(cpy, kW_Cpy, 'c') + "│" + cell(" " + isrc, kW_Isrc, 'l') + "│";
+}
+
+}  // namespace
+
+void EfmProcessor::showReportHeader() const {
+  std::time_t now = std::time(nullptr);
+  char timeBuf[32] = {0};
+  if (const std::tm* tmv = std::localtime(&now)) {
+    std::strftime(timeBuf, sizeof(timeBuf), "%Y-%m-%d %H:%M:%S", tmv);
+  }
+  const std::string reportFile =
+      m_reportFilename.empty() ? m_outputFilename + ".txt" : m_reportFilename;
+
+  ORC_LOG_INFO("{}", ruleDouble());
+  ORC_LOG_INFO("{}", centred("E F M   D E C O D E   R E P O R T"));
+  ORC_LOG_INFO("{}", ruleDouble());
+  ORC_LOG_INFO("  Generated       : {}", timeBuf);
+  ORC_LOG_INFO("  Output file     : {}", m_outputFilename);
+  ORC_LOG_INFO("  Report file     : {}", reportFile);
+  ORC_LOG_INFO("  Decode mode     : {}",
+               m_audioMode ? "AUDIO (CD-DA)" : "DATA (CD-ROM)");
+  ORC_LOG_INFO("  Result          : SUCCESS");
+  ORC_LOG_INFO("{}", ruleDouble());
+  ORC_LOG_INFO("");
+}
+
+void EfmProcessor::showSummary() const {
+  const F2SectionCorrection& f2 = m_f2SectionCorrection;
+
+  ORC_LOG_INFO("{}", bannerTop());
+  ORC_LOG_INFO("{}", bannerMid("PART A - DECODE SUMMARY"));
+  ORC_LOG_INFO("{}", bannerBottom());
+  ORC_LOG_INFO("");
+
+  // Duration and track count.
+  std::string duration = "N/A";
+  if (f2.totalSections() > 0 &&
+      f2.absoluteEndTime() >= f2.absoluteStartTime()) {
+    duration = (f2.absoluteEndTime() - f2.absoluteStartTime()).toString();
+  }
+
+  // Grade + concealment.
+  const bool concealmentRan = m_audioMode && !m_noAudioConcealment;
+  const uint64_t concealed = m_audioCorrection.concealedSamples();
+  const uint64_t silenced = m_audioCorrection.silencedSamples();
+  const uint64_t totalMono =
+      m_audioCorrection.validSamples() + concealed + silenced;
+  const double concealPct = percentOf(concealed + silenced, totalMono);
+
+  const uint64_t totalBytes = m_f1SectionToData24Section.totalBytes();
+  const uint64_t corruptBytes = m_f1SectionToData24Section.corruptBytes();
+  const double dataLossPct = percentOf(corruptBytes, totalBytes);
+
+  std::string grade;
+  if (m_audioMode) {
+    if (concealPct == 0.0 && f2.missingSections() == 0 &&
+        m_f2SectionToF1Section.errorC2s() == 0) {
+      grade = "EXCELLENT";
+    } else if (concealPct < 0.10) {
+      grade = "GOOD";
+    } else if (concealPct < 1.0) {
+      grade = "FAIR";
+    } else {
+      grade = "POOR";
+    }
+    if (!concealmentRan) grade += " (concealment disabled)";
+  } else {
+    if (dataLossPct == 0.0 && m_rawSectorToSector.invalidSectors() == 0) {
+      grade = "EXCELLENT";
+    } else if (dataLossPct < 0.10) {
+      grade = "GOOD";
+    } else if (dataLossPct < 1.0) {
+      grade = "FAIR";
+    } else {
+      grade = "POOR";
+    }
+  }
+
+  // Q-channel timecode status.
+  std::string timecodes;
+  if (m_noTimecodes) {
+    timecodes = "Not used (No Timecodes mode)";
+  } else if (f2.validMetadataSections() == 0) {
+    timecodes = "None found";
+  } else {
+    timecodes = (f2.outOfOrderSections() == 0) ? "Valid and contiguous"
+                                               : "Valid (with discontinuities)";
+  }
+
+  ORC_LOG_INFO("  Overall assessment : {}", grade);
+  ORC_LOG_INFO("  Disc duration      : {}   ({} sections)", duration,
+               commas(f2.totalSections()));
+  ORC_LOG_INFO("  Tracks recovered   : {}", f2.trackNumbers().size());
+  ORC_LOG_INFO("  Q-channel timecodes: {}", timecodes);
+  ORC_LOG_INFO("");
+
+  if (m_audioMode) {
+    ORC_LOG_INFO("  Audio integrity");
+    if (concealmentRan) {
+      ORC_LOG_INFO("    Samples decoded    : {}", commas(totalMono));
+      ORC_LOG_INFO("    Concealed (interp) : {}   ({})", commas(concealed),
+                   fmtPercent(concealed, totalMono, 4));
+      ORC_LOG_INFO("    Silenced (muted)   : {}   ({})", commas(silenced),
+                   fmtPercent(silenced, totalMono, 4));
+    } else {
+      ORC_LOG_INFO("    Concealment        : disabled (audio emitted as-is)");
+    }
+  } else {
+    const uint32_t good = m_rawSectorToSector.validSectors();
+    const uint32_t corrected = m_rawSectorToSector.correctedSectors();
+    const uint32_t bad = m_rawSectorToSector.invalidSectors();
+    ORC_LOG_INFO("  Sector recovery");
+    ORC_LOG_INFO("    Good / corrected / uncorrectable : {} / {} / {}",
+                 commas(good), commas(corrected), commas(bad));
+  }
+  ORC_LOG_INFO("");
+
+  ORC_LOG_INFO("  Error-correction health");
+  ORC_LOG_INFO("    C1 uncorrectable   : {}",
+               fmtPercent(m_f2SectionToF1Section.errorC1s(),
+                          m_f2SectionToF1Section.validC1s() +
+                              m_f2SectionToF1Section.fixedC1s() +
+                              m_f2SectionToF1Section.errorC1s(),
+                          4));
+  ORC_LOG_INFO("    C2 uncorrectable   : {}",
+               fmtPercent(m_f2SectionToF1Section.errorC2s(),
+                          m_f2SectionToF1Section.validC2s() +
+                              m_f2SectionToF1Section.fixedC2s() +
+                              m_f2SectionToF1Section.errorC2s(),
+                          4));
+  ORC_LOG_INFO("    Data loss (post-C2): {}",
+               fmtPercent(corruptBytes, totalBytes, 4));
+  ORC_LOG_INFO("    Sections missing   : {}   (reconstructed by interpolation)",
+               commas(f2.missingSections()));
+  ORC_LOG_INFO("    Sections out-of-order / uncorrectable : {} / {}",
+               commas(f2.outOfOrderSections()),
+               commas(f2.uncorrectableSections()));
+  ORC_LOG_INFO("");
+
+  // Pre-emphasis track list and copy-protection summary.
+  const auto& trackNumbers = f2.trackNumbers();
+  const auto& preemphasis = f2.trackPreemphasis();
+  const auto& copyProhibited = f2.trackCopyProhibited();
+  std::string preTracks;
+  for (size_t i = 0; i < trackNumbers.size(); ++i) {
+    if (preemphasis[i]) {
+      if (!preTracks.empty()) preTracks += ", ";
+      preTracks += std::to_string(trackNumbers[i]);
+    }
+  }
+  bool anyProhibited = false, anyPermitted = false;
+  for (bool prohibited : copyProhibited) {
+    if (prohibited) {
+      anyProhibited = true;
+    } else {
+      anyPermitted = true;
+    }
+  }
+  std::string copyStr = "N/A";
+  if (anyProhibited && anyPermitted) {
+    copyStr = "Mixed (see track table)";
+  } else if (anyProhibited) {
+    copyStr = "Prohibited (all tracks)";
+  } else if (anyPermitted) {
+    copyStr = "Permitted (all tracks)";
+  }
+
+  size_t isrcCount = 0;
+  for (const std::string& code : f2.trackIsrc()) {
+    if (!code.empty()) ++isrcCount;
+  }
+
+  ORC_LOG_INFO("  Q-channel highlights");
+  if (preTracks.empty()) {
+    ORC_LOG_INFO("    Pre-emphasis       : None");
+  } else {
+    ORC_LOG_INFO("    Pre-emphasis       : PRESENT on tracks {}  ({})",
+                 preTracks,
+                 m_ignorePreemphasis ? "flag ignored, no de-emphasis"
+                                     : "50/15us de-emphasis applied");
+  }
+  ORC_LOG_INFO("    Copy protection    : {}", copyStr);
+  ORC_LOG_INFO("    Catalogue number   : {}",
+               f2.catalogueNumber().empty() ? "none" : f2.catalogueNumber());
+  if (isrcCount > 0) {
+    ORC_LOG_INFO("    ISRC codes         : {} recovered   (see track table)",
+                 isrcCount);
+  } else {
+    ORC_LOG_INFO("    ISRC codes         : none");
+  }
+  ORC_LOG_INFO("");
+
+  // Warnings.
+  std::vector<std::string> warnings;
+  if (f2.missingSections() > 0) {
+    warnings.push_back(
+        commas(f2.missingSections()) +
+        " section(s) were missing and reconstructed by interpolation.");
+  }
+  if (f2.outOfOrderSections() > 0) {
+    warnings.push_back(commas(f2.outOfOrderSections()) +
+                       " section(s) arrived out of order.");
+  }
+  if (f2.uncorrectableSections() > 0) {
+    warnings.push_back(commas(f2.uncorrectableSections()) +
+                       " section(s) were uncorrectable.");
+  }
+  if (!preTracks.empty()) {
+    warnings.push_back(
+        std::string("Pre-emphasis flagged on track(s) ") + preTracks + "; " +
+        (m_ignorePreemphasis
+             ? "flag ignored, raw pre-emphasised signal kept."
+             : "a 50/15us de-emphasis filter was applied to the output."));
+  }
+  if (m_audioMode && concealmentRan && silenced > 0) {
+    warnings.push_back(commas(silenced) +
+                       " audio sample(s) were muted (unrecoverable).");
+  }
+
+  ORC_LOG_INFO("  Warnings");
+  if (warnings.empty()) {
+    ORC_LOG_INFO("    None.");
+  } else {
+    for (const std::string& warning : warnings) {
+      ORC_LOG_INFO("    ! {}", warning);
+    }
+  }
+  ORC_LOG_INFO("");
+
+  ORC_LOG_INFO(
+      "  Assessment scale:  EXCELLENT  no concealment, no missing sections, C2 "
+      "clean");
+  if (m_audioMode) {
+    ORC_LOG_INFO(
+        "                     GOOD       concealment < 0.10 %, few missing "
+        "sections");
+    ORC_LOG_INFO("                     FAIR       concealment < 1.0 %");
+    ORC_LOG_INFO(
+        "                     POOR       concealment >= 1.0 % or many "
+        "uncorrectable");
+  } else {
+    ORC_LOG_INFO("                     GOOD       data loss < 0.10 %");
+    ORC_LOG_INFO("                     FAIR       data loss < 1.0 %");
+    ORC_LOG_INFO(
+        "                     POOR       data loss >= 1.0 % or uncorrectable "
+        "sectors");
+  }
+  ORC_LOG_INFO("");
+}
+
+void EfmProcessor::showDiscContents() const {
+  const F2SectionCorrection& f2 = m_f2SectionCorrection;
+
+  ORC_LOG_INFO("{}", bannerTop());
+  ORC_LOG_INFO("{}", bannerMid("PART B - DISC CONTENTS (Q-channel)"));
+  ORC_LOG_INFO("{}", bannerBottom());
+  ORC_LOG_INFO("");
+
+  ORC_LOG_INFO("  Absolute time span : {}  ->  {}",
+               f2.absoluteStartTime().toString(),
+               f2.absoluteEndTime().toString());
+  ORC_LOG_INFO("");
+
+  ORC_LOG_INFO("  Q-channel mode distribution (sections)");
+  ORC_LOG_INFO("    Mode 1  CD position / time      : {}",
+               commas(f2.qmode1Sections()));
+  ORC_LOG_INFO("    Mode 2  Media catalogue number  : {}",
+               commas(f2.qmode2Sections()));
+  ORC_LOG_INFO("    Mode 3  ISRC (ISO 3901)         : {}",
+               commas(f2.qmode3Sections()));
+  ORC_LOG_INFO("    Mode 4  LaserDisc data          : {}",
+               commas(f2.qmode4Sections()));
+  ORC_LOG_INFO("");
+
+  ORC_LOG_INFO("  Media catalogue number (UPC/EAN) : {}",
+               f2.catalogueNumber().empty() ? "none" : f2.catalogueNumber());
+  ORC_LOG_INFO("");
+
+  // Q-6: lead-in table of contents (POINT/PMIN/PSEC/PFRAME, IEC 60908 §17.5.1).
+  ORC_LOG_INFO("  Lead-in table of contents (Q-channel)");
+  if (!f2.hasToc()) {
+    ORC_LOG_INFO(
+        "    Not available (capture does not include a decodable lead-in).");
+  } else {
+    ORC_LOG_INFO("    First track    : {}", f2.tocFirstTrack());
+    ORC_LOG_INFO("    Last track     : {}", f2.tocLastTrack());
+    ORC_LOG_INFO("    Lead-out start : {}", f2.tocLeadOutStart().toString());
+    const auto& tocTracks = f2.tocTrackNumbers();
+    const auto& tocStarts = f2.tocTrackStartTimes();
+    if (tocTracks.empty()) {
+      ORC_LOG_INFO("    (no per-track TOC entries decoded)");
+    } else {
+      for (size_t i = 0; i < tocTracks.size(); ++i) {
+        ORC_LOG_INFO("    Track {:>2} start : {}", tocTracks[i],
+                     tocStarts[i].toString());
+      }
+    }
+  }
+  ORC_LOG_INFO("");
+
+  ORC_LOG_INFO("  Track table");
+  const auto& trackNumbers = f2.trackNumbers();
+  if (trackNumbers.empty()) {
+    ORC_LOG_INFO("    (no user tracks decoded)");
+  } else {
+    const auto& absStart = f2.trackAbsStartTimes();
+    const auto& absEnd = f2.trackAbsEndTimes();
+    const auto& preemphasis = f2.trackPreemphasis();
+    const auto& preemphasisVaried = f2.trackPreemphasisVaried();
+    const auto& copyProhibited = f2.trackCopyProhibited();
+    const auto& isAudio = f2.trackIsAudio();
+    const auto& is2Channel = f2.trackIs2Channel();
+    const auto& isrc = f2.trackIsrc();
+
+    ORC_LOG_INFO("  {}", trackBorder("┌", "┬", "┐"));
+    ORC_LOG_INFO("  {}", trackRow("Trk", "Start", "End", "Duration", "Type",
+                                  "Pre", "Cpy", "ISRC"));
+    ORC_LOG_INFO("  {}", trackBorder("├", "┼", "┤"));
+    for (size_t i = 0; i < trackNumbers.size(); ++i) {
+      std::string type =
+          !isAudio[i] ? "Data" : (is2Channel[i] ? "Audio" : "Audio4");
+      std::string pre =
+          preemphasis[i] ? (preemphasisVaried[i] ? "YES*" : "YES") : "no";
+      std::string cpy = copyProhibited[i] ? "prot" : "ok";
+      std::string dur = (absEnd[i] >= absStart[i])
+                            ? (absEnd[i] - absStart[i]).toString()
+                            : "N/A";
+      ORC_LOG_INFO("  {}",
+                   trackRow(std::to_string(trackNumbers[i]),
+                            absStart[i].toString(), absEnd[i].toString(), dur,
+                            type, pre, cpy, fmtIsrc(isrc[i])));
+    }
+    ORC_LOG_INFO("  {}", trackBorder("└", "┴", "┘"));
+  }
+  ORC_LOG_INFO("");
+  ORC_LOG_INFO("  Legend");
+  ORC_LOG_INFO(
+      "    Type  Audio = 2-channel audio, Audio4 = 4-channel, Data = data "
+      "track");
+  ORC_LOG_INFO(
+      "    Pre   50/15us pre-emphasis flag: YES = set, no = clear, YES* = "
+      "varied within track");
+  ORC_LOG_INFO("    Cpy   prot = copy prohibited, ok = copying permitted");
+  ORC_LOG_INFO(
+      "    ISRC  ISO 3901 recording code (Q-mode 3); - if none carried");
+  ORC_LOG_INFO("");
+  ORC_LOG_INFO(
+      "  Note: track times are absolute (whole-disc); track-relative times are "
+      "in Part D.");
+  ORC_LOG_INFO("");
+}
+
+void EfmProcessor::showQuality() const {
+  const F2SectionCorrection& f2 = m_f2SectionCorrection;
+
+  ORC_LOG_INFO("{}", bannerTop());
+  ORC_LOG_INFO("{}", bannerMid("PART C - SIGNAL & ERROR-CORRECTION QUALITY"));
+  ORC_LOG_INFO("{}", bannerBottom());
+  ORC_LOG_INFO("");
+
+  ORC_LOG_INFO("  Section-level integrity (F2)");
+  ORC_LOG_INFO("    Total sections         : {}   ({} F2 frames)",
+               commas(f2.totalSections()),
+               commas(static_cast<uint64_t>(f2.totalSections()) * 98));
+  ORC_LOG_INFO("    Corrected (Q repaired) : {}",
+               commas(f2.correctedSections()));
+  ORC_LOG_INFO("    Missing (interpolated) : {}", commas(f2.missingSections()));
+  ORC_LOG_INFO("    Padding                : {}", commas(f2.paddingSections()));
+  ORC_LOG_INFO("    Pre-lead-in            : {}",
+               commas(f2.preLeadinSections()));
+  ORC_LOG_INFO("    Out of order           : {}",
+               commas(f2.outOfOrderSections()));
+  ORC_LOG_INFO("    Uncorrectable          : {}",
+               commas(f2.uncorrectableSections()));
+  ORC_LOG_INFO("");
+
+  const int32_t c1total = m_f2SectionToF1Section.validC1s() +
+                          m_f2SectionToF1Section.fixedC1s() +
+                          m_f2SectionToF1Section.errorC1s();
+  const int32_t c2total = m_f2SectionToF1Section.validC2s() +
+                          m_f2SectionToF1Section.fixedC2s() +
+                          m_f2SectionToF1Section.errorC2s();
+  ORC_LOG_INFO("  CIRC error correction");
+  ORC_LOG_INFO("    C1 :  valid {}   fixed {}   uncorrectable {}   ({})",
+               commas(m_f2SectionToF1Section.validC1s()),
+               commas(m_f2SectionToF1Section.fixedC1s()),
+               commas(m_f2SectionToF1Section.errorC1s()),
+               fmtPercent(m_f2SectionToF1Section.errorC1s(), c1total, 4));
+  ORC_LOG_INFO("    C2 :  valid {}   fixed {}   uncorrectable {}   ({})",
+               commas(m_f2SectionToF1Section.validC2s()),
+               commas(m_f2SectionToF1Section.fixedC2s()),
+               commas(m_f2SectionToF1Section.errorC2s()),
+               fmtPercent(m_f2SectionToF1Section.errorC2s(), c2total, 4));
+  ORC_LOG_INFO("");
+
+  const uint64_t totalBytes = m_f1SectionToData24Section.totalBytes();
+  const uint64_t corruptBytes = m_f1SectionToData24Section.corruptBytes();
+  const uint64_t paddedBytes = m_f1SectionToData24Section.paddedBytes();
+  const uint64_t validBytes =
+      totalBytes >= corruptBytes ? totalBytes - corruptBytes : 0;
+  ORC_LOG_INFO("  Byte-level data integrity (Data24)");
+  ORC_LOG_INFO("    Total     : {}", fmtBytes(totalBytes));
+  ORC_LOG_INFO("    Valid     : {}", fmtBytes(validBytes));
+  ORC_LOG_INFO("    Corrupt   : {}", fmtBytes(corruptBytes));
+  ORC_LOG_INFO("    Padded    : {}", fmtBytes(paddedBytes));
+  ORC_LOG_INFO("    Data loss : {}", fmtPercent(corruptBytes, totalBytes, 4));
+  ORC_LOG_INFO("");
+
+  if (m_audioMode) {
+    if (!m_noAudioConcealment) {
+      const uint64_t concealed = m_audioCorrection.concealedSamples();
+      const uint64_t silenced = m_audioCorrection.silencedSamples();
+      const uint64_t valid = m_audioCorrection.validSamples();
+      ORC_LOG_INFO("  Audio concealment");
+      ORC_LOG_INFO("    Total mono samples : {}",
+                   commas(valid + concealed + silenced));
+      ORC_LOG_INFO("    Valid              : {}", commas(valid));
+      ORC_LOG_INFO("    Concealed (interp) : {}", commas(concealed));
+      ORC_LOG_INFO("    Silenced (muted)   : {}", commas(silenced));
+      ORC_LOG_INFO("");
+    }
+    if (!m_ignorePreemphasis) {
+      ORC_LOG_INFO("  Pre-emphasis / de-emphasis");
+      ORC_LOG_INFO("    De-emphasised sections : {}",
+                   commas(m_audioDeemphasis.deemphasisedSections()));
+      ORC_LOG_INFO("    Pass-through sections  : {}",
+                   commas(m_audioDeemphasis.passThroughSections()));
+      ORC_LOG_INFO("");
+    }
+  } else {
+    ORC_LOG_INFO("  Sector recovery (RSPC)");
+    ORC_LOG_INFO("    Valid / corrected / uncorrectable : {} / {} / {}",
+                 commas(m_rawSectorToSector.validSectors()),
+                 commas(m_rawSectorToSector.correctedSectors()),
+                 commas(m_rawSectorToSector.invalidSectors()));
+    ORC_LOG_INFO("    Good sectors / missing (gap-filled) : {} / {}",
+                 commas(m_sectorCorrection.goodSectors()),
+                 commas(m_sectorCorrection.missingSectors()));
+    ORC_LOG_INFO("");
+  }
+}
+
 void EfmProcessor::showAllStatistics() const {
-  // General pipeline statistics (matches efm-decoder-f2 output)
+  // ---- Curated, user-facing sections (most important first) -------------
+  showReportHeader();
+  showSummary();       // Part A
+  showDiscContents();  // Part B
+  showQuality();       // Part C
+
+  // ---- Part D: raw per-stage diagnostics (developer detail) -------------
+  ORC_LOG_INFO("{}", bannerTop());
+  ORC_LOG_INFO("{}",
+               bannerMid("PART D - PIPELINE STAGE DETAIL (developer detail)"));
+  ORC_LOG_INFO("{}", bannerBottom());
+  ORC_LOG_INFO("");
+
   m_tValuesToChannel.showStatistics();
   ORC_LOG_INFO("");
   m_channelToF3.showStatistics();
@@ -507,36 +1144,45 @@ void EfmProcessor::showAllStatistics() const {
   ORC_LOG_INFO("");
   m_f2SectionCorrection.showStatistics();
   ORC_LOG_INFO("");
-  showGeneralPipelineStatistics();
-
-  // D24 pipeline statistics (matches efm-decoder-d24 output)
   m_f2SectionToF1Section.showStatistics();
   ORC_LOG_INFO("");
   m_f1SectionToData24Section.showStatistics();
   ORC_LOG_INFO("");
-  showD24PipelineStatistics();
 
   if (m_audioMode) {
-    // Audio pipeline statistics (matches efm-decoder-audio output)
     m_data24ToAudio.showStatistics();
     ORC_LOG_INFO("");
     if (!m_noAudioConcealment) {
       m_audioCorrection.showStatistics();
       ORC_LOG_INFO("");
     }
-    showAudioPipelineStatistics();
+    if (!m_ignorePreemphasis) {
+      m_audioDeemphasis.showStatistics();
+      ORC_LOG_INFO("");
+    }
   } else {
-    // Data pipeline statistics (matches efm-decoder-data output)
     m_data24ToRawSector.showStatistics();
     ORC_LOG_INFO("");
     m_rawSectorToSector.showStatistics();
     ORC_LOG_INFO("");
     m_sectorCorrection.showStatistics();
     ORC_LOG_INFO("");
+  }
+
+  // ---- Part E: processing performance -----------------------------------
+  ORC_LOG_INFO("{}", bannerTop());
+  ORC_LOG_INFO("{}", bannerMid("PART E - PROCESSING PERFORMANCE"));
+  ORC_LOG_INFO("{}", bannerBottom());
+  ORC_LOG_INFO("");
+
+  showGeneralPipelineStatistics();
+  showD24PipelineStatistics();
+  if (m_audioMode) {
+    showAudioPipelineStatistics();
+  } else {
     showDataPipelineStatistics();
   }
 
-  // Overall wall-clock time
   auto endTime = std::chrono::high_resolution_clock::now();
   [[maybe_unused]] int64_t wallTimeMs =
       std::chrono::duration_cast<std::chrono::milliseconds>(endTime -
@@ -544,4 +1190,9 @@ void EfmProcessor::showAllStatistics() const {
           .count();
   ORC_LOG_INFO("Overall wall-clock time: {} ms ({:.2f} seconds)", wallTimeMs,
                wallTimeMs / 1000.0);
+
+  ORC_LOG_INFO("");
+  ORC_LOG_INFO("{}", ruleDouble());
+  ORC_LOG_INFO("{}", centred("END OF DECODE REPORT"));
+  ORC_LOG_INFO("{}", ruleDouble());
 }

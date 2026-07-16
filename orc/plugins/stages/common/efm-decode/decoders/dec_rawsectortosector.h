@@ -25,6 +25,11 @@ class RawSectorToSector : public Decoder {
 
   void showStatistics() const;
 
+  // Accessors for the curated decode report (RSPC sector recovery).
+  uint32_t validSectors() const { return m_validSectors; }
+  uint32_t correctedSectors() const { return m_correctedSectors; }
+  uint32_t invalidSectors() const { return m_invalidSectors; }
+
  private:
   void processQueue();
   uint8_t bcdToInt(uint8_t bcd);
@@ -42,6 +47,13 @@ class RawSectorToSector : public Decoder {
   uint32_t m_mode1Sectors;
   uint32_t m_mode2Sectors;
   uint32_t m_invalidModeSectors;
+
+  // E-8(e): cumulative codeword-level RSPC activity across all corrected
+  // sectors - clean (already valid) vs genuinely repaired P/Q codewords.
+  uint64_t m_rspcQCleanCodewords;
+  uint64_t m_rspcQCorrectedCodewords;
+  uint64_t m_rspcPCleanCodewords;
+  uint64_t m_rspcPCorrectedCodewords;
 };
 
 #endif  // DEC_RAWSECTORTOSECTOR_H

@@ -13,6 +13,7 @@
 #include <orc/stage/video_frame_representation.h>
 
 #include <cstdint>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -23,6 +24,8 @@ namespace orc {
 struct EFMAudioDecodeOptions {
   bool no_timecodes{false};
   bool no_audio_concealment{false};
+  // Q-8: when true, ignore the 50/15 us pre-emphasis flag and skip de-emphasis.
+  bool ignore_preemphasis{false};
   // When non-empty, a detailed decode statistics report is written to this
   // path. Empty (the default) means no report is written. Unlike efm_sink,
   // this stage has no user-facing audio output file to append ".txt" to, so
@@ -55,12 +58,20 @@ class IEFMAudioDecodeDeps {
  public:
   virtual ~IEFMAudioDecodeDeps() = default;
 
+  // Progress callback for the whole-stream decode: (done_frames, total_frames,
+  // message). Empty/absent means no reporting. Reported at frame granularity
+  // so a sink can meter the decode on its progress dialog.
+  using ProgressFn =
+      std::function<void(uint64_t done, uint64_t total, const std::string&)>;
+
   // Accumulates the representation's EFM t-value stream across its full frame
   // range, decodes it to headerless 44.1 kHz interleaved stereo int16_t PCM
-  // in a scratch cache file, and reports the decoded pair count.
+  // in a scratch cache file, and reports the decoded pair count. When
+  // |progress| is set it is invoked periodically as the frame range is
+  // streamed into the decoder.
   virtual EFMAudioDecodeResult decode_to_cache(
       const VideoFrameRepresentation& representation,
-      const EFMAudioDecodeOptions& options) = 0;
+      const EFMAudioDecodeOptions& options, const ProgressFn& progress) = 0;
 
   // Reads up to |pair_count| stereo pairs starting at |first_pair| from the
   // raw 44.1 kHz cache written by decode_to_cache(). Returns interleaved L,R

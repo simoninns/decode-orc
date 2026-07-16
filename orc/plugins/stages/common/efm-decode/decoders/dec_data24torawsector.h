@@ -19,6 +19,7 @@ class Data24ToRawSector : public Decoder {
  public:
   Data24ToRawSector();
   void pushSection(const Data24Section& data24Section);
+  void pushSection(Data24Section&& data24Section);
   RawSector popSector();
   bool isReady() const;
 

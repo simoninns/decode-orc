@@ -20,6 +20,7 @@ class ChannelToF3Frame : public Decoder {
  public:
   ChannelToF3Frame();
   void pushFrame(const std::vector<uint8_t>& data);
+  void pushFrame(std::vector<uint8_t>&& data);
   F3Frame popFrame();
   bool isReady() const;
 

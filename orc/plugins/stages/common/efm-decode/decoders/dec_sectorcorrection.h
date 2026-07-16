@@ -23,6 +23,11 @@ class SectorCorrection : public Decoder {
 
   void showStatistics() const;
 
+  // Accessors for the curated decode report (sector-gap correction).
+  uint32_t goodSectors() const { return m_goodSectors; }
+  uint32_t missingSectors() const { return m_missingSectors; }
+  uint32_t missingLeadingSectors() const { return m_missingLeadingSectors; }
+
  private:
   void processQueue();
 

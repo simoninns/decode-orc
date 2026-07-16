@@ -23,6 +23,8 @@ struct EFMSinkOptions {
   bool no_timecodes{false};
   bool audacity_labels{false};
   bool no_audio_concealment{false};
+  // Q-8: when true, ignore the 50/15 us pre-emphasis flag and skip de-emphasis.
+  bool ignore_preemphasis{false};
   bool zero_pad{false};
   bool no_wav_header{false};
   bool output_metadata{false};

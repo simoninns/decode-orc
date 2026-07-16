@@ -27,6 +27,9 @@ Write an Audacity label file alongside the audio output, marking chapter boundar
 ### no_audio_concealment (boolean)
 Disable interpolation-based error concealment for uncorrectable audio samples. When disabled, affected samples are zeroed instead of interpolated. Audio mode only. Default: `false`.
 
+### ignore_preemphasis (boolean)
+Ignore the 50/15 µs pre-emphasis CONTROL flag (IEC 60908 §17.5) and write the audio exactly as decoded. When unchecked (default), sections flagged as pre-emphasised are de-emphasised during decode with a 50/15 µs filter, so the output plays back with a flat response. Enable this only if you want the raw pre-emphasised samples (e.g. to apply de-emphasis yourself downstream). When Audacity labels are enabled, the label for a pre-emphasised track is annotated `Preemphasis:50/15us(removed)` when de-emphasis was applied, or `Preemphasis:50/15us` when this flag is set. Audio mode only. Default: `false`.
+
 ### zero_pad (boolean)
 Zero-pad the start of the audio output so that playback begins at 00:00:00.0 relative to the first valid EFM timecode. Audio mode only. Default: `false`.
 

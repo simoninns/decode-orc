@@ -15,7 +15,20 @@
 #include <cmath>
 #include <deque>
 #include <queue>
-#include <stdexcept>
+#include <utility>
+
+#include "efm_exception.h"
+
+namespace {
+// R-3: a corrupt-but-CRC-valid absolute timestamp (a 16-bit CRC passes ~1/65536
+// of corrupt Q blocks) or a genuine multi-second dropout can claim an enormous
+// forward jump. Fabricating one fully-populated 98-frame dummy section per
+// frame of the jump would allocate unbounded memory (a jump to 99:59:74 is
+// ~450000 sections). Any gap larger than this many sections is treated as a
+// hard resync point rather than being filled. 375 sections = 5 seconds of
+// audio, well above any plausible inter-section gap on real media.
+constexpr int32_t kMaxMissingSectionFill = 375;
+}  // namespace
 
 F2SectionCorrection::F2SectionCorrection()
     : m_leadinComplete(false),
@@ -32,17 +45,41 @@ F2SectionCorrection::F2SectionCorrection()
       m_qmode2Sections(0),
       m_qmode3Sections(0),
       m_qmode4Sections(0),
-      m_absoluteStartTime(59, 59, 74),
+      m_absoluteStartTime(99, 59, 74),  // Max-time sentinel (IEC 60908 §17.5.1)
       m_absoluteEndTime(0, 0, 0),
+      m_hasToc(false),
+      m_tocFirstTrack(0),
+      m_tocLastTrack(0),
+      m_tocDiscType(0),
+      m_leadinSections(0),
+      m_currentTrack(0),
       m_noTimecodes(false),
       m_receivedSections(0),
       m_validMetadataSections(0) {}
+
+// Return the index of trackNumber in m_trackNumbers, or -1 if not present.
+int F2SectionCorrection::trackIndex(uint8_t trackNumber) const {
+  auto it =
+      std::find(m_trackNumbers.begin(), m_trackNumbers.end(), trackNumber);
+  if (it == m_trackNumbers.end()) return -1;
+  return static_cast<int>(std::distance(m_trackNumbers.begin(), it));
+}
 
 void F2SectionCorrection::pushSection(const F2Section& data) {
   // Track how much genuinely reached this stage so a failed lead-in can be
   // explained: no sections at all means frame sync never happened.
   ++m_receivedSections;
   if (data.metadata.isValid()) ++m_validMetadataSections;
+
+  // Q-6: harvest the lead-in TOC before the timeline logic gets a chance to
+  // discard the section. Lead-in sections carry POINT/PMIN/PSEC/PFRAME rather
+  // than a program-area timeline, so they are collected here and then skipped
+  // by the settle/correction stages (see recordTocEntry /
+  // waitForInputToSettle).
+  if (data.metadata.isValid() &&
+      data.metadata.sectionType().type() == SectionType::LeadIn) {
+    recordTocEntry(data.metadata);
+  }
 
   // Add the data to the input buffer
   m_inputBuffer.push(data);
@@ -51,9 +88,67 @@ void F2SectionCorrection::pushSection(const F2Section& data) {
   processQueue();
 }
 
+void F2SectionCorrection::pushSection(F2Section&& data) {
+  ++m_receivedSections;
+  if (data.metadata.isValid()) ++m_validMetadataSections;
+
+  if (data.metadata.isValid() &&
+      data.metadata.sectionType().type() == SectionType::LeadIn) {
+    recordTocEntry(data.metadata);
+  }
+
+  // Move the data into the input buffer to avoid a whole-section deep copy.
+  m_inputBuffer.push(std::move(data));
+
+  processQueue();
+}
+
+// Q-6: assemble the lead-in TOC (IEC 60908 §17.5.1) from one lead-in section's
+// POINT/PMIN/PSEC/PFRAME. POINT selects what PMIN/PSEC/PFRAME mean:
+//   A0 -> first user track number (PMIN) and disc type (PSEC)
+//   A1 -> last user track number (PMIN)
+//   A2 -> lead-out start time (PMIN:PSEC:PFRAME)
+//   01-99 (BCD) -> that track's start time (PMIN:PSEC:PFRAME)
+// Each POINT is broadcast repeatedly through the lead-in, so entries are
+// de-duplicated (first value seen wins).
+void F2SectionCorrection::recordTocEntry(const SectionMetadata& metadata) {
+  ++m_leadinSections;
+
+  const uint8_t point = metadata.point();
+  const uint8_t pMin = metadata.pMin();
+  const uint8_t pSec = metadata.pSec();
+  const uint8_t pFrame = metadata.pFrame();
+
+  if (point == 0xA0) {
+    if (!m_hasToc || m_tocFirstTrack == 0) {
+      m_tocFirstTrack = pMin;
+      m_tocDiscType = pSec;
+    }
+    m_hasToc = true;
+  } else if (point == 0xA1) {
+    if (m_tocLastTrack == 0) m_tocLastTrack = pMin;
+    m_hasToc = true;
+  } else if (point == 0xA2) {
+    m_tocLeadOutStart = SectionTime(pMin, pSec, pFrame);
+    m_hasToc = true;
+  } else {
+    // POINT is a BCD track number (01-99).
+    const uint8_t track =
+        static_cast<uint8_t>((point >> 4) * 10 + (point & 0x0F));
+    if (track >= 1 && track <= 99) {
+      if (std::find(m_tocTrackNumbers.begin(), m_tocTrackNumbers.end(),
+                    track) == m_tocTrackNumbers.end()) {
+        m_tocTrackNumbers.push_back(track);
+        m_tocTrackStartTimes.push_back(SectionTime(pMin, pSec, pFrame));
+      }
+      m_hasToc = true;
+    }
+  }
+}
+
 F2Section F2SectionCorrection::popSection() {
-  // Return the first item in the output buffer
-  F2Section section = m_outputBuffer.front();
+  // Move the first item out of the output buffer to avoid a deep copy.
+  F2Section section = std::move(m_outputBuffer.front());
   m_outputBuffer.pop();
   return section;
 }
@@ -81,8 +176,8 @@ void F2SectionCorrection::processQueue() {
 
   // Process the input buffer
   while (!m_inputBuffer.empty()) {
-    // Dequeue the next section
-    F2Section f2Section = m_inputBuffer.front();
+    // Dequeue the next section (move to avoid a whole-section deep copy)
+    F2Section f2Section = std::move(m_inputBuffer.front());
     m_inputBuffer.pop();
 
     // Do we have a last known good section?
@@ -103,6 +198,20 @@ void F2SectionCorrection::processQueue() {
 // This function collects sections until there are 5 valid, chronological
 // sections in a row.  Once we have these, we can start processing the sections.
 void F2SectionCorrection::waitForInputToSettle(F2Section& f2Section) {
+  // Q-6: lead-in sections do not belong to the program-area timeline - their
+  // Q-channel carries the TOC (POINT/PMIN/PSEC/PFRAME), already harvested in
+  // pushSection(). Skip them here so their (running lead-in) time never seeds
+  // the settle buffer; the timeline settles on the first contiguous run of
+  // program-area / lead-out sections, exactly as for a program-area capture.
+  if (f2Section.metadata.isValid() &&
+      f2Section.metadata.sectionType().type() == SectionType::LeadIn) {
+    ORC_LOG_DEBUG(
+        "F2SectionCorrection::waitForInputToSettle(): Skipping lead-in section "
+        "(TOC harvested) with running time {}",
+        f2Section.metadata.absoluteSectionTime().toString());
+    return;
+  }
+
   // Does the current section have valid metadata?
   if (f2Section.metadata.isValid()) {
     // Do we have any sections in the leadin buffer?
@@ -200,16 +309,35 @@ void F2SectionCorrection::waitForInputToSettle(F2Section& f2Section) {
 void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
   bool outputSection = true;
 
+  // Q-6: a lead-in section reaching the post-settle path (e.g. a stray lead-in
+  // block appearing mid-stream) carries TOC data, not a program-area timeline
+  // entry; its TOC was harvested in pushSection(). Drop it so it does not
+  // corrupt the internal buffer's monotonic absolute time.
+  if (f2Section.metadata.isValid() &&
+      f2Section.metadata.sectionType().type() == SectionType::LeadIn) {
+    ORC_LOG_DEBUG(
+        "F2SectionCorrection::waitingForSection(): Skipping lead-in section "
+        "(TOC harvested).");
+    return;
+  }
+
   // Check that this isn't the first section in the internal buffer (as we can't
   // calculate the expected time for the first section)
   if (m_internalBuffer.empty()) {
-    if (f2Section.metadata.isValid()) {
+    // Q-7: never seed an empty buffer from a Q-mode 2/3 section. Those sections
+    // carry only a frame number (MM:SS are zero) and a fabricated track/time,
+    // so using one as the timeline baseline poisons getExpectedAbsoluteTime().
+    // Wait for a mode-1 (or mode-4) section to establish the baseline instead.
+    const bool isModeWithoutTimeline =
+        f2Section.metadata.qMode() == SectionMetadata::QMode2 ||
+        f2Section.metadata.qMode() == SectionMetadata::QMode3;
+    if (f2Section.metadata.isValid() && !isModeWithoutTimeline) {
       // The internal buffer is empty, so we can just add the section
-      m_internalBuffer.push_back(f2Section);
+      m_internalBuffer.push_back(std::move(f2Section));
       ORC_LOG_DEBUG(
           "F2SectionCorrection::waitingForSection(): Added section to internal "
           "buffer with absolute time {}",
-          f2Section.metadata.absoluteSectionTime().toString());
+          m_internalBuffer.back().metadata.absoluteSectionTime().toString());
       return;
     } else {
       ORC_LOG_DEBUG(
@@ -250,26 +378,71 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
       (f2Section.metadata.qMode() == SectionMetadata::QMode2 ||
        f2Section.metadata.qMode() == SectionMetadata::QMode3)) {
     // Use the expected time to correct the MM:SS of absolute time (leave the
-    // frames as-is)
+    // frames as-is, taken from the block's own AFRAME).
+    //
+    // Q-7: MM:SS comes from the surrounding mode-1 timeline (the expected time)
+    // while the frame comes from AFRAME. If a section was lost just before a
+    // mode-2/3 block that crosses a second boundary, naively pairing expected
+    // MM:SS with AFRAME lands a whole second (75 frames) away from the truth,
+    // so the section is dropped as out-of-order or fabricates up to 74 phantom
+    // missing sections. Evaluate the reconstruction at expected MM:SS - 1 s,
+    // MM:SS and MM:SS + 1 s and keep whichever minimises the frame distance to
+    // the expected absolute time.
+    const int32_t aFrameNumber =
+        f2Section.metadata.absoluteSectionTime().frameNumber();
+    constexpr int32_t kFramesPerSecond = 75;  // ECMA-130: 75 sections / second
+
     SectionTime correctedAbsoluteTime = expectedAbsoluteTime;
-    correctedAbsoluteTime.setTime(
-        expectedAbsoluteTime.minutes(), expectedAbsoluteTime.seconds(),
-        f2Section.metadata.absoluteSectionTime().frameNumber());
+    int32_t bestDelta = -1;
+    for (int32_t secondOffset = -1; secondOffset <= 1; ++secondOffset) {
+      const int32_t baseFrames =
+          expectedAbsoluteTime.frames() + secondOffset * kFramesPerSecond;
+      if (baseFrames < 0) continue;  // no valid time before 00:00:00
+      const SectionTime base(baseFrames);
+      const SectionTime candidate(static_cast<uint8_t>(base.minutes()),
+                                  static_cast<uint8_t>(base.seconds()),
+                                  static_cast<uint8_t>(aFrameNumber));
+      const int32_t rawDelta =
+          candidate.frames() - expectedAbsoluteTime.frames();
+      const int32_t delta = rawDelta < 0 ? -rawDelta : rawDelta;
+      if (bestDelta < 0 || delta < bestDelta) {
+        bestDelta = delta;
+        correctedAbsoluteTime = candidate;
+      }
+    }
 
     f2Section.metadata.setAbsoluteSectionTime(correctedAbsoluteTime);
+
+    // Q-2: mode 2/3 blocks encode only the catalogue number / ISRC + AFRAME;
+    // they carry no TNO, INDEX or track-relative time (subcode.cpp fabricates
+    // track 1 / time 0 at parse time). Inherit the track number, section type
+    // and track-relative time from the surrounding mode-1 timeline so the
+    // section is attributed to the correct track instead of dragging track 1's
+    // statistics to 00:00:00.
+    for (int i = static_cast<int>(m_internalBuffer.size()) - 1; i >= 0; --i) {
+      if (!m_internalBuffer[i].metadata.isValid()) continue;
+      const SectionMetadata& prev = m_internalBuffer[i].metadata;
+      const int sectionsSincePrev =
+          static_cast<int>(m_internalBuffer.size()) - i;
+      f2Section.metadata.setSectionType(prev.sectionType(), prev.trackNumber());
+      f2Section.metadata.setSectionTime(prev.sectionTime() + sectionsSincePrev);
+      break;
+    }
 
     if (f2Section.metadata.qMode() == SectionMetadata::QMode2) {
       ORC_LOG_DEBUG(
           "F2SectionCorrection::waitingForSection(): Q Mode 2 section "
-          "detected, correcting absolute time to {}",
-          correctedAbsoluteTime.toString());
+          "detected, correcting absolute time to {} track {} track-time {}",
+          correctedAbsoluteTime.toString(), f2Section.metadata.trackNumber(),
+          f2Section.metadata.sectionTime().toString());
     }
 
     if (f2Section.metadata.qMode() == SectionMetadata::QMode3) {
       ORC_LOG_DEBUG(
           "F2SectionCorrection::waitingForSection(): Q Mode 3 section "
-          "detected, correcting absolute time to {}",
-          correctedAbsoluteTime.toString());
+          "detected, correcting absolute time to {} track {} track-time {}",
+          correctedAbsoluteTime.toString(), f2Section.metadata.trackNumber(),
+          f2Section.metadata.sectionTime().toString());
     }
   }
 
@@ -290,6 +463,28 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
       int32_t missingSections =
           f2Section.metadata.absoluteSectionTime().frames() -
           expectedAbsoluteTime.frames();
+
+      // R-3: guard against fabricating an unbounded number of dummy sections
+      // for an implausibly large forward jump (corrupt-but-CRC-valid timestamp
+      // or a genuine multi-second dropout). Emit whatever is already provable,
+      // drop any unresolved trailing invalid sections, and re-baseline the
+      // timeline from this section instead of filling the gap.
+      if (missingSections > kMaxMissingSectionFill) {
+        ORC_LOG_WARN(
+            "F2SectionCorrection::waitingForSection(): Implausible forward "
+            "jump "
+            "of {} sections (expected {}, got {}); resyncing timeline instead "
+            "of filling the gap.",
+            missingSections, expectedAbsoluteTime.toString(),
+            f2Section.metadata.absoluteSectionTime().toString());
+        while (!m_internalBuffer.empty() &&
+               m_internalBuffer.front().metadata.isValid()) {
+          emitSection();
+        }
+        m_internalBuffer.clear();
+        m_internalBuffer.push_back(std::move(f2Section));
+        return;
+      }
 
       if (missingSections > m_paddingWatermark) {
         // The gap is large - warn the user
@@ -343,10 +538,16 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
         missingSection.metadata.setSectionType(
             f2Section.metadata.sectionType(), f2Section.metadata.trackNumber());
 
-        // Ensure we don't end up with negative time...
+        // Q-5: the real section that follows the gap has track time
+        // f2Section.sectionTime(). The dummy inserted at gap index i (0-based,
+        // i in [0, missingSections)) precedes it by (missingSections - i)
+        // sections, so its track time must count *up* to the real section, not
+        // down from it. The previous formula (- (i + 1)) made track times run
+        // backwards across the gap.
         // Calculate the new frame value before constructing SectionTime to
-        // avoid triggering qFatal
-        int32_t newFrames = f2Section.metadata.sectionTime().frames() - (i + 1);
+        // avoid constructing a negative (throwing) SectionTime.
+        int32_t newFrames =
+            f2Section.metadata.sectionTime().frames() - (missingSections - i);
         if (newFrames >= 0) {
           missingSection.metadata.setSectionTime(SectionTime(newFrames));
         } else {
@@ -426,7 +627,7 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
     }
   }
 
-  if (outputSection) m_internalBuffer.push_back(f2Section);
+  if (outputSection) m_internalBuffer.push_back(std::move(f2Section));
   processInternalBuffer();
 }
 
@@ -452,18 +653,57 @@ SectionTime F2SectionCorrection::getExpectedAbsoluteTime() const {
 
 // Process the internal buffer
 void F2SectionCorrection::processInternalBuffer() {
+  // R-3: bound memory against an extended run of sections whose metadata never
+  // becomes valid (a long damaged region where the Q-subcode CRC keeps
+  // failing). Precise correction waits for a following valid section to bracket
+  // the gap, so such a run would otherwise accumulate in the internal buffer
+  // without limit (~10 KB per section -> memory exhaustion on hostile/badly
+  // damaged input). Once the trailing invalid run exceeds the correctable gap
+  // size it can never be precisely corrected anyway, so forward-fill it with
+  // best-effort monotonic metadata from the last known-good section (the same
+  // degradation used for an uncorrectable bracketed gap) and let it drain.
+  if (!m_internalBuffer.empty() &&
+      !m_internalBuffer.back().metadata.isValid()) {
+    int lastValid = -1;
+    for (int i = static_cast<int>(m_internalBuffer.size()) - 1; i >= 0; --i) {
+      if (m_internalBuffer[i].metadata.isValid()) {
+        lastValid = i;
+        break;
+      }
+    }
+    const int trailingInvalid =
+        static_cast<int>(m_internalBuffer.size()) - 1 - lastValid;
+    if (lastValid >= 0 && trailingInvalid > m_maximumGapSize) {
+      ORC_LOG_WARN(
+          "F2SectionCorrection::processInternalBuffer(): {} consecutive "
+          "invalid "
+          "sections exceed the correctable gap ({}); forward-filling with "
+          "best-effort metadata to bound memory.",
+          trailingInvalid, m_maximumGapSize);
+      const SectionMetadata anchor = m_internalBuffer[lastValid].metadata;
+      for (int i = lastValid + 1; i < static_cast<int>(m_internalBuffer.size());
+           ++i) {
+        const int offset = i - lastValid;
+        m_internalBuffer[i].metadata = anchor;
+        m_internalBuffer[i].metadata.setAbsoluteSectionTime(
+            anchor.absoluteSectionTime() + offset);
+        m_internalBuffer[i].metadata.setTrackNumber(anchor.trackNumber());
+        m_internalBuffer[i].metadata.setSectionTime(anchor.sectionTime() +
+                                                    offset);
+        m_internalBuffer[i].metadata.setValid(true);
+        m_uncorrectableSections++;
+      }
+    }
+  }
+
   // Sanity check - there cannot be an invalid section at the start of the
   // buffer
   if (!m_internalBuffer.empty() &&
       !m_internalBuffer.front().metadata.isValid()) {
-    ORC_LOG_DEBUG(
-        "F2SectionCorrection::correctInternalBuffer(): Invalid section at "
+    ORC_LOG_ERROR(
+        "F2SectionCorrection::processInternalBuffer(): Invalid section at "
         "start of internal buffer!");
-    throw std::runtime_error(
-        "F2SectionCorrection::correctInternalBuffer(): Exiting due to invalid "
-        "section at "
-        "start of internal buffer.");
-    return;
+    throw efm::EfmDecodeError(__func__);
   }
 
   // Sanity check - there cannot be an invalid section at the end of the buffer
@@ -515,17 +755,14 @@ void F2SectionCorrection::processInternalBuffer() {
           m_internalBuffer[errorEnd].metadata.absoluteSectionTime().toString(),
           gapLength, timeDifference);
 
-      // Is the gap length below the allowed maximum?
-      if (gapLength > m_maximumGapSize) {
-        // The gap is too large to correct
-        throw std::runtime_error(
-            "F2SectionCorrection::correctInternalBuffer(): Exiting due to gap "
-            "too "
-            "large in internal buffer.");
-      }
-
-      // Can we correct the error?
-      if (gapLength == timeDifference) {
+      // Can we correct the error precisely? We require the number of missing
+      // sections to match the timestamp difference across the gap and the gap
+      // to be within the conservative interpolation limit. Both a gap larger
+      // than the limit and a gap whose length disagrees with the bracketing
+      // timestamps are disc conditions (damage, a mastering discontinuity, or a
+      // 1/65536 CRC-valid-but-wrong timestamp), not programming errors, so they
+      // must degrade gracefully rather than abort the whole decode (R-2).
+      if (gapLength == timeDifference && gapLength <= m_maximumGapSize) {
         // We can correct the error
         for (int i = errorStart + 1; i < errorEnd; ++i) {
           SectionMetadata originalMetadata = m_internalBuffer[i].metadata;
@@ -549,24 +786,25 @@ void F2SectionCorrection::processInternalBuffer() {
                 m_internalBuffer[errorStart].metadata.trackNumber(),
                 m_internalBuffer[errorEnd].metadata.trackNumber());
 
-            // Firstly, we have to figure out which track the error section in
-            // on.  We can do this by looking at the section time of the
-            // error_end section and calculating the current section time from
-            // it.  If the time is positive the error section is in the same
-            // track as error_end, otherwise it is in the same track as
-            // error_start
-            SectionTime currentTime =
-                m_internalBuffer[errorEnd].metadata.sectionTime() -
+            // Work out which side of the track boundary this gap section
+            // falls on by projecting error_end's track-relative time backwards
+            // to section i. This must be computed as a plain integer: a
+            // negative result is meaningful here (it means i precedes the
+            // boundary and therefore belongs to error_start's track), but
+            // SectionTime rejects negative times and would throw, so we must
+            // not build a SectionTime just to test its sign.
+            const int32_t endRelativeFrames =
+                m_internalBuffer[errorEnd].metadata.sectionTime().frames() -
                 (errorEnd - i);
 
-            // Now we can set the track number and correct the section time
-            if (currentTime.frames() >= 0) {
+            if (endRelativeFrames >= 0) {
+              // Section i is within error_end's (later) track
               m_internalBuffer[i].metadata.setTrackNumber(
                   m_internalBuffer[errorEnd].metadata.trackNumber());
               m_internalBuffer[i].metadata.setSectionTime(
-                  m_internalBuffer[errorEnd].metadata.sectionTime() -
-                  (errorEnd - i));
+                  SectionTime(endRelativeFrames));
             } else {
+              // Section i is within error_start's (earlier) track
               m_internalBuffer[i].metadata.setTrackNumber(
                   m_internalBuffer[errorStart].metadata.trackNumber());
               m_internalBuffer[i].metadata.setSectionTime(
@@ -574,15 +812,15 @@ void F2SectionCorrection::processInternalBuffer() {
                   (i - errorStart));
             }
 
-            // Adding a critical error here as this functionality is untested
-            // (I haven't found any examples of this in the test data)
-            ORC_LOG_CRITICAL(
-                "F2SectionCorrection::correctInternalBuffer(): Exiting due to "
-                "track change in internal buffer - untested functionality - "
-                "please confirm!");
-            throw std::runtime_error(
-                "F2SectionCorrection::correctInternalBuffer(): Track change in "
-                "internal buffer - untested functionality");
+            ORC_LOG_DEBUG(
+                "F2SectionCorrection::correctInternalBuffer(): Corrected "
+                "section {} across a track boundary to track {} (time {}, "
+                "absolute {}); gap spanned tracks {} -> {}",
+                i, m_internalBuffer[i].metadata.trackNumber(),
+                m_internalBuffer[i].metadata.sectionTime().toString(),
+                m_internalBuffer[i].metadata.absoluteSectionTime().toString(),
+                m_internalBuffer[errorStart].metadata.trackNumber(),
+                m_internalBuffer[errorEnd].metadata.trackNumber());
           } else {
             // The track number is the same, so we can correct the track number
             // by just copying it
@@ -609,10 +847,37 @@ void F2SectionCorrection::processInternalBuffer() {
               originalMetadata.absoluteSectionTime().toString());
         }
       } else {
-        // We cannot correct the error
-        throw std::runtime_error(
-            "F2SectionCorrection::correctInternalBuffer(): Exiting due to "
-            "uncorrectable error in internal buffer.");
+        // R-2: the gap cannot be reconciled precisely (too large, or the
+        // section count disagrees with the bracketing timestamps). Rather than
+        // aborting the entire decode, degrade: fill the gap with monotonic
+        // best-effort metadata derived from the last known-good section so the
+        // pipeline keeps flowing. The frame payloads in these sections are
+        // already flagged as errors, so downstream treatment is unaffected.
+        ORC_LOG_WARN(
+            "F2SectionCorrection::processInternalBuffer(): Uncorrectable gap "
+            "between {} and {} (gap length {}, time difference {}); filling "
+            "with best-effort metadata.",
+            m_internalBuffer[errorStart]
+                .metadata.absoluteSectionTime()
+                .toString(),
+            m_internalBuffer[errorEnd]
+                .metadata.absoluteSectionTime()
+                .toString(),
+            gapLength, timeDifference);
+
+        for (int i = errorStart + 1; i < errorEnd; ++i) {
+          m_internalBuffer[i].metadata = m_internalBuffer[errorStart].metadata;
+          m_internalBuffer[i].metadata.setAbsoluteSectionTime(
+              m_internalBuffer[errorStart].metadata.absoluteSectionTime() +
+              (i - errorStart));
+          m_internalBuffer[i].metadata.setTrackNumber(
+              m_internalBuffer[errorStart].metadata.trackNumber());
+          m_internalBuffer[i].metadata.setSectionTime(
+              m_internalBuffer[errorStart].metadata.sectionTime() +
+              (i - errorStart));
+          m_internalBuffer[i].metadata.setValid(true);
+          m_uncorrectableSections++;
+        }
       }
     }
   }
@@ -620,19 +885,26 @@ void F2SectionCorrection::processInternalBuffer() {
   outputSections();
 }
 
-// This function queues up the processed output sections and keeps track of the
-// statistics
+// Drain corrected sections to the output buffer, retaining a small lookahead
+// window so later gap corrections still have a "last known good" anchor.
+//
+// R-3: this previously popped exactly one section per input push, so any large
+// gap backlogged the internal buffer until flush() and forced a full-deque
+// rescan on every push (O(N) per section, quadratic over gap-heavy captures).
 void F2SectionCorrection::outputSections() {
-  // TODO(sdi): There should probably be some checks here to ensure the internal
-  // buffer is in a good state before outputting the sections
+  const size_t lookahead = static_cast<size_t>(m_maximumGapSize) + 2;
+  while (m_internalBuffer.size() > lookahead &&
+         m_internalBuffer.front().metadata.isValid()) {
+    emitSection();
+  }
+}
 
-  // Pop
-  F2Section section = m_internalBuffer.front();
+// Move the front section to the output buffer and update statistics.
+void F2SectionCorrection::emitSection() {
+  F2Section section = std::move(m_internalBuffer.front());
   m_internalBuffer.pop_front();
 
-  // Push
   m_totalSections++;
-  m_outputBuffer.push(section);
 
   // Statistics generation...
   uint8_t trackNumber = section.metadata.trackNumber();
@@ -656,57 +928,95 @@ void F2SectionCorrection::outputSections() {
   if (absoluteTime <= m_absoluteStartTime) m_absoluteStartTime = absoluteTime;
   if (absoluteTime > m_absoluteEndTime) m_absoluteEndTime = absoluteTime;
 
-  // Do we have a new track?
-  if (m_trackNumbers.end() ==
-      std::find(m_trackNumbers.begin(), m_trackNumbers.end(), trackNumber)) {
-    // Append the new track to the statistics
-    if (trackNumber != 0 && trackNumber != 0xAA) {
+  const SectionMetadata& meta = section.metadata;
+  const bool isUserTrack = (trackNumber != 0 && trackNumber != 0xAA);
+  const bool isMode1or4 = (meta.qMode() == SectionMetadata::QMode1 ||
+                           meta.qMode() == SectionMetadata::QMode4);
+
+  // Media catalogue number (Q-mode 2) is disc-global; keep the first non-empty
+  // value seen.
+  if (meta.qMode() == SectionMetadata::QMode2 && m_catalogueNumber.empty() &&
+      !meta.upcEanCode().empty()) {
+    m_catalogueNumber = meta.upcEanCode();
+  }
+
+  // Remember the current real user track so a mode-3 ISRC block - whose own
+  // track number is a placeholder (Q-2) - is attributed to the track it plays
+  // within.
+  if (isMode1or4 && isUserTrack) m_currentTrack = trackNumber;
+
+  // ISRC (Q-mode 3) belongs to the current track.
+  if (meta.qMode() == SectionMetadata::QMode3 && !meta.isrcCode().empty()) {
+    int idx = trackIndex(m_currentTrack);
+    if (idx >= 0 && m_trackIsrc[idx].empty()) {
+      m_trackIsrc[idx] = meta.isrcCode();
+    }
+  }
+
+  // Per-track time and control statistics come from real mode-1/4 user tracks;
+  // mode-0/2/3 blocks carry placeholder track/time values (Q-1/Q-2).
+  if (isMode1or4 && isUserTrack) {
+    int idx = trackIndex(trackNumber);
+    if (idx < 0) {
+      // New track - append to every index-aligned per-track vector.
       m_trackNumbers.push_back(trackNumber);
       m_trackStartTimes.push_back(sectionTime);
       m_trackEndTimes.push_back(sectionTime);
-    }
+      m_trackAbsStartTimes.push_back(absoluteTime);
+      m_trackAbsEndTimes.push_back(absoluteTime);
+      m_trackPreemphasis.push_back(meta.hasPreemphasis());
+      m_trackPreemphasisVaried.push_back(false);
+      m_trackCopyProhibited.push_back(meta.isCopyProhibited());
+      m_trackIsAudio.push_back(meta.isAudio());
+      m_track2Channel.push_back(meta.is2Channel());
+      m_trackIsrc.push_back(std::string());
 
-    ORC_LOG_DEBUG(
-        "F2SectionCorrection::outputSections(): New track {} detected with "
-        "start time {}",
-        trackNumber, sectionTime.toString());
-
-    if (trackNumber == 0 || trackNumber == 0xAA) {
-      const auto section_type = section.metadata.sectionType().type();
-      const char* type_name =
-          (section_type == SectionType::LeadIn)     ? "LeadIn"
-          : (section_type == SectionType::LeadOut)  ? "LeadOut"
-          : (section_type == SectionType::UserData) ? "UserData"
-                                                    : "UNKNOWN";
       ORC_LOG_DEBUG(
-          "F2SectionCorrection::outputSections(): {} track detected with "
-          "start time {}",
-          type_name, sectionTime.toString());
-    }
-  } else {
-    // Update the end time for the existing track
-    auto it =
-        std::find(m_trackNumbers.begin(), m_trackNumbers.end(), trackNumber);
-    if (it != m_trackNumbers.end()) {
-      size_t index = std::distance(m_trackNumbers.begin(), it);
-      if (sectionTime < m_trackStartTimes[index]) {
-        m_trackStartTimes[index] = sectionTime;
+          "F2SectionCorrection::emitSection(): New track {} detected with "
+          "start time {} (absolute {})",
+          trackNumber, sectionTime.toString(), absoluteTime.toString());
+    } else {
+      if (sectionTime < m_trackStartTimes[idx]) {
+        m_trackStartTimes[idx] = sectionTime;
       }
-      if (sectionTime >= m_trackEndTimes[index]) {
-        m_trackEndTimes[index] = sectionTime;
+      if (sectionTime >= m_trackEndTimes[idx]) {
+        m_trackEndTimes[idx] = sectionTime;
+      }
+      if (absoluteTime < m_trackAbsStartTimes[idx]) {
+        m_trackAbsStartTimes[idx] = absoluteTime;
+      }
+      if (absoluteTime >= m_trackAbsEndTimes[idx]) {
+        m_trackAbsEndTimes[idx] = absoluteTime;
+      }
+      // Track a per-track pre-emphasis change (rare, but the flag can toggle at
+      // a track boundary and, in principle, mid-track).
+      if (m_trackPreemphasis[idx] != meta.hasPreemphasis()) {
+        m_trackPreemphasisVaried[idx] = true;
+        m_trackPreemphasis[idx] = meta.hasPreemphasis();  // last seen
       }
     }
+  } else if (!isUserTrack) {
+    const auto section_type = section.metadata.sectionType().type();
+    const char* type_name = (section_type == SectionType::LeadIn)    ? "LeadIn"
+                            : (section_type == SectionType::LeadOut) ? "LeadOut"
+                            : (section_type == SectionType::UserData)
+                                ? "UserData"
+                                : "UNKNOWN";
+    ORC_LOG_DEBUG(
+        "F2SectionCorrection::emitSection(): {} section with start time {}",
+        type_name, sectionTime.toString());
   }
+
+  // Push the section (moved so no deep copy) after the statistics above have
+  // finished reading from it.
+  m_outputBuffer.push(std::move(section));
 }
 
 void F2SectionCorrection::flush() {
-  // Flush the internal buffer
-
-  // TODO(sdi): What about any remaining invalid sections in the internal
-  // buffer?
-
+  // Flush the entire internal buffer, including any remaining trailing sections
+  // (an end-of-stream tail may still contain uncorrected/invalid sections).
   while (!m_internalBuffer.empty()) {
-    outputSections();
+    emitSection();
   }
 }
 
@@ -730,6 +1040,21 @@ void F2SectionCorrection::showStatistics() const {
   ORC_LOG_INFO("    QMode 2 (Catalogue No.): {}", m_qmode2Sections);
   ORC_LOG_INFO("    QMode 3 (ISO 3901 ISRC): {}", m_qmode3Sections);
   ORC_LOG_INFO("    QMode 4 (LD Data): {}", m_qmode4Sections);
+
+  // Q-6: lead-in TOC (IEC 60908 §17.5.1)
+  ORC_LOG_INFO("  Lead-in TOC:");
+  ORC_LOG_INFO("    Lead-in sections: {}", m_leadinSections);
+  if (m_hasToc) {
+    ORC_LOG_INFO("    First track: {}", m_tocFirstTrack);
+    ORC_LOG_INFO("    Last track: {}", m_tocLastTrack);
+    ORC_LOG_INFO("    Lead-out start: {}", m_tocLeadOutStart.toString());
+    for (size_t i = 0; i < m_tocTrackNumbers.size(); ++i) {
+      ORC_LOG_INFO("    Track {} start: {}", m_tocTrackNumbers[i],
+                   m_tocTrackStartTimes[i].toString());
+    }
+  } else {
+    ORC_LOG_INFO("    No lead-in TOC decoded (capture starts after lead-in).");
+  }
 
   ORC_LOG_INFO("  Absolute Time:");
   ORC_LOG_INFO("    Start time: {}", m_absoluteStartTime.toString());

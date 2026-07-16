@@ -20,20 +20,21 @@ class Subcode {
   Subcode() = default;
 
   SectionMetadata fromData(const std::vector<uint8_t>& data);
-  std::vector<uint8_t> toData(const SectionMetadata& sectionMetadata);
 
  private:
   void setBit(std::vector<uint8_t>& data, uint8_t bitPosition, bool value);
-  bool getBit(const std::vector<uint8_t>& data, uint8_t bitPosition);
-  bool isCrcValid(std::vector<uint8_t> qChannelData);
-  uint16_t getQChannelCrc(std::vector<uint8_t> qChannelData);
-  void setQChannelCrc(std::vector<uint8_t>& qChannelData);
+  bool isCrcValid(const std::vector<uint8_t>& qChannelData);
+  uint16_t getQChannelCrc(const std::vector<uint8_t>& qChannelData);
   uint16_t calculateQChannelCrc16(const std::vector<uint8_t>& data);
   bool repairData(std::vector<uint8_t>& qChannelData);
 
   uint8_t countBits(uint8_t byteValue);
-  uint8_t intToBcd2(uint8_t value);
   uint8_t bcd2ToInt(uint8_t bcd);
+
+  // Q-4: decode the 12-character ISRC (ISO 3901) from a Q-mode 3 subcode block
+  // (IEC 60908 §17.5.3). Returns the raw 12-character code (no separators), or
+  // an empty string if the field is blank/undecodable.
+  std::string decodeIsrc(const std::vector<uint8_t>& qChannelData);
   int32_t validateAndClampTimeValue(int32_t value, int32_t maxValue,
                                     const std::string& valueName,
                                     SectionMetadata& sectionMetadata);

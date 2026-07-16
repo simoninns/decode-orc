@@ -13,6 +13,7 @@
 #include <cstdio>
 #include <cstdlib>
 
+#include "efm_exception.h"
 #include "hex_utils.h"
 
 // Frame class
@@ -24,7 +25,7 @@ void Frame::setData(const std::vector<uint8_t>& data) {
     ORC_LOG_ERROR(
         "Frame::setData(): Data size of {} does not match frame size of {}",
         data.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
   m_frameData = data;
 }
@@ -49,7 +50,7 @@ void Frame::setErrorData(const std::vector<uint8_t>& errorData) {
         "Frame::setErrorData(): Error data size of {} does not match frame "
         "size of {}",
         errorData.size(), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   m_frameErrorData = errorData;
@@ -87,7 +88,7 @@ void Frame::setPaddedData(const std::vector<uint8_t>& paddedData) {
         "Frame::setPaddedData(): Padded data size of {} does not match frame "
         "size of {}",
         static_cast<int>(paddedData.size()), frameSize());
-    std::exit(1);
+    throw efm::EfmDecodeError(__func__);
   }
 
   m_framePaddedData = paddedData;
@@ -122,32 +123,6 @@ bool Frame::isFull() const { return !m_frameData.empty(); }
 // Check if the frame is empty (i.e., has no data)
 bool Frame::isEmpty() const { return m_frameData.empty(); }
 
-// NOTE: QDataStream operators disabled for C++17 migration
-// Serialization of Frame objects is not currently supported
-/*
-QDataStream& operator<<(QDataStream& out, const Frame& frame)
-{
-    // Write frame data
-    out << frame.m_frameData;
-    // Write error data
-    out << frame.m_frameErrorData;
-    // Write padding data
-    out << frame.m_framePaddedData;
-    return out;
-}
-
-QDataStream& operator>>(QDataStream& in, Frame& frame)
-{
-    // Read frame data
-    in >> frame.m_frameData;
-    // Read error data
-    in >> frame.m_frameErrorData;
-    // Read padded data
-    in >> frame.m_framePaddedData;
-    return in;
-}
-*/
-
 // Constructor for Data24, initializes data to the frame size
 Data24::Data24() {
   m_frameData.resize(frameSize());
@@ -162,13 +137,11 @@ Data24::Data24() {
 void Data24::setData(const std::vector<uint8_t>& data) {
   m_frameData = data;
 
-  // If there are less than 24 bytes, pad data with zeros to 24 bytes
-  if (m_frameData.size() < 24) {
-    m_frameData.resize(24);
-    for (int i = static_cast<int>(m_frameData.size()); i < 24; ++i) {
-      m_frameData[i] = 0;
-    }
-  }
+  // Data24 tolerates a short final frame (fewer than 24 bytes), padding it with
+  // zeros; a longer input is truncated. resize() does both. (P-11: the previous
+  // manual pad loop was a no-op - it started at size()==24 - and silently
+  // accepted oversized input.)
+  m_frameData.resize(24, 0);
 }
 
 void Data24::setErrorData(const std::vector<uint8_t>& errorData) {
@@ -254,6 +227,9 @@ F2Frame::F2Frame() {
 int F2Frame::frameSize() const { return 32; }
 
 void F2Frame::showData() {
+  // P-5: skip the per-frame hex string build when the level this logs at is
+  // off.
+  if (!orc::get_logger()->should_log(spdlog::level::info)) return;
   std::string dataString;
   bool hasError = false;
   char buffer[4];
@@ -326,6 +302,9 @@ std::string F3Frame::f3FrameTypeAsString() const {
 uint8_t F3Frame::subcodeByte() const { return m_subcodeByte; }
 
 void F3Frame::showData() {
+  // P-5: skip the per-frame hex string build when the level this logs at is
+  // off.
+  if (!orc::get_logger()->should_log(spdlog::level::info)) return;
   std::string dataString;
   bool hasError = false;
   for (size_t i = 0; i < m_frameData.size(); ++i) {

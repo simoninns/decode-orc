@@ -214,6 +214,11 @@ This stage accumulates EFM t-values from the incoming stream and runs the full E
     - Applies only in `audio` mode.
     - Default: `false`.
 
+* `ignore_preemphasis` (boolean)
+    - Ignore the 50/15 µs pre-emphasis CONTROL flag (IEC 60908 §17.5) and write the audio exactly as decoded. When unchecked (default), sections flagged as pre-emphasised are de-emphasised during decode with a 50/15 µs filter so the output plays back with a flat response; enable this only if you want the raw pre-emphasised samples. When `audacity_labels` is enabled, a pre-emphasised track's label reads `Preemphasis:50/15us(removed)` when de-emphasis was applied, or `Preemphasis:50/15us` when this flag is set.
+    - Applies only in `audio` mode.
+    - Default: `false`.
+
 * `zero_pad` (boolean)
     - Zero-pad the start of audio output so the sample starts from 00:00:00.0 relative to the first valid time-code.
     - Applies only in `audio` mode.

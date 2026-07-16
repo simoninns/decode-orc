@@ -79,6 +79,15 @@ class EFMAudioChannelPairRepresentation
   std::vector<int32_t> get_audio_samples(size_t pair,
                                          FrameID id) const override;
 
+  // Runs the deferred whole-stream decode now (overrides the base VFR hook),
+  // forwarding its per-frame progress. Lets a sink meter the decode on its
+  // progress dialog instead of stalling silently inside the first
+  // get_audio_samples() call.
+  void prime_audio_decode(
+      const AudioDecodeProgressFn& progress) const override {
+    ensure_decoded(progress);
+  }
+
  private:
   size_t source_pair_count() const {
     return source_ ? source_->audio_channel_pair_count() : 0;
@@ -89,8 +98,9 @@ class EFMAudioChannelPairRepresentation
 
   // Runs the whole-stream EFM decode and the 48 kHz synchronous conversion
   // at most once; safe to call from any accessor thread. Failures are logged
-  // and leave the appended pair silent.
-  void ensure_decoded() const;
+  // and leave the appended pair silent. When |progress| is set (priming path)
+  // it receives frame-granular decode progress and phase messages.
+  void ensure_decoded(const AudioDecodeProgressFn& progress = {}) const;
 
   std::shared_ptr<IEFMAudioDecodeDeps> deps_;
   EFMAudioDecodeOptions options_;
@@ -157,6 +167,8 @@ class EFMAudioDecodeStage : public DAGStage,
  private:
   bool no_timecodes_ = false;
   bool no_audio_concealment_ = false;
+  // Q-8: ignore the 50/15 us pre-emphasis flag and skip de-emphasis when true.
+  bool ignore_preemphasis_ = false;
   // Name for the appended EFM audio channel pair; empty falls back to the
   // "EFM digital audio" default at the descriptor.
   std::string pair_name_ = "EFM digital audio";

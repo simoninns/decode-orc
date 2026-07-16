@@ -14,28 +14,28 @@
 
 #include "ezpwd_compat.h"
 
-// ECMA-130 Q and P specific CIRC configuration for Reed-Solomon forward error
-// correction
+// ECMA-130 RSPC configuration for Reed-Solomon forward error correction. The Q
+// code is RS(45,43) and the P code is RS(26,24); both carry 2 parity symbols
+// over GF(2^8) with POLY=0x11D, FCR=0, PRIM=1, so a single RS(255,253) codec
+// (255 - 2 = 253 payload) decodes both as shortened code words. (P-12: the
+// former byte-identical QRS/PRS pair collapsed to one type.)
 template <size_t SYMBOLS, size_t PAYLOAD>
-struct QRS;
+struct RspcRS;
 template <size_t PAYLOAD>
-struct QRS<255, PAYLOAD>
-    : public __RS(QRS, uint8_t, 255, PAYLOAD, 0x11d, 0, 1, false);
+struct RspcRS<255, PAYLOAD>
+    : public __RS(RspcRS, uint8_t, 255, PAYLOAD, 0x11d, 0, 1, false);
 
-template <size_t SYMBOLS, size_t PAYLOAD>
-struct PRS;
-template <size_t PAYLOAD>
-struct PRS<255, PAYLOAD>
-    : public __RS(PRS, uint8_t, 255, PAYLOAD, 0x11d, 0, 1, false);
+// P-6/P-12: the RS corrector carries precomputed Galois-field tables. Building
+// them per call was a measurable cost (P and Q run 86 + 52 times per corrupt
+// sector, more with the iterative RSPC), so it is constructed once at file
+// scope and reused. ezpwd's decode() is const (reads the tables, works in local
+// scratch), so a single shared instance is safe for concurrent decode() calls.
+RspcRS<255, 255 - 2> rspcRs;
 
 Rspc::Rspc() {}
 
 void Rspc::qParityEcc(std::vector<uint8_t>& inputData,
                       std::vector<uint8_t>& errorData) {
-  // Initialise the RS error corrector
-  QRS<255, 255 - 2>
-      qrs;  // Up to 251 symbols data load with 2 symbols parity RS(45,43)
-
   // Keep track of the number of successful corrections
   int32_t successfulCorrections = 0;
 
@@ -78,22 +78,49 @@ void Rspc::qParityEcc(std::vector<uint8_t>& inputData,
       qField[43] = uF1Data[qParityByte0 + 2236];
       qField[44] = uF1Data[qParityByte1 + 2236];
 
-      // Perform RS decode/correction
-      if (qFieldErasures.size() > 2) qFieldErasures.clear();
+      // E-4(d): a CIRC-flagged corrupt Q-parity byte must be registered as an
+      // erasure too, otherwise it is trusted and wastes correction margin.
+      if (uF1Erasures[qParityByte0 + 2236] == 1) qFieldErasures.push_back(43);
+      if (uF1Erasures[qParityByte1 + 2236] == 1) qFieldErasures.push_back(44);
+
+      // E-4(c): the Q code is RS(45,43) - distance 3, so it can correct at most
+      // 2 erasures (or 1 error). With more than 2 known erasures a blind
+      // error-only decode is highly miscorrection-prone, so skip the codeword
+      // and leave its flags set for the P pass / next iteration.
+      if (qFieldErasures.size() > 2) continue;
+
       std::vector<int> position;
-      int fixed = -1;
-      fixed = qrs.decode(qField, qFieldErasures, &position);
+      int fixed = rspcRs.decode(qField, qFieldErasures, &position);
 
-      // If correction was successful add to success counter
-      // and copy back the corrected data
       if (fixed >= 0) {
+        // Correction succeeded (the sector EDC is the final arbiter, so a rare
+        // miscorrection is caught downstream). Copy the corrected data AND
+        // parity back and clear the corrected positions' erasure flags so the
+        // P pass and subsequent iterations see them as reliable (E-4(a)).
         successfulCorrections++;
-
-        // Here we use the calculation in reverse to put the corrected
-        // data back into it's original position
+        // E-8(e): distinguish an already-valid codeword (fixed == 0) from one
+        // that actually had symbols repaired.
+        if (fixed == 0) {
+          m_qCleanCodewords++;
+        } else {
+          m_qCorrectedCodewords++;
+        }
         for (int32_t Mq = 0; Mq < 43; Mq++) {
           int32_t Vq = 2 * ((44 * Mq + 43 * Nq) % 1118) + evenOdd;
           uF1Data[Vq] = qField[static_cast<size_t>(Mq)];
+          uF1Erasures[Vq] = 0;
+        }
+        uF1Data[qParityByte0 + 2236] = qField[43];
+        uF1Data[qParityByte1 + 2236] = qField[44];
+        uF1Erasures[qParityByte0 + 2236] = 0;
+        uF1Erasures[qParityByte1 + 2236] = 0;
+      } else {
+        // E-4(b): a failed codeword's data symbols are unreliable - flag them
+        // as erasures so the P pass treats them as such (product-code
+        // iteration).
+        for (int32_t Mq = 0; Mq < 43; Mq++) {
+          int32_t Vq = 2 * ((44 * Mq + 43 * Nq) % 1118) + evenOdd;
+          uF1Erasures[Vq] = 1;
         }
       }
     }
@@ -116,10 +143,7 @@ void Rspc::qParityEcc(std::vector<uint8_t>& inputData,
 
 void Rspc::pParityEcc(std::vector<uint8_t>& inputData,
                       std::vector<uint8_t>& errorData) {
-  // Initialise the RS error corrector
-  PRS<255, 255 - 2>
-      prs;  // Up to 251 symbols data load with 2 symbols parity RS(26,24)
-
+  // Uses the shared file-scope `rspcRs` codec (see note at file scope).
   // Keep track of the number of successful corrections
   int32_t successfulCorrections = 0;
 
@@ -155,23 +179,35 @@ void Rspc::pParityEcc(std::vector<uint8_t>& inputData,
         if (uF1Erasures[Vp] == 1) pFieldErasures.push_back(Mp);
       }
 
-      // Perform RS decode/correction
-      if (pFieldErasures.size() > 2) pFieldErasures.clear();
+      // E-4(c): the P code is RS(26,24) - distance 3, at most 2 erasures. Skip
+      // codewords with more than 2 known erasures rather than blindly decoding.
+      if (pFieldErasures.size() > 2) continue;
+
       std::vector<int> position;
-      int fixed = -1;
+      int fixed = rspcRs.decode(pField, pFieldErasures, &position);
 
-      fixed = prs.decode(pField, pFieldErasures, &position);
-
-      // If correction was successful add to success counter
-      // and copy back the corrected data
       if (fixed >= 0) {
+        // Copy back the corrected data AND both P-parity bytes (Q protects the
+        // P-parity, so discarding them would lose Q-recoverable corrections -
+        // E-4(d)), and clear the corrected positions' erasure flags (E-4(a)).
         successfulCorrections++;
-
-        // Here we use the calculation in reverse to put the corrected
-        // data back into it's original position
-        for (int32_t Mp = 0; Mp < 24; Mp++) {
+        // E-8(e): distinguish an already-valid codeword (fixed == 0) from one
+        // that actually had symbols repaired.
+        if (fixed == 0) {
+          m_pCleanCodewords++;
+        } else {
+          m_pCorrectedCodewords++;
+        }
+        for (int32_t Mp = 0; Mp < 26; Mp++) {
           int32_t Vp = 2 * (43 * Mp + Np) + evenOdd;
           uF1Data[Vp] = pField[static_cast<size_t>(Mp)];
+          uF1Erasures[Vp] = 0;
+        }
+      } else {
+        // E-4(b): flag the failed codeword's data symbols for the next Q pass.
+        for (int32_t Mp = 0; Mp < 24; Mp++) {
+          int32_t Vp = 2 * (43 * Mp + Np) + evenOdd;
+          uF1Erasures[Vp] = 1;
         }
       }
     }

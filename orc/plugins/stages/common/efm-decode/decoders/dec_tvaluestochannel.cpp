@@ -14,7 +14,9 @@
 #include <cmath>
 #include <cstddef>
 #include <queue>
-#include <stdexcept>
+
+#include "efm_constants.h"
+#include "efm_exception.h"
 
 TvaluesToChannel::TvaluesToChannel() {
   // Statistics
@@ -37,16 +39,17 @@ TvaluesToChannel::TvaluesToChannel() {
 }
 
 void TvaluesToChannel::pushFrame(const std::vector<uint8_t>& data) {
-  // Add the data to the input buffer
-  m_inputBuffer.push(data);
+  // P-7: append straight into the internal T-value buffer rather than staging
+  // through a one-element queue.
+  m_internalBuffer.insert(m_internalBuffer.end(), data.begin(), data.end());
 
   // Process the state machine
   processStateMachine();
 }
 
 std::vector<uint8_t> TvaluesToChannel::popFrame() {
-  // Return the first item in the output buffer
-  std::vector<uint8_t> frame = m_outputBuffer.front();
+  // Move the first item out of the output buffer to avoid a deep copy.
+  std::vector<uint8_t> frame = std::move(m_outputBuffer.front());
   m_outputBuffer.pop();
   return frame;
 }
@@ -57,20 +60,12 @@ bool TvaluesToChannel::isReady() const {
 }
 
 void TvaluesToChannel::processStateMachine() {
-  // Add the input data to the internal t-value buffer
-  if (!m_inputBuffer.empty()) {
-    std::vector<uint8_t> frameData = m_inputBuffer.front();
-    m_inputBuffer.pop();
-    m_internalBuffer.insert(m_internalBuffer.end(), frameData.begin(),
-                            frameData.end());
-  }
-
   // We need 588 bits to make a frame.  Every frame starts with T11+T11.
   // So the minimum number of t-values we need is 54 and
   // the maximum number of t-values we can have is 191.  This upper limit
   // is where we need to maintain the buffer size (at 382 for 2 frames).
 
-  while (m_internalBuffer.size() > 382) {
+  while (m_internalBuffer.size() > efm::kMaxTvalueBufferSize) {
     switch (m_currentState) {
       case ExpectingInitialSync:
         // ORC_LOG_DEBUG("TvaluesToChannel::processStateMachine() - State:
@@ -100,7 +95,7 @@ TvaluesToChannel::State TvaluesToChannel::expectingInitialSync() {
   State nextState = ExpectingInitialSync;
 
   // Expected sync header
-  std::vector<uint8_t> t11_t11 = {0x0B, 0x0B};
+  std::vector<uint8_t> t11_t11 = {efm::kSyncSymbolT11, efm::kSyncSymbolT11};
 
   // Does the buffer contain a T11+T11 sequence?
   auto it = std::search(m_internalBuffer.begin(), m_internalBuffer.end(),
@@ -125,8 +120,8 @@ TvaluesToChannel::State TvaluesToChannel::expectingInitialSync() {
     // Drop all but the last T-value in the buffer
     m_tvalueDiscardCount += static_cast<int32_t>(m_internalBuffer.size()) - 1;
     m_discardedTValues += static_cast<int32_t>(m_internalBuffer.size()) - 1;
-    m_internalBuffer = std::vector<uint8_t>(m_internalBuffer.end() - 1,
-                                            m_internalBuffer.end());
+    m_internalBuffer.erase(m_internalBuffer.begin(),
+                           m_internalBuffer.end() - 1);
   }
 
   return nextState;
@@ -137,7 +132,7 @@ TvaluesToChannel::State TvaluesToChannel::expectingSync() {
 
   // The internal buffer contains a valid sync at the start
   // Find the next sync header after it
-  std::vector<uint8_t> t11_t11 = {0x0B, 0x0B};
+  std::vector<uint8_t> t11_t11 = {efm::kSyncSymbolT11, efm::kSyncSymbolT11};
   auto it = std::search(m_internalBuffer.begin() + 2, m_internalBuffer.end(),
                         t11_t11.begin(), t11_t11.end());
   int syncIndex =
@@ -156,14 +151,17 @@ TvaluesToChannel::State TvaluesToChannel::expectingSync() {
     int bitCount = static_cast<int>(countBits(frameData));
 
     // If the frame data is 550 to 600 bits, we have a valid frame
-    if (bitCount > 550 && bitCount < 600) {
-      if (bitCount != 588) {
+    if (bitCount > efm::kFrameBitCountAcceptMin &&
+        bitCount < efm::kFrameBitCountAcceptMax) {
+      if (bitCount != efm::kEfmFrameChannelBits) {
         ORC_LOG_DEBUG(
             "TvaluesToChannel::expectingSync() - Got frame with {} bits - "
             "Treating as valid",
             bitCount);
-        if (bitCount > 588) attemptToFixOvershootFrame(frameData);
-        if (bitCount < 588) {
+        if (bitCount > efm::kEfmFrameChannelBits) {
+          attemptToFixOvershootFrame(frameData);
+        }
+        if (bitCount < efm::kEfmFrameChannelBits) {
           attemptToFixUndershootFrame(0, syncIndex, frameData);
         }
       }
@@ -176,19 +174,19 @@ TvaluesToChannel::State TvaluesToChannel::expectingSync() {
       m_channelFrameCount++;
       m_perfectSyncs++;
 
-      if (bitCount == 588) m_perfectFrames++;
-      if (bitCount > 588) m_longFrames++;
-      if (bitCount < 588) m_shortFrames++;
+      if (bitCount == efm::kEfmFrameChannelBits) m_perfectFrames++;
+      if (bitCount > efm::kEfmFrameChannelBits) m_longFrames++;
+      if (bitCount < efm::kEfmFrameChannelBits) m_shortFrames++;
 
       // Remove the frame data from the internal buffer
-      m_internalBuffer = std::vector<uint8_t>(
-          m_internalBuffer.begin() + syncIndex, m_internalBuffer.end());
+      m_internalBuffer.erase(m_internalBuffer.begin(),
+                             m_internalBuffer.begin() + syncIndex);
       nextState = ExpectingSync;
     } else {
       // This is most likely a missing sync header issue rather than
       // one or more T-values being incorrect. So we'll handle that
       // separately.
-      if (bitCount > 588) {
+      if (bitCount > efm::kEfmFrameChannelBits) {
         nextState = HandleOvershoot;
       } else {
         nextState = HandleUndershoot;
@@ -217,13 +215,31 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot() {
   m_undershootSyncs++;
 
   // Find the second sync header
-  std::vector<uint8_t> t11_t11 = {0x0B, 0x0B};
+  std::vector<uint8_t> t11_t11 = {efm::kSyncSymbolT11, efm::kSyncSymbolT11};
   auto it = std::search(m_internalBuffer.begin() + 2, m_internalBuffer.end(),
                         t11_t11.begin(), t11_t11.end());
   int secondSyncIndex =
       (it != m_internalBuffer.end())
           ? static_cast<int>(std::distance(m_internalBuffer.begin(), it))
           : -1;
+
+  // R-5(d): if there is no second sync header there cannot be a third one
+  // bracketing a frame either. Guard against indexing the buffer with -1
+  // (begin() + secondSyncIndex would be begin() - 1, an out-of-bounds iterator
+  // that traps under the hardened libc++, and m_discardedTValues += -1 would
+  // corrupt the statistic). Treat it as a lost sync: drop all but the last
+  // T-value and re-hunt for an initial sync.
+  if (secondSyncIndex == -1) {
+    ORC_LOG_DEBUG(
+        "TvaluesToChannel::handleUndershoot() - No second sync header found - "
+        "Sync lost.  Dropping {} T-values",
+        m_internalBuffer.size() - 1);
+
+    m_discardedTValues += static_cast<int32_t>(m_internalBuffer.size()) - 1;
+    m_internalBuffer.erase(m_internalBuffer.begin(),
+                           m_internalBuffer.end() - 1);
+    return ExpectingInitialSync;
+  }
 
   // Find the third sync header
   auto it3 =
@@ -251,7 +267,8 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot() {
     int sttBitCount = static_cast<int>(
         countBits(m_internalBuffer, secondSyncIndex, thirdSyncIndex));
 
-    if (fttBitCount > 550 && fttBitCount < 600) {
+    if (fttBitCount > efm::kFrameBitCountAcceptMin &&
+        fttBitCount < efm::kFrameBitCountAcceptMax) {
       ORC_LOG_DEBUG(
           "TvaluesToChannel::handleUndershoot() - Undershoot frame - Value "
           "from first to third sync_header = {} bits - treating as valid",
@@ -260,13 +277,15 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot() {
       std::vector<uint8_t> frameData(m_internalBuffer.begin(),
                                      m_internalBuffer.begin() + thirdSyncIndex);
       int32_t bitCount = static_cast<int32_t>(countBits(frameData));
-      if (bitCount != 588) {
+      if (bitCount != efm::kEfmFrameChannelBits) {
         ORC_LOG_DEBUG(
             "TvaluesToChannel::handleUndershoot1() - Got frame with {} bits - "
             "Treating as valid",
             sttBitCount);
-        if (bitCount > 588) attemptToFixOvershootFrame(frameData);
-        if (bitCount < 588) {
+        if (bitCount > efm::kEfmFrameChannelBits) {
+          attemptToFixOvershootFrame(frameData);
+        }
+        if (bitCount < efm::kEfmFrameChannelBits) {
           attemptToFixUndershootFrame(0, thirdSyncIndex, frameData);
         }
       }
@@ -275,15 +294,16 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot() {
       m_consumedTValues += frameData.size();
       m_channelFrameCount++;
 
-      if (fttBitCount == 588) m_perfectFrames++;
-      if (fttBitCount > 588) m_longFrames++;
-      if (fttBitCount < 588) m_shortFrames++;
+      if (fttBitCount == efm::kEfmFrameChannelBits) m_perfectFrames++;
+      if (fttBitCount > efm::kEfmFrameChannelBits) m_longFrames++;
+      if (fttBitCount < efm::kEfmFrameChannelBits) m_shortFrames++;
 
       // Remove the frame data from the internal buffer
-      m_internalBuffer = std::vector<uint8_t>(
-          m_internalBuffer.begin() + thirdSyncIndex, m_internalBuffer.end());
+      m_internalBuffer.erase(m_internalBuffer.begin(),
+                             m_internalBuffer.begin() + thirdSyncIndex);
       nextState = ExpectingSync;
-    } else if (sttBitCount > 550 && sttBitCount < 600) {
+    } else if (sttBitCount > efm::kFrameBitCountAcceptMin &&
+               sttBitCount < efm::kFrameBitCountAcceptMax) {
       ORC_LOG_DEBUG(
           "TvaluesToChannel::handleUndershoot() - Undershoot frame - Value "
           "from second to third sync_header = {} bits - treating as valid",
@@ -292,13 +312,15 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot() {
       std::vector<uint8_t> frameData(m_internalBuffer.begin() + secondSyncIndex,
                                      m_internalBuffer.begin() + thirdSyncIndex);
       int32_t bitCount = static_cast<int32_t>(countBits(frameData));
-      if (bitCount != 588) {
+      if (bitCount != efm::kEfmFrameChannelBits) {
         ORC_LOG_DEBUG(
             "TvaluesToChannel::handleUndershoot2() - Got frame with {} bits - "
             "Treating as valid",
             sttBitCount);
-        if (bitCount > 588) attemptToFixOvershootFrame(frameData);
-        if (bitCount < 588) {
+        if (bitCount > efm::kEfmFrameChannelBits) {
+          attemptToFixOvershootFrame(frameData);
+        }
+        if (bitCount < efm::kEfmFrameChannelBits) {
           attemptToFixUndershootFrame(secondSyncIndex, thirdSyncIndex,
                                       frameData);
         }
@@ -308,14 +330,14 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot() {
       m_consumedTValues += frameData.size();
       m_channelFrameCount++;
 
-      if (sttBitCount == 588) m_perfectFrames++;
-      if (sttBitCount > 588) m_longFrames++;
-      if (sttBitCount < 588) m_shortFrames++;
+      if (sttBitCount == efm::kEfmFrameChannelBits) m_perfectFrames++;
+      if (sttBitCount > efm::kEfmFrameChannelBits) m_longFrames++;
+      if (sttBitCount < efm::kEfmFrameChannelBits) m_shortFrames++;
 
       // Remove the frame data from the internal buffer
       m_discardedTValues += secondSyncIndex;
-      m_internalBuffer = std::vector<uint8_t>(
-          m_internalBuffer.begin() + thirdSyncIndex, m_internalBuffer.end());
+      m_internalBuffer.erase(m_internalBuffer.begin(),
+                             m_internalBuffer.begin() + thirdSyncIndex);
       nextState = ExpectingSync;
     } else {
       ORC_LOG_DEBUG(
@@ -326,26 +348,24 @@ TvaluesToChannel::State TvaluesToChannel::handleUndershoot() {
 
       // Remove the frame data from the internal buffer
       m_discardedTValues += secondSyncIndex;
-      m_internalBuffer = std::vector<uint8_t>(
-          m_internalBuffer.begin() + thirdSyncIndex, m_internalBuffer.end());
+      m_internalBuffer.erase(m_internalBuffer.begin(),
+                             m_internalBuffer.begin() + thirdSyncIndex);
     }
   } else {
-    if (m_internalBuffer.size() <= 382) {
-      ORC_LOG_DEBUG(
-          "TvaluesToChannel::handleUndershoot() - No third sync header found.  "
-          "Staying in undershoot state waiting for more data.");
-      nextState = HandleUndershoot;
-    } else {
-      ORC_LOG_DEBUG(
-          "TvaluesToChannel::handleUndershoot() - No third sync header found - "
-          "Sync lost.  Dropping {} T-values",
-          m_internalBuffer.size() - 1);
+    // R-5(d): processStateMachine() only dispatches here when the buffer
+    // already exceeds 382 T-values, so the former "size <= 382, wait for more
+    // data" branch was unreachable and has been removed. With a second but no
+    // third sync header the frame cannot be bracketed - drop all but the last
+    // T-value and re-hunt for an initial sync.
+    ORC_LOG_DEBUG(
+        "TvaluesToChannel::handleUndershoot() - No third sync header found - "
+        "Sync lost.  Dropping {} T-values",
+        m_internalBuffer.size() - 1);
 
-      m_discardedTValues += m_internalBuffer.size() - 1;
-      m_internalBuffer = std::vector<uint8_t>(m_internalBuffer.end() - 1,
-                                              m_internalBuffer.end());
-      nextState = ExpectingInitialSync;
-    }
+    m_discardedTValues += static_cast<int32_t>(m_internalBuffer.size()) - 1;
+    m_internalBuffer.erase(m_internalBuffer.begin(),
+                           m_internalBuffer.end() - 1);
+    nextState = ExpectingInitialSync;
   }
 
   return nextState;
@@ -360,7 +380,7 @@ TvaluesToChannel::State TvaluesToChannel::handleOvershoot() {
   // Is the overshoot due to a missing/corrupt sync header?
   // Count the bits between the first and second sync headers, if they are
   // 588*2, split the frame data into two frames
-  std::vector<uint8_t> t11_t11 = {0x0B, 0x0B};
+  std::vector<uint8_t> t11_t11 = {efm::kSyncSymbolT11, efm::kSyncSymbolT11};
 
   // Find the second sync header
   auto it = std::search(m_internalBuffer.begin() + 2, m_internalBuffer.end(),
@@ -378,15 +398,15 @@ TvaluesToChannel::State TvaluesToChannel::handleOvershoot() {
                                    m_internalBuffer.begin() + syncIndex);
 
     // Remove the frame data from the internal buffer
-    m_internalBuffer = std::vector<uint8_t>(
-        m_internalBuffer.begin() + syncIndex, m_internalBuffer.end());
+    m_internalBuffer.erase(m_internalBuffer.begin(),
+                           m_internalBuffer.begin() + syncIndex);
 
     // How many bits of data do we have?  Count the T-values
     int bitCount = static_cast<int>(countBits(frameData));
 
     // If the frame data is within the range of n frames, we have n frames
     // separated by corrupt sync headers
-    const int frameSize = 588;
+    const int frameSize = efm::kEfmFrameChannelBits;
     const int tolerance = 11;  // How close to 588 bits do we need to be?
     const int maxFrames =
         10;  // Define the maximum number of frames to check for
@@ -427,9 +447,12 @@ TvaluesToChannel::State TvaluesToChannel::handleOvershoot() {
           m_consumedTValues += singleFrameData.size();
           m_channelFrameCount++;
 
+          // E-8: a frame with fewer bits than nominal is a *short* frame and
+          // more bits is a *long* frame (matching the convention above); these
+          // were inverted.
           if (singleFrameBitCount == frameSize) m_perfectFrames++;
-          if (singleFrameBitCount < frameSize) m_longFrames++;
-          if (singleFrameBitCount > frameSize) m_shortFrames++;
+          if (singleFrameBitCount > frameSize) m_longFrames++;
+          if (singleFrameBitCount < frameSize) m_shortFrames++;
         }
         break;
       }
@@ -445,16 +468,17 @@ TvaluesToChannel::State TvaluesToChannel::handleOvershoot() {
           "sync header found, dropping {} T-values",
           bitCount, m_internalBuffer.size() - 1);
       m_discardedTValues += static_cast<int32_t>(m_internalBuffer.size()) - 1;
-      m_internalBuffer = std::vector<uint8_t>(m_internalBuffer.end() - 1,
-                                              m_internalBuffer.end());
+      m_internalBuffer.erase(m_internalBuffer.begin(),
+                             m_internalBuffer.end() - 1);
       nextState = ExpectingInitialSync;
     } else {
       nextState = ExpectingSync;
     }
   } else {
-    throw std::runtime_error(
+    ORC_LOG_ERROR(
         "TvaluesToChannel::handleOvershoot() - Overshoot frame detected but no "
         "second sync header found, even though it should have been there.");
+    throw efm::EfmDecodeError(__func__);
   }
 
   return nextState;
@@ -466,7 +490,7 @@ void TvaluesToChannel::attemptToFixOvershootFrame(
     std::vector<uint8_t>& frameData) {
   int32_t bitCount = static_cast<int32_t>(countBits(frameData));
 
-  if (bitCount > 588) {
+  if (bitCount > efm::kEfmFrameChannelBits) {
     // We have too many bits, so we'll try to remove some
     // We'll remove the first T-value in the frame
     std::vector<uint8_t> lframeData(frameData.begin(), frameData.end() - 1);
@@ -475,12 +499,12 @@ void TvaluesToChannel::attemptToFixOvershootFrame(
     int32_t lbitCount = static_cast<int32_t>(countBits(lframeData));
     int32_t rbitCount = static_cast<int32_t>(countBits(rframeData));
 
-    if (lbitCount == 588) {
+    if (lbitCount == efm::kEfmFrameChannelBits) {
       frameData = lframeData;
       ORC_LOG_DEBUG(
           "TvaluesToChannel::attemptToFixOvershootFrame() - Removed first "
           "T-value to fix frame");
-    } else if (rbitCount == 588) {
+    } else if (rbitCount == efm::kEfmFrameChannelBits) {
       frameData = rframeData;
       ORC_LOG_DEBUG(
           "TvaluesToChannel::attemptToFixOvershootFrame() - Removed last "
@@ -495,13 +519,13 @@ void TvaluesToChannel::attemptToFixUndershootFrame(
     uint32_t startIndex, uint32_t endIndex, std::vector<uint8_t>& frameData) {
   int32_t bitCount = static_cast<int32_t>(countBits(frameData));
 
-  if (bitCount < 588) {
+  if (bitCount < efm::kEfmFrameChannelBits) {
     std::vector<uint8_t> lframeData(
         m_internalBuffer.begin() + static_cast<std::ptrdiff_t>(startIndex),
         m_internalBuffer.begin() + static_cast<std::ptrdiff_t>(endIndex) + 1);
     int32_t lbitCount = static_cast<int32_t>(countBits(lframeData));
 
-    if (lbitCount == 588) {
+    if (lbitCount == efm::kEfmFrameChannelBits) {
       frameData = lframeData;
       ORC_LOG_DEBUG(
           "TvaluesToChannel::attemptToFixUndershootFrame() - Added additional "
@@ -516,7 +540,7 @@ void TvaluesToChannel::attemptToFixUndershootFrame(
           m_internalBuffer.begin() + static_cast<std::ptrdiff_t>(endIndex));
       int32_t rbitCount = static_cast<int32_t>(countBits(rframeData));
 
-      if (rbitCount == 588) {
+      if (rbitCount == efm::kEfmFrameChannelBits) {
         frameData = rframeData;
         ORC_LOG_DEBUG(
             "TvaluesToChannel::attemptToFixUndershootFrame() - Added "

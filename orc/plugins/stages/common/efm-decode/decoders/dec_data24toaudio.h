@@ -16,6 +16,7 @@ class Data24ToAudio : public Decoder {
  public:
   Data24ToAudio();
   void pushSection(const Data24Section& data24Section);
+  void pushSection(Data24Section&& data24Section);
   AudioSection popSection();
   bool isReady() const;
 

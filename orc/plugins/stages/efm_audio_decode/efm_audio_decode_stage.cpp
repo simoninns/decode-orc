@@ -75,8 +75,9 @@ std::vector<int32_t> EFMAudioChannelPairRepresentation::get_audio_samples(
   return samples;
 }
 
-void EFMAudioChannelPairRepresentation::ensure_decoded() const {
-  std::call_once(decode_once_, [this] {
+void EFMAudioChannelPairRepresentation::ensure_decoded(
+    const AudioDecodeProgressFn& progress) const {
+  std::call_once(decode_once_, [this, &progress] {
     if (!source_) {
       ORC_LOG_ERROR(
           "EFMAudioDecode: no source representation; the EFM audio channel "
@@ -95,7 +96,7 @@ void EFMAudioChannelPairRepresentation::ensure_decoded() const {
 
     ORC_LOG_INFO("EFMAudioDecode: starting lazy EFM audio decode");
     const EFMAudioDecodeResult decode_result =
-        deps_->decode_to_cache(*source_, options_);
+        deps_->decode_to_cache(*source_, options_, progress);
     if (!decode_result.success) {
       ORC_LOG_ERROR(
           "EFMAudioDecode: EFM audio decode failed ({}); the EFM audio "
@@ -112,11 +113,22 @@ void EFMAudioChannelPairRepresentation::ensure_decoded() const {
     // totalling exactly audio_pair_offset(frame_count) pairs.
     const uint32_t raw_pairs = static_cast<uint32_t>(std::min<uint64_t>(
         decode_result.stream_pair_count, std::numeric_limits<uint32_t>::max()));
-    const std::vector<int32_t> widened =
-        AudioResampler::widen_16_to_24(deps_->read_cache_pairs(0, raw_pairs));
-    std::vector<std::vector<int32_t>> frames =
-        AudioResampler::resample_to_synchronous(widened, kCdSampleRateHz,
-                                                system, frame_count);
+    // Scope the widened 44.1 kHz carrier so it is freed the moment resampling
+    // returns; otherwise it would sit alongside the per-frame blocks and the
+    // flattened output below, tripling the converted-stream footprint at peak.
+    // The resample of the full stream is itself multi-second work; surface it
+    // as a distinct phase so the dialog does not appear to stall after decode.
+    if (progress) {
+      progress(frame_count, frame_count,
+               "Converting EFM audio (resampling)...");
+    }
+    std::vector<std::vector<int32_t>> frames;
+    {
+      const std::vector<int32_t> widened =
+          AudioResampler::widen_16_to_24(deps_->read_cache_pairs(0, raw_pairs));
+      frames = AudioResampler::resample_to_synchronous(widened, kCdSampleRateHz,
+                                                       system, frame_count);
+    }
 
     // Flatten the cadence-aligned blocks into the synchronous scratch cache;
     // per-frame serving seeks by audio_pair_offset(id, system).
@@ -196,6 +208,7 @@ std::shared_ptr<const VideoFrameRepresentation> EFMAudioDecodeStage::process(
   EFMAudioDecodeOptions options;
   options.no_timecodes = no_timecodes_;
   options.no_audio_concealment = no_audio_concealment_;
+  options.ignore_preemphasis = ignore_preemphasis_;
   // A report is written only when the checkbox is enabled; an empty path
   // leaves the report disabled even if the box is checked.
   options.report_path = report_ ? report_path_ : std::string{};
@@ -227,6 +240,19 @@ std::vector<ParameterDescriptor> EFMAudioDecodeStage::get_parameter_descriptors(
     desc.name = "no_audio_concealment";
     desc.display_name = "Disable Audio Concealment";
     desc.description = "Disable interpolation-based audio error concealment";
+    desc.type = ParameterType::BOOL;
+    desc.constraints.default_value = false;
+    descriptors.push_back(desc);
+  }
+
+  {
+    ParameterDescriptor desc;
+    desc.name = "ignore_preemphasis";
+    desc.display_name = "Ignore Pre-emphasis Flag";
+    desc.description =
+        "Ignore the 50/15 us pre-emphasis CONTROL flag and decode audio "
+        "exactly as stored. When unchecked (default), pre-emphasised sections "
+        "are de-emphasised during decode.";
     desc.type = ParameterType::BOOL;
     desc.constraints.default_value = false;
     descriptors.push_back(desc);
@@ -275,6 +301,7 @@ std::map<std::string, ParameterValue> EFMAudioDecodeStage::get_parameters()
     const {
   return {{"no_timecodes", no_timecodes_},
           {"no_audio_concealment", no_audio_concealment_},
+          {"ignore_preemphasis", ignore_preemphasis_},
           {"pair_name", pair_name_},
           {"report", report_},
           {"report_path", report_path_}};
@@ -291,6 +318,7 @@ bool EFMAudioDecodeStage::set_parameters(
   no_timecodes_ = get_bool("no_timecodes", no_timecodes_);
   no_audio_concealment_ =
       get_bool("no_audio_concealment", no_audio_concealment_);
+  ignore_preemphasis_ = get_bool("ignore_preemphasis", ignore_preemphasis_);
   report_ = get_bool("report", report_);
 
   const auto name_it = params.find("pair_name");

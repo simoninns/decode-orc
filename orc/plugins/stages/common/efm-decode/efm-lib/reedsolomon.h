@@ -12,8 +12,11 @@
 #include <cstdint>
 #include <vector>
 
-// ezpwd configuration is:
-// NAME, TYPE, SYMBOLS, PAYLOAD, POLY, INIT, FCR, AGR
+// ezpwd __RS() macro parameters are:
+// NAME, TYPE, SYMBOLS, PAYLOAD, POLY, FCR, PRIM, DUAL
+// (the ECMA-130 values below are POLY=0x11D, FCR=0, PRIM=1, DUAL=false -
+// mislabelling FCR/PRIM as INIT/AGR would invite a future mis-edit of the
+// safety-critical first-consecutive-root value.)
 
 // To find the integer representation of the polynomial P(x)=x^8+x^4+x^3+x^2+1
 // treat the coefficients as binary digits, where each coefficient corresponds
@@ -51,6 +54,14 @@ class ReedSolomon {
   int32_t errorC2s() const;
 
  private:
+  // P-6: reusable scratch buffers so the CIRC hot path (decode() is called
+  // ~26M times per stereo disc) does not allocate per call. Each pipeline owns
+  // its own ReedSolomon and calls c1/c2Decode sequentially, so plain members
+  // are safe (the shared ezpwd codecs are const; this object is not shared).
+  std::vector<uint8_t> m_scratchData;
+  std::vector<int> m_erasures;
+  std::vector<int> m_position;
+
   int32_t m_validC1s;
   int32_t m_fixedC1s;
   int32_t m_errorC1s;

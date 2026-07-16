@@ -52,19 +52,24 @@ void WriterRaw::write(const AudioSection& audioSection) {
     return;
   }
 
-  // Each Audio section contains 98 frames that we need to write to the output
-  // file
+  // Each Audio section contains 98 frames. P-7: reference each frame (no
+  // per-frame Audio copy) and assemble one section-sized interleaved buffer so
+  // the whole section is written in a single call.
+  std::vector<int16_t> sectionData;
+  sectionData.reserve(static_cast<size_t>(98) * 12);
   for (int index = 0; index < 98; ++index) {
-    Audio audio = audioSection.frame(index);
-    if (m_usingStdout) {
-      std::cout.write(
-          reinterpret_cast<const char*>(audio.data().data()),
-          static_cast<std::streamsize>(audio.frameSize() * sizeof(int16_t)));
-    } else {
-      m_file.write(
-          reinterpret_cast<const char*>(audio.data().data()),
-          static_cast<std::streamsize>(audio.frameSize() * sizeof(int16_t)));
-    }
+    const Audio& audio = audioSection.frame(index);
+    const std::vector<int16_t>& data = audio.data();
+    sectionData.insert(sectionData.end(), data.begin(), data.end());
+  }
+
+  const auto* bytes = reinterpret_cast<const char*>(sectionData.data());
+  const auto byteCount =
+      static_cast<std::streamsize>(sectionData.size() * sizeof(int16_t));
+  if (m_usingStdout) {
+    std::cout.write(bytes, byteCount);
+  } else {
+    m_file.write(bytes, byteCount);
   }
 }
 

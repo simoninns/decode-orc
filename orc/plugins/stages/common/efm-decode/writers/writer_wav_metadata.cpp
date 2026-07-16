@@ -20,6 +20,7 @@
 
 WriterWavMetadata::WriterWavMetadata()
     : m_noAudioConcealment(false),
+      m_deemphasisApplied(false),
       m_inErrorRange(false),
       m_inConcealedRange(false),
       m_absoluteSectionTime(0, 0, 0),
@@ -35,7 +36,7 @@ WriterWavMetadata::~WriterWavMetadata() {
 }
 
 bool WriterWavMetadata::open(const std::string& filename,
-                             bool noAudioConcealment) {
+                             bool noAudioConcealment, bool deemphasisApplied) {
   m_file.open(filename);
   if (!m_file.is_open()) {
     ORC_LOG_CRITICAL(
@@ -49,6 +50,9 @@ bool WriterWavMetadata::open(const std::string& filename,
   // If we're not concealing audio, we use "error" metadata instead of
   // "silenced"
   m_noAudioConcealment = noAudioConcealment;
+
+  // Q-8: whether the decoder already removed the 50/15 us pre-emphasis.
+  m_deemphasisApplied = deemphasisApplied;
 
   return true;
 }
@@ -88,6 +92,7 @@ void WriterWavMetadata::write(const AudioSection& audioSection) {
       // Append the new track to the statistics
       if (metadata.trackNumber() != 0 && metadata.trackNumber() != 0xAA) {
         m_trackNumbers.push_back(metadata.trackNumber());
+        m_trackPreemphasis.push_back(metadata.hasPreemphasis());
 
         m_trackAbsStartTimes.push_back(m_absoluteSectionTime);
         m_trackStartTimes.push_back(m_sectionTime);
@@ -112,7 +117,6 @@ void WriterWavMetadata::write(const AudioSection& audioSection) {
   // Output metadata about errors
   for (int subSection = 0; subSection < 98; ++subSection) {
     const Audio& audio = audioSection.frame(subSection);
-    std::vector<int16_t> audioData = audio.data();
     const std::vector<uint8_t>& errors = audio.errorData();
     const std::vector<uint8_t>& concealed = audio.concealedData();
 
@@ -242,9 +246,18 @@ void WriterWavMetadata::flush() {
       std::string trackTime = "[" + m_trackStartTimes[i].toString() + "-" +
                               m_trackEndTimes[i].toString() + "]";
 
+      // Q-8: surface the pre-emphasis flag. When the decoder applied
+      // de-emphasis the note records that it is already removed; otherwise it
+      // records that the track still needs 50/15 us de-emphasis on playback.
+      const bool preemphasis =
+          i < m_trackPreemphasis.size() && m_trackPreemphasis[i];
+      const std::string preemphasisNote =
+          preemphasis ? (m_deemphasisApplied ? " Preemphasis:50/15us(removed)"
+                                             : " Preemphasis:50/15us")
+                      : "";
       std::string outputString = trackAbsStartTime + "\t" + trackAbsEndTime +
                                  "\tTrack: " + trackNumber + " " + trackTime +
-                                 "\n";
+                                 preemphasisNote + "\n";
       m_file.write(outputString.c_str(),
                    static_cast<std::streamsize>(outputString.size()));
 

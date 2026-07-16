@@ -32,7 +32,8 @@ class EFMAudioDecodeDeps : public IEFMAudioDecodeDeps {
 
   EFMAudioDecodeResult decode_to_cache(
       const VideoFrameRepresentation& representation,
-      const EFMAudioDecodeOptions& options) override;
+      const EFMAudioDecodeOptions& options,
+      const ProgressFn& progress) override;
 
   std::vector<int16_t> read_cache_pairs(uint64_t first_pair,
                                         uint32_t pair_count) const override;

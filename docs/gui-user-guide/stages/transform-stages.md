@@ -396,6 +396,7 @@ The stage wraps the incoming representation and appends one audio channel pair (
 
 * `no_timecodes` (bool) — Disable timecode verification during decode (needed for early CAV discs pre-dating the EFM timecode spec). Default: `false`.
 * `no_audio_concealment` (bool) — Disable interpolation-based audio error concealment. Default: `false`.
+* `ignore_preemphasis` (bool) — Ignore the 50/15 µs pre-emphasis CONTROL flag (IEC 60908 §17.5) and decode the audio exactly as stored. When unchecked (default), sections flagged as pre-emphasised are de-emphasised during decode with a 50/15 µs filter so the appended pair has a flat response; enable this only if you want the raw pre-emphasised samples. Default: `false`.
 * `pair_name` (string) — Human-readable name for the decoded channel pair; surfaces in the CVBS container and as the Video Sink stream title. Default: `EFM digital audio`.
 * `report` (bool) — Write a detailed decode statistics report once the lazy decode runs. Default: `false`.
 * `report_path` (file path) — Destination for the decode report; used only when `report` is enabled. Default: `""`.

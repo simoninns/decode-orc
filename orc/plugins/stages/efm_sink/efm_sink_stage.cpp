@@ -127,6 +127,21 @@ std::vector<ParameterDescriptor> EFMSinkStage::get_parameter_descriptors(
     descriptors.push_back(desc);
   }
 
+  // ignore_preemphasis  (audio only)
+  {
+    ParameterDescriptor desc;
+    desc.name = "ignore_preemphasis";
+    desc.display_name = "Ignore Pre-emphasis Flag";
+    desc.description =
+        "Ignore the 50/15 us pre-emphasis CONTROL flag and emit audio exactly "
+        "as decoded. When unchecked (default), pre-emphasised sections are "
+        "de-emphasised during decode.";
+    desc.type = ParameterType::BOOL;
+    desc.constraints.default_value = false;
+    desc.constraints.depends_on = ParameterDependency{"decode_mode", {"audio"}};
+    descriptors.push_back(desc);
+  }
+
   // zero_pad  (audio only)
   {
     ParameterDescriptor desc;
@@ -266,6 +281,8 @@ bool EFMSinkStage::trigger(
     const bool audacity_labels = get_bool_param(parameters, "audacity_labels");
     const bool no_audio_concealment =
         get_bool_param(parameters, "no_audio_concealment");
+    const bool ignore_preemphasis =
+        get_bool_param(parameters, "ignore_preemphasis");
     const bool zero_pad = get_bool_param(parameters, "zero_pad");
     const bool no_wav_header = get_bool_param(parameters, "no_wav_header");
     const bool output_metadata = get_bool_param(parameters, "output_metadata");
@@ -280,6 +297,7 @@ bool EFMSinkStage::trigger(
     options.no_timecodes = no_timecodes;
     options.audacity_labels = audacity_labels;
     options.no_audio_concealment = no_audio_concealment;
+    options.ignore_preemphasis = ignore_preemphasis;
     options.zero_pad = zero_pad;
     options.no_wav_header = no_wav_header;
     options.output_metadata = output_metadata;

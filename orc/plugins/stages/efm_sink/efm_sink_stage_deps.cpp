@@ -13,6 +13,7 @@
 
 #include <algorithm>
 
+#include "efm-decode/efm-lib/efm_exception.h"
 #include "efm-decode/efm_processor.h"
 
 namespace orc {
@@ -43,68 +44,101 @@ EFMSinkDecodeResult EFMSinkStageDeps::decode_efm(
   }
   ORC_LOG_DEBUG("EFMSinkDeps: Total EFM t-values: {}", total_tvalues);
 
-  std::vector<uint8_t> efm_buffer;
-  efm_buffer.reserve(total_tvalues);
+  // The GUI shows a single 0-100 % progress bar for the whole stage. The
+  // t-values are streamed straight into the decoder (no full-capture buffer),
+  // so there is no separate buffering phase to represent: map the whole
+  // frame-push loop onto 0..99 % and reserve 99..100 % for the finalise/flush
+  // step so the bar advances monotonically.
 
-  uint64_t tvalues_accumulated = 0;
-  for (FrameID fid = start_fid; fid <= end_fid; ++fid) {
-    if (cancel_requested_ && cancel_requested_->load()) {
-      return {false, "Cancelled by user"};
+  // The EFM decoder throws efm::EfmDecodeError on unrecoverable conditions
+  // (invariant violations, corrupt or unsupported data). Catch it here so a
+  // bad decode reports a failure instead of terminating the host process.
+  try {
+    EfmProcessor processor;
+    processor.setAudioMode(options.audio_mode);
+    processor.setNoTimecodes(options.no_timecodes);
+    processor.setAudacityLabels(options.audacity_labels);
+    processor.setNoAudioConcealment(options.no_audio_concealment);
+    processor.setIgnorePreemphasis(options.ignore_preemphasis);
+    processor.setZeroPad(options.zero_pad);
+    processor.setNoWavHeader(options.no_wav_header);
+    processor.setOutputMetadata(options.output_metadata);
+    processor.setReportOutput(options.report);
+
+    processor.beginStream(options.output_path,
+                          static_cast<int64_t>(total_tvalues));
+
+    // Push each frame's t-values straight into the decoder, accumulating into a
+    // bounded staging buffer only to preserve the 1024-byte chunk sizing of the
+    // old buffered path (so decoded output stays byte-identical). Peak RSS is
+    // now ~one chunk, independent of capture length.
+    constexpr size_t CHUNK_SIZE = 1024;
+    std::vector<uint8_t> staging;
+    staging.reserve(CHUNK_SIZE);
+
+    uint64_t tvalues_pushed = 0;
+    int last_pct = -1;
+    for (FrameID fid = start_fid; fid <= end_fid; ++fid) {
+      if (cancel_requested_ && cancel_requested_->load()) {
+        return {false, "Cancelled by user"};
+      }
+
+      const auto samples = representation->get_efm_samples(fid);
+      size_t pos = 0;
+      while (pos < samples.size()) {
+        const size_t take =
+            std::min(CHUNK_SIZE - staging.size(), samples.size() - pos);
+        staging.insert(
+            staging.end(), samples.begin() + static_cast<std::ptrdiff_t>(pos),
+            samples.begin() + static_cast<std::ptrdiff_t>(pos + take));
+        pos += take;
+        if (staging.size() == CHUNK_SIZE) {
+          processor.pushChunk(staging);
+          staging.clear();
+        }
+      }
+      tvalues_pushed += samples.size();
+
+      if (progress_callback_) {
+        // Map the frame-push loop onto 0..99 % of the bar, and put the live
+        // percentage in the label so the modal shows motion.
+        const uint64_t pct = (tvalues_pushed * 99) / total_tvalues;
+        if (static_cast<int>(pct) != last_pct) {
+          last_pct = static_cast<int>(pct);
+          progress_callback_(pct, 100,
+                             "Decoding EFM... " + std::to_string(pct) + "%");
+        }
+      }
     }
 
-    auto samples = representation->get_efm_samples(fid);
-    efm_buffer.insert(efm_buffer.end(), samples.begin(), samples.end());
-    tvalues_accumulated += samples.size();
-
-    const uint64_t frames_done = fid - start_fid + 1;
-    if (frames_done % 10 == 0 && progress_callback_) {
-      progress_callback_(tvalues_accumulated, total_tvalues,
-                         "Buffering EFM: frame " + std::to_string(frames_done) +
-                             "/" + std::to_string(total_frames));
-    }
-  }
-
-  ORC_LOG_DEBUG("EFMSinkDeps: Buffer complete: {} bytes", efm_buffer.size());
-
-  EfmProcessor processor;
-  processor.setAudioMode(options.audio_mode);
-  processor.setNoTimecodes(options.no_timecodes);
-  processor.setAudacityLabels(options.audacity_labels);
-  processor.setNoAudioConcealment(options.no_audio_concealment);
-  processor.setZeroPad(options.zero_pad);
-  processor.setNoWavHeader(options.no_wav_header);
-  processor.setOutputMetadata(options.output_metadata);
-  processor.setReportOutput(options.report);
-
-  processor.beginStream(options.output_path,
-                        static_cast<int64_t>(efm_buffer.size()));
-
-  constexpr size_t CHUNK_SIZE = 1024;
-  size_t offset = 0;
-  while (offset < efm_buffer.size()) {
-    if (cancel_requested_ && cancel_requested_->load()) {
-      return {false, "Cancelled by user"};
+    // Flush the final partial chunk (fewer than CHUNK_SIZE t-values).
+    if (!staging.empty()) {
+      processor.pushChunk(staging);
+      staging.clear();
     }
 
-    const size_t count = std::min(CHUNK_SIZE, efm_buffer.size() - offset);
-    processor.pushChunk(
-        {efm_buffer.begin() + static_cast<std::ptrdiff_t>(offset),
-         efm_buffer.begin() + static_cast<std::ptrdiff_t>(offset + count)});
-    offset += count;
-
-    if (progress_callback_ &&
-        (offset % (CHUNK_SIZE * 64) == 0 || offset == efm_buffer.size())) {
-      progress_callback_(offset, efm_buffer.size(), "Decoding EFM...");
+    // finishStream() flushes the pipeline tail and writes final output/report
+    // without emitting progress of its own; mark the bar so the modal does not
+    // look stalled during the finalise step.
+    if (progress_callback_) {
+      progress_callback_(99, 100, "Finalising EFM decode...");
     }
-  }
-
-  const bool ok = processor.finishStream();
-  if (!ok) {
-    std::string reason = processor.lastError();
-    if (reason.empty()) {
-      reason = "EFM decoding did not complete successfully";
+    const bool ok = processor.finishStream();
+    if (!ok) {
+      std::string reason = processor.lastError();
+      if (reason.empty()) {
+        reason = "EFM decoding did not complete successfully";
+      }
+      return {false, "Error: EFMSink: " + reason};
     }
-    return {false, "Error: EFMSink: " + reason};
+  } catch (const efm::EfmDecodeError& e) {
+    ORC_LOG_ERROR("EFMSinkDeps: {}", e.what());
+    return {false, std::string("Error: EFMSink: ") + e.what()};
+  } catch (const std::exception& e) {
+    // Backstop: any other escape from the decoder must fail this stage rather
+    // than propagate out of the worker thread and kill the host.
+    ORC_LOG_ERROR("EFMSinkDeps: unexpected exception: {}", e.what());
+    return {false, std::string("Error: EFMSink: ") + e.what()};
   }
 
   if (progress_callback_) {

@@ -649,10 +649,26 @@ Recommended ctest labels for plugin test suites:
 Publish platform binaries as GitHub release assets using the naming convention:
 
 ```
-orc-plugin_<stage-name>_linux.so
-orc-plugin_<stage-name>_macos.dylib
-orc-plugin_<stage-name>_windows.dll
+orc-plugin_<stage-name>_<platform>[_abi<N>].<ext>
 ```
+
+where `<platform>` is `linux`/`macos`/`windows`, `<ext>` is
+`so`/`dylib`/`dll`, and the optional `_abi<N>` token records the host ABI the
+binary was built against (e.g. `orc-plugin_my-stage_linux_abi8.so`). Examples:
+
+```
+orc-plugin_my-stage_linux.so            # legacy, untagged
+orc-plugin_my-stage_linux_abi8.so       # ABI-tagged (recommended)
+orc-plugin_my-stage_macos_abi8.dylib
+orc-plugin_my-stage_windows_abi8.dll
+```
+
+Tagging lets a single release ship builds for several host ABI versions side
+by side. When resolving a release the host prefers the asset tagged for its
+own ABI (`_abi<host>`), then falls back to a legacy untagged name (validated
+at load time), and only selects an asset tagged for a different ABI as a last
+resort — reporting "needs a rebuild" before it ever downloads a build it
+cannot load. Untagged names remain valid for backward compatibility.
 
 The skeleton CI workflows produce and upload these artifacts automatically on
 tagged releases.
@@ -670,7 +686,7 @@ Users register your plugin by adding an entry to their plugin registry YAML:
   release_tag:        v1.0.0
   release_asset_name: orc-plugin_my-stage_linux.so   # platform-specific
   target_platform:    linux
-  required_host_abi:  7
+  required_host_abi:  8
   enabled:            true
   trust_state:        untrusted
   license_spdx:       MIT
@@ -725,15 +741,67 @@ compatibility mechanism.
 
 ### Version history
 
+The table below is generated from `orc/sdk/abi_history.yaml` — the single
+source of truth for the ABI/API version log. Do not edit it by hand; run
+`tools/gen_abi_history_docs.sh` and splice the output between the markers. The
+`AbiVersionDocsSync` CTest (label `sdk`) fails when this block is stale.
+
+<!-- BEGIN GENERATED ABI VERSION HISTORY (source: orc/sdk/abi_history.yaml; regenerate with tools/gen_abi_history_docs.sh) -->
+
 | `host_abi_version` | `plugin_api_version` | Change |
 |--------------------|----------------------|--------|
 | 1 | — | Initial internal release; `plugin_api_version` not yet in descriptor |
 | 2 | 1 | `plugin_api_version` added to `StagePluginDescriptor`; public SDK headers published |
 | 3 | 1 | `OrcPluginServices` table added; `orc_register_stage_plugin` now receives `const OrcPluginServices*` as its first parameter; plugins must use the services table for logging instead of resolving host symbols directly |
 | 4 | 2 | Decode-Orc 2.0: `VideoFrameRepresentation` replaces `VideoFieldRepresentation` as the primary frame-data contract; `DAGStage::execute()` operates on frame-based artifacts; `DropoutRun` replaces `DropoutRegion`; `FieldID`/`FieldIDRange` removed — use `FrameID`/`FrameIDRange`. All plugins must be rebuilt against the v2.0 SDK |
-| 5 | 2 | `StagePluginDescriptor` gains the appended `toolchain_tag` field (populate with `ORC_SDK_TOOLCHAIN_TAG`); the loader requires the plugin's tag to equal the host's exactly. Registration helpers (`ORC_STAGE_PLUGIN_DESCRIPTOR`, `ORC_DEFINE_STAGE_PLUGIN`) added in `<orc/plugin/orc_plugin_registration.h>` |
-| 6 | 2 | Multi-track audio: `VideoFrameRepresentation`'s single-track audio accessors (`audio_locked()`, `get_audio_sample_count(FrameID)`, `get_audio_samples(FrameID)`) are replaced by a track-indexed API — `audio_track_count()`, `get_audio_track_descriptor(track)`, per-track frame-locked accessors, and per-track free-running stream accessors (`get_audio_stream_pair_count` / `get_audio_stream_samples`). New contract header `<orc/stage/audio_track.h>` (`AudioTrackDescriptor`, `AudioSampleRate`, `AudioTrackOrigin`, `kMaxAudioTracks`, `audio_stream_pair_offset()`). The vtable layout change requires all plugins to be rebuilt |
-| 7 | 2 | Channel-pair audio (SMPTE 272M-1994): the track-indexed audio API is replaced by the channel-pair API — `audio_channel_pair_count()`, `get_audio_channel_pair_descriptor(pair)`, and `get_audio_samples(pair, id)` returning 24-bit-in-int32 samples. All audio is 48 kHz frame-locked (synchronous); the free-running stream accessors are removed. Contract header `<orc/stage/audio_track.h>` is replaced by `<orc/stage/audio_channel_pair.h>` (`AudioChannelPairDescriptor`, `AudioOrigin`, `kMaxAudioChannelPairs`, `kAudioSampleRateHz`, `kAudioBitDepth`, `audio_pair_offset()`, `audio_pairs_in_frame()`). The vtable layout change requires all plugins to be rebuilt |
+| 5 | 2 | `StagePluginDescriptor` gains the appended `toolchain_tag` field (populate with `ORC_SDK_TOOLCHAIN_TAG`); the loader requires the plugin's tag to equal the host's exactly. Registration helpers (`ORC_STAGE_PLUGIN_DESCRIPTOR`, `ORC_DEFINE_STAGE_PLUGIN`) added in `<orc/abi/orc_plugin_registration.h>` |
+| 6 | 2 | Multi-track audio: `VideoFrameRepresentation`'s single-track audio accessors (`audio_locked()`, `get_audio_sample_count(FrameID)`, `get_audio_samples(FrameID)`) are replaced by a track-indexed API — `audio_track_count()`, `get_audio_track_descriptor(track)`, per-track frame-locked accessors, and per-track free-running stream accessors (`get_audio_stream_pair_count` / `get_audio_stream_samples`). New contract header `<orc/stage/audio_track.h>`. The vtable layout change requires all plugins to be rebuilt |
+| 7 | 2 | Channel-pair audio (SMPTE 272M-1994): the track-indexed audio API is replaced by the channel-pair API — `audio_channel_pair_count()`, `get_audio_channel_pair_descriptor(pair)`, and `get_audio_samples(pair, id)` returning 24-bit-in-int32 samples. All audio is 48 kHz frame-locked (synchronous); the free-running stream accessors are removed. Contract header `<orc/stage/audio_track.h>` is replaced by `<orc/stage/audio/audio_channel_pair.h>`. The vtable layout change requires all plugins to be rebuilt |
+| 8 | 2 | `VideoFrameRepresentation` gains `prime_audio_decode()`: a hook that forces a deferred whole-stream audio decode (e.g. EFM audio) to run up front with progress reporting, forwarded down the wrapper chain so sinks can meter it on the progress dialog. The appended virtual changes the vtable layout, requiring all plugins to be rebuilt |
+
+<!-- END GENERATED ABI VERSION HISTORY -->
+
+### ABI impact decision table
+
+Use this table to decide whether a change forces a `host_abi_version` bump.
+When in doubt, treat the change as ABI-breaking. The bump-procedure guard
+(`tools/check_abi_bump.sh`, run in CI) references this table in its failure
+message.
+
+| Change | Bumps the host ABI? |
+|--------|---------------------|
+| Reorder, resize, or retype a `StagePluginDescriptor` field | **Yes** |
+| Change an entrypoint signature or the `register_stage` callback contract | **Yes** |
+| Add, remove, or reorder a virtual on a contract type crossing the boundary (e.g. `VideoFrameRepresentation`, `DAGStage`, an observer interface) | **Yes** |
+| Change the layout of any type passed across the boundary by value or by reference | **Yes** |
+| Change the meaning/encoding of an existing cross-boundary type without a layout change | **Yes** (semantic break) |
+| **Append** a field to `OrcPluginServices` guarded by `services_size` | No |
+| Append a new capability **interface** reached via an accessor (see below) | No |
+| Change a `support`-tier header (`orc/support/…`: `lru_cache.h`, `logging.h`, helpers) | No — recompile at leisure |
+| Change registration-template internals (`ORC_DEFINE_STAGE_PLUGIN`) without altering the descriptor layout | No |
+| Edit comments, docs, or `instructions.md` | No |
+
+#### Preferred additive patterns
+
+Two mechanisms let the host and the stage contract grow **without** a bump —
+prefer them over editing an existing layout:
+
+- **`services_size` append-only growth.** New host services are appended to
+  `OrcPluginServices`; a plugin checks `services->services_size` before reading
+  a field its compiled ABI does not guarantee. This is the sanctioned way to
+  add host capabilities.
+- **Capability-accessor factoring.** To grow a churn-prone domain (audio has
+  driven five of the last ABI bumps), add a **new interface reached through an
+  accessor** rather than new virtuals on the one vtable every plugin depends
+  on — e.g. `frame.audio()` returning an `IFrameAudio*` (header
+  `orc/stage/audio/`). Adding a brand-new interface is additive and changes no
+  existing vtable layout, whereas appending a virtual to
+  `VideoFrameRepresentation` invalidates every plugin. Apply this
+  opportunistically at the next planned `VideoFrameRepresentation` revision
+  rather than as a standalone bump.
+
+See also the compatibility-gating section of
+[plugin-architecture.md](plugin-architecture.md#compatibility-gating).
 
 ### When the host increments a version
 

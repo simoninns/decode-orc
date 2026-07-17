@@ -140,3 +140,18 @@ add_test(
     COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_no_pretier_includes.sh ${CMAKE_SOURCE_DIR}
 )
 set_tests_properties(BundledTieredIncludes PROPERTIES LABELS "sdk")
+
+# orc/sdk/abi_history.yaml is the single source of truth for the ABI/API
+# version log: its last entry must match the header constants, and the
+# generated version-history table in plugin-sdk.md must be current.
+add_test(
+    NAME AbiHistorySync
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_abi_history.sh ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(AbiHistorySync PROPERTIES LABELS "sdk")
+
+add_test(
+    NAME AbiVersionDocsSync
+    COMMAND ${BASH_EXECUTABLE} ${CMAKE_SOURCE_DIR}/cmake/check_abi_history_docs.sh ${CMAKE_SOURCE_DIR}
+)
+set_tests_properties(AbiVersionDocsSync PROPERTIES LABELS "sdk")

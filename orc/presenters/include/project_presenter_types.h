@@ -60,6 +60,9 @@ struct PluginRegistryEntryInfo {
   std::string license_spdx;
   bool is_core_plugin = false;
   uint32_t required_host_abi = 0;
+  uint32_t host_abi_version = 0;  ///< The running host's ABI version.
+  bool abi_compatible = true;     ///< false when required_host_abi is set and
+                                  ///< does not match host_abi_version.
   std::string sha256;
   bool is_loaded = false;
   bool path_exists = false;

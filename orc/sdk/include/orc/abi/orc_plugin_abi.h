@@ -56,41 +56,12 @@ struct OrcPluginServices;
 
 /// Host ABI version — binary compatibility boundary.
 ///
-/// History:
-///   1 — Initial release (StagePluginDescriptor without plugin_api_version).
-///   2 — Added plugin_api_version field to StagePluginDescriptor (Phase 4).
-///   3 — Added OrcPluginServices table; orc_register_stage_plugin now receives
-///        a const OrcPluginServices* as its first parameter. Plugins must use
-///        the services table for logging instead of resolving host symbols
-///        directly. The table later gained the appended stage_services field
-///        (IStageServices; guarded by services_size).
-///   4 — Decode-Orc 2.0: VideoFrameRepresentation replaces
-///        VideoFieldRepresentation as the primary frame-data contract. All
-///        stage plugins must be rebuilt against the v2.0 SDK.
-///   5 — StagePluginDescriptor gains the appended toolchain_tag field
-///        (populate with ORC_SDK_TOOLCHAIN_TAG). The loader requires the
-///        plugin's tag to equal the host's tag exactly, rejecting binaries
-///        built with a different compiler family/major version, C++ standard
-///        library, or (Windows) CRT flavour.
-///   6 — Multi-track audio: VideoFrameRepresentation's single-track audio
-///        accessors (audio_locked, get_audio_sample_count(FrameID),
-///        get_audio_samples(FrameID)) are replaced by the track-indexed API
-///        (audio_track_count, get_audio_track_descriptor, per-track locked
-///        and free-running stream accessors — see orc/stage/audio_track.h).
-///        The vtable layout change requires all plugins to be rebuilt.
-///   7 — Channel-pair audio (SMPTE 272M): the track-indexed audio API is
-///        replaced by the channel-pair API (audio_channel_pair_count,
-///        get_audio_channel_pair_descriptor, get_audio_samples returning
-///        24-bit-in-int32 samples). All audio is 48 kHz frame-locked; the
-///        free-running stream accessors are removed. Contract header
-///        orc/stage/audio_track.h is replaced by
-///        orc/stage/audio/audio_channel_pair.h. The vtable layout change
-///        requires all plugins to be rebuilt.
-///   8 — VideoFrameRepresentation gains prime_audio_decode(): a hook that
-///        forces a deferred whole-stream audio decode (e.g. EFM audio) to run
-///        up front with progress reporting, forwarded down the wrapper chain so
-///        sinks can meter it on the progress dialog. The appended virtual
-///        changes the vtable layout, requiring all plugins to be rebuilt.
+/// The full per-version change log is maintained in machine-readable form in
+/// orc/sdk/abi_history.yaml (the single source of truth), from which the
+/// "Version history" table in docs/technical/plugin-sdk.md is generated. When
+/// bumping this constant, append a matching entry to that file — the
+/// AbiHistorySync CTest (label "sdk") fails otherwise — and regenerate the
+/// docs table with tools/gen_abi_history_docs.sh.
 inline constexpr uint32_t kStagePluginHostAbiVersion = 8;
 
 /// Preprocessor alias for kStagePluginHostAbiVersion.  Allows plugin code to
@@ -106,13 +77,8 @@ static_assert(kStagePluginHostAbiVersion == ORC_SDK_ABI_VERSION,
 
 /// Plugin API version — stage contract compatibility boundary.
 ///
-/// History:
-///   1 — Initial public API surface (Phase 4).
-///   2 — Decode-Orc 2.0: DAGStage execute() receives
-///   VideoFrameRepresentationPtr
-///        (frame-based) instead of VideoFieldRepresentationPtr (field-based).
-///        DropoutRegion replaced by DropoutRun. FieldID/FieldIDRange removed;
-///        FrameID/FrameIDRange are the canonical navigation types.
+/// The per-version change log is tracked alongside the host ABI log in
+/// orc/sdk/abi_history.yaml (see kStagePluginHostAbiVersion above).
 inline constexpr uint32_t kStagePluginApiVersion = 2;
 
 // =============================================================================

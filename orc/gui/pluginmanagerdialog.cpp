@@ -300,9 +300,19 @@ void PluginManagerDialog::refresh() {
     table_->setItem(row, COL_ID, id_item);
     table_->setItem(row, COL_PATH,
                     new QTableWidgetItem(QString::fromStdString(e.path)));
-    table_->setItem(
-        row, COL_VERSION,
-        new QTableWidgetItem(QString::fromStdString(display_version)));
+    auto* version_item =
+        new QTableWidgetItem(QString::fromStdString(display_version));
+    if (!e.abi_compatible) {
+      // The plugin declares an incompatible required_host_abi; the host will
+      // not download or load it. Flag it and explain the fix.
+      version_item->setText(version_item->text() + QStringLiteral(" ⚠"));
+      version_item->setToolTip(
+          QStringLiteral("Requires Orc ABI %1 but this host is ABI %2; the "
+                         "plugin must be rebuilt for ABI %2.")
+              .arg(e.required_host_abi)
+              .arg(e.host_abi_version));
+    }
+    table_->setItem(row, COL_VERSION, version_item);
 
     auto* enabled_item = new QTableWidgetItem();
     enabled_item->setData(ROW_REGISTRY_ENTRY_ROLE, true);

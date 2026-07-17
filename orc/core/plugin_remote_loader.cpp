@@ -18,7 +18,9 @@
 #include <fstream>
 #include <regex>
 
+#include "include/plugin_artifact_name.h"
 #include "include/sha256_hash.h"
+#include "orc/abi/orc_plugin_abi.h"
 
 namespace orc {
 namespace {
@@ -89,25 +91,9 @@ std::string normalize_json_string(std::string value) {
   return value;
 }
 
-std::string platform_extension(const std::string& target_platform) {
-  if (target_platform == "windows") {
-    return ".dll";
-  }
-  if (target_platform == "macos") {
-    return ".dylib";
-  }
-  return ".so";
-}
-
-std::string platform_token(const std::string& target_platform) {
-  if (target_platform == "windows") {
-    return "_windows";
-  }
-  if (target_platform == "macos") {
-    return "_macos";
-  }
-  return "_linux";
-}
+// Artifact naming helpers (extension, token, validation, selection) live in
+// plugin_artifact_name.{h,cpp} — the single source of truth shared with
+// stage_plugin_registry.cpp.
 
 std::string infer_target_platform() {
 #if defined(_WIN32)
@@ -300,11 +286,7 @@ PluginRemoteLoader::resolve_release_asset_from_releases_url(
     }
   }
 
-  struct Candidate {
-    std::string url;
-    std::string name;
-  };
-  std::vector<Candidate> candidates;
+  std::vector<ReleaseAssetCandidate> candidates;
 
   const std::regex download_url_regex(
       R"json("browser_download_url"\s*:\s*"([^"]+)")json");
@@ -328,47 +310,48 @@ PluginRemoteLoader::resolve_release_asset_from_releases_url(
 
   const std::string platform =
       target_platform.empty() ? infer_target_platform() : target_platform;
-  const std::string required_ext = platform_extension(platform);
-  const std::string preferred_token = platform_token(platform);
+  const std::string required_ext = platform_artifact_extension(platform);
+  const std::string preferred_token = platform_artifact_token(platform);
 
-  auto choose_candidate = [&](bool require_token) -> const Candidate* {
-    for (const auto& c : candidates) {
-      const bool has_prefix = c.name.rfind("orc-plugin_", 0) == 0;
-      const bool has_ext =
-          c.name.size() > required_ext.size() &&
-          c.name.substr(c.name.size() - required_ext.size()) == required_ext;
-      const bool has_token = c.name.find(preferred_token) != std::string::npos;
-      if (!has_prefix || !has_ext) {
-        continue;
-      }
-      if (require_token && !has_token) {
-        continue;
-      }
-      return &c;
-    }
-    return nullptr;
-  };
+  // Prefer the asset tagged for this host's ABI; fall back to a legacy
+  // (untagged) name. Selection is a pure, unit-tested function.
+  const ReleaseAssetSelection selection =
+      select_release_asset(candidates, platform, kStagePluginHostAbiVersion);
 
-  const Candidate* selected = choose_candidate(true);
-  if (!selected) {
-    selected = choose_candidate(false);
-  }
-
-  if (!selected) {
+  if (selection.index < 0) {
     result.error_message = "No matching plugin asset found for platform '" +
                            platform + "' (expected orc-plugin_*" +
                            required_ext + ")";
     return result;
   }
 
-  if (warnings && selected->name.find(preferred_token) == std::string::npos) {
-    warnings->push_back(
-        "Selected release asset does not include expected platform token '" +
-        preferred_token + "'; using best extension match instead");
+  const ReleaseAssetCandidate& selected = candidates[selection.index];
+
+  if (warnings) {
+    if (selection.missing_platform_token) {
+      warnings->push_back(
+          "Selected release asset does not include expected platform token '" +
+          preferred_token + "'; using best extension match instead");
+    }
+    if (selection.used_legacy_untagged) {
+      warnings->push_back("No release asset tagged for Orc ABI " +
+                          std::to_string(kStagePluginHostAbiVersion) +
+                          " (_abi" +
+                          std::to_string(kStagePluginHostAbiVersion) +
+                          "); using legacy-named asset '" + selected.name +
+                          "', which is validated at load time");
+    }
+    if (selection.abi_mismatch) {
+      warnings->push_back(
+          "Selected release asset '" + selected.name +
+          "' is tagged for a different Orc ABI than the host (ABI " +
+          std::to_string(kStagePluginHostAbiVersion) +
+          "); it will need a rebuild");
+    }
   }
 
-  result.release_asset_url = selected->url;
-  result.release_asset_name = selected->name;
+  result.release_asset_url = selected.url;
+  result.release_asset_name = selected.name;
   result.success = true;
   return result;
 }
@@ -433,13 +416,11 @@ PluginRemoteLoader::DownloadResult PluginRemoteLoader::download_release_asset(
     const std::string& expected_sha256) {
   DownloadResult result;
 
-  // Validate asset name format
-  static const std::regex kPattern(
-      R"(^orc-plugin_[A-Za-z0-9._-]+_[A-Za-z0-9._-]+\.(so|dylib|dll)$)");
-  if (!std::regex_match(asset_name, kPattern)) {
+  // Validate asset name format (shared with stage_plugin_registry.cpp).
+  if (!is_valid_release_asset_name(asset_name)) {
     result.error_message =
         "Invalid asset name format (expected "
-        "orc-plugin_<stage>_<platform>.<so|dylib|dll>): " +
+        "orc-plugin_<stage>_<platform>[_abi<N>].<so|dylib|dll>): " +
         asset_name;
     if (warnings) {
       warnings->push_back(result.error_message);

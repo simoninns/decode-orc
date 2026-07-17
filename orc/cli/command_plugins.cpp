@@ -80,6 +80,14 @@ int cmd_plugins_list() {
       std::cout << "  core:     " << (e.is_core_plugin ? "yes" : "no") << "\n";
       std::cout << "  exists:   " << (e.path_exists ? "yes" : "no") << "\n";
       std::cout << "  loaded:   " << (e.is_loaded ? "yes" : "no") << "\n";
+      if (e.required_host_abi != 0) {
+        std::cout << "  host ABI: requires " << e.required_host_abi << " (host "
+                  << e.host_abi_version << ")";
+        if (!e.abi_compatible) {
+          std::cout << " — needs rebuild for ABI " << e.host_abi_version;
+        }
+        std::cout << "\n";
+      }
       std::cout << "\n";
     }
   }

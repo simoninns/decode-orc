@@ -11,6 +11,7 @@
 #include "../../../orc/core/include/stage_plugin_registry.h"
 
 #include <gtest/gtest.h>
+#include <orc/abi/orc_plugin_abi.h>
 
 namespace orc_unit_test {
 
@@ -126,10 +127,10 @@ plugins:
 
   ASSERT_EQ(result.entries.size(), 1U);
   ASSERT_EQ(result.warnings.size(), 1U);
-  EXPECT_EQ(
-      result.warnings.front(),
-      "Registry entry has invalid release_asset_name 'invalid-file-name.so' "
-      "(expected orc-plugin_<stage-name>_<platform>.<so|dylib|dll>)");
+  EXPECT_EQ(result.warnings.front(),
+            "Registry entry has invalid release_asset_name "
+            "'invalid-file-name.so' (expected "
+            "orc-plugin_<stage-name>_<platform>[_abi<N>].<so|dylib|dll>)");
 }
 
 TEST(StagePluginRegistryTest, Serialize_YamlRoundTripsRegistryEntries) {
@@ -153,7 +154,8 @@ TEST(StagePluginRegistryTest, Serialize_YamlRoundTripsRegistryEntries) {
   entry.trust_state = "untrusted";
   entry.license_spdx = "MIT";
   entry.is_core_plugin = false;
-  entry.required_host_abi = 12;
+  // Use the host's own ABI so the round-trip is not filtered by the ABI gate.
+  entry.required_host_abi = orc::kStagePluginHostAbiVersion;
   entries.push_back(entry);
 
   const auto yaml_text = orc::StagePluginRegistry::serialize_yaml(entries);
@@ -384,6 +386,81 @@ TEST(StagePluginRegistryTest, Serialize_YamlRoundTripsSha256) {
 
   ASSERT_EQ(reparsed.entries.size(), 1U);
   EXPECT_EQ(reparsed.entries.front().sha256, entry.sha256);
+}
+
+// --- required_host_abi gating (ABI-lifecycle Phase 3) ---------------------
+
+// A local entry whose required_host_abi matches the host loads normally.
+TEST(StagePluginRegistryTest, AbiGate_MatchingRequiredHostAbi_LoadsNormally) {
+  orc::StagePluginRegistryEntry entry;
+  entry.plugin_id = "match.abi.plugin";
+  entry.path = "/plugins/libmatch.so";
+  entry.trust_state = "trusted";
+  entry.required_host_abi = orc::kStagePluginHostAbiVersion;
+
+  const auto result = orc::StagePluginRegistry::parse_yaml(
+      orc::StagePluginRegistry::serialize_yaml({entry}));
+
+  ASSERT_TRUE(result.warnings.empty());
+  ASSERT_EQ(result.entries.size(), 1U);
+  EXPECT_EQ(result.entries.front().path, "/plugins/libmatch.so");
+}
+
+// A non-core entry with an incompatible required_host_abi is neither
+// downloaded nor loaded: it stays visible with a cleared path and a
+// "needs a rebuild" warning naming both ABI numbers.
+TEST(StagePluginRegistryTest, AbiGate_MismatchedRequiredHostAbi_IsGated) {
+  orc::StagePluginRegistryEntry entry;
+  entry.plugin_id = "mismatch.abi.plugin";
+  entry.path = "/plugins/libmismatch.so";
+  entry.trust_state = "trusted";
+  entry.required_host_abi = orc::kStagePluginHostAbiVersion + 1;
+
+  const auto result = orc::StagePluginRegistry::parse_yaml(
+      orc::StagePluginRegistry::serialize_yaml({entry}));
+
+  ASSERT_EQ(result.entries.size(), 1U);
+  EXPECT_TRUE(result.entries.front().path.empty());
+  ASSERT_EQ(result.warnings.size(), 1U);
+  const std::string& warning = result.warnings.front();
+  EXPECT_NE(warning.find("needs a rebuild"), std::string::npos);
+  EXPECT_NE(warning.find(std::to_string(orc::kStagePluginHostAbiVersion + 1)),
+            std::string::npos);
+  EXPECT_NE(warning.find(std::to_string(orc::kStagePluginHostAbiVersion)),
+            std::string::npos);
+}
+
+// A zero required_host_abi means "unspecified" and is not gated.
+TEST(StagePluginRegistryTest, AbiGate_LegacyZeroRequiredHostAbi_NotGated) {
+  orc::StagePluginRegistryEntry entry;
+  entry.plugin_id = "legacy.abi.plugin";
+  entry.path = "/plugins/liblegacy.so";
+  entry.trust_state = "trusted";
+  entry.required_host_abi = 0;
+
+  const auto result = orc::StagePluginRegistry::parse_yaml(
+      orc::StagePluginRegistry::serialize_yaml({entry}));
+
+  ASSERT_TRUE(result.warnings.empty());
+  ASSERT_EQ(result.entries.size(), 1U);
+  EXPECT_EQ(result.entries.front().path, "/plugins/liblegacy.so");
+}
+
+// Core plugins are compiled in-tree against the current ABI and are exempt
+// from the gate even if their recorded required_host_abi is stale.
+TEST(StagePluginRegistryTest, AbiGate_CorePlugin_IsExempt) {
+  orc::StagePluginRegistryEntry entry;
+  entry.plugin_id = "core.abi.plugin";
+  entry.path = "/plugins/libcore.so";
+  entry.is_core_plugin = true;
+  entry.required_host_abi = orc::kStagePluginHostAbiVersion + 1;
+
+  const auto result = orc::StagePluginRegistry::parse_yaml(
+      orc::StagePluginRegistry::serialize_yaml({entry}));
+
+  ASSERT_TRUE(result.warnings.empty());
+  ASSERT_EQ(result.entries.size(), 1U);
+  EXPECT_EQ(result.entries.front().path, "/plugins/libcore.so");
 }
 
 }  // namespace orc_unit_test

@@ -55,7 +55,7 @@ class PluginRemoteLoader {
    *        Example:
    * https://api.github.com/repos/owner/repo/releases/download/v1.0.0/plugin.so
    * @param asset_name Expected filename (must match
-   * orc-plugin_<stage>_<platform>.<ext> pattern)
+   * orc-plugin_<stage>_<platform>[_abi<N>].<ext> pattern)
    * @param target_platform Platform identifier (linux, macos, windows)
    * @param warnings Optional warning accumulator for informational messages
    * @param expected_sha256 Optional SHA-256 digest (64 hex chars). When

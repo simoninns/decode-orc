@@ -9,6 +9,7 @@
 
 #include "project_presenter.h"
 
+#include <orc/abi/orc_plugin_abi.h>
 #include <orc/stage/common_types.h>
 #include <orc/stage/orc_source_parameters.h>
 #include <orc/stage/params/stage_parameter.h>
@@ -780,6 +781,9 @@ PluginRegistryInfo ProjectPresenter::readPluginRegistry() {
     info.license_spdx = entry.license_spdx;
     info.is_core_plugin = entry.is_core_plugin;
     info.required_host_abi = entry.required_host_abi;
+    info.host_abi_version = kStagePluginHostAbiVersion;
+    info.abi_compatible = entry.required_host_abi == 0 ||
+                          entry.required_host_abi == kStagePluginHostAbiVersion;
     info.sha256 = entry.sha256;
     info.is_loaded = loaded_paths.count(entry.path) > 0 ||
                      (!entry.plugin_id.empty() &&

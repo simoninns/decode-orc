@@ -128,19 +128,21 @@ compatibility mechanism.
 
 Two version numbers plus the toolchain tag govern compatibility. All three
 are checked before a plugin is accepted; a mismatch causes the plugin to be
-skipped with a logged diagnostic.
+skipped with a logged diagnostic. For guidance on which changes force a
+`host_abi_version` bump, see the
+[ABI impact decision table](plugin-sdk.md#abi-impact-decision-table).
 
 ### `host_abi_version`
 
 Controls the binary ABI: the layout of `StagePluginDescriptor`, the entrypoint
 signatures, and the `register_stage` callback contract.
 
-**Current value:** `7` (channel-pair audio per SMPTE 272M-1994: the
-track-indexed audio API was replaced by the channel-pair API declared in
-`<orc/stage/audio_channel_pair.h>` and
-`<orc/stage/video_frame_representation.h>` — 48 kHz frame-locked
-24-bit-in-int32 stereo pairs only, free-running stream accessors removed —
-changing the vtable layout; all plugins must be rebuilt)
+**Current value:** `8` (`VideoFrameRepresentation` gained
+`prime_audio_decode()`, an appended virtual that forces a deferred
+whole-stream audio decode to run up front with progress reporting — changing
+the vtable layout; all plugins must be rebuilt). The authoritative per-version
+change log is `orc/sdk/abi_history.yaml`, rendered as the version-history table
+in [plugin-sdk.md](plugin-sdk.md#version-history).
 
 Bumped when any of the following change:
 - `StagePluginDescriptor` field order or alignment
@@ -203,7 +205,7 @@ Each entry records:
 | `trust_state` | Trust level, enforced before loading: entries other than `trusted` are neither downloaded nor `dlopen`ed unless `is_core_plugin` is set. Adding a plugin through the GUI Plugin Manager grants trust immediately (adding is the consent step); entries that arrive from outside the application (e.g. a hand-edited registry file) default to `untrusted` and can be trusted by enabling them in the Plugin Manager or with `orc-cli plugins trust <id>` / `untrust <id>` |
 | `license_spdx` | SPDX license identifier |
 | `is_core_plugin` | Marks entries supplied by Decode-Orc itself; implicitly trusted |
-| `required_host_abi` | Expected host ABI version |
+| `required_host_abi` | Host ABI the plugin was built for. Enforced before download and load: a non-zero value that does not equal the host's `host_abi_version` means the entry is neither downloaded nor `dlopen`ed — it stays visible with a "needs a rebuild for Orc ABI N" message in `orc-cli plugins list` and the GUI Plugin Manager. `0` means unspecified (not gated); `is_core_plugin` entries are exempt |
 | `sha256` | Optional SHA-256 digest (64 hex chars) of the plugin binary for `github_release_asset` entries; verified after download and on cache hits |
 
 Entries with `artifact_source: github_release_asset` and an absent or empty
@@ -229,6 +231,9 @@ What the host verifies before running plugin code, and what it does not:
   the registry digest when one is recorded (`plugin_remote_loader.cpp`).
 - `host_abi_version` and `plugin_api_version` — exact-match at load time
   (`stage_plugin_loader.cpp`).
+- `required_host_abi` — a non-zero registry value that does not match the
+  host ABI blocks download and load early, before any bytes are fetched
+  (`stage_plugin_registry.cpp`).
 - `toolchain_tag` — exact-match against the host's compiler/stdlib/build
   configuration tag (ABI v5).
 
@@ -284,13 +289,21 @@ install/build locations relative to the executable:
 All plugin release artifacts follow a consistent naming scheme:
 
 ```
-orc-plugin_<stage-name>_<platform>.<ext>
+orc-plugin_<stage-name>_<platform>[_abi<N>].<ext>
 ```
 
+The optional `_abi<N>` token records the host ABI version the binary targets,
+so one release can carry builds for several host ABIs. The host prefers the
+asset tagged for its own ABI, falls back to a legacy (untagged) name — which
+the load-time gate still validates — and reports "needs a rebuild" rather than
+downloading an asset tagged for an incompatible ABI. Untagged names remain
+valid.
+
 Examples:
-- `orc-plugin_skeleton_passthrough_linux.so`
-- `orc-plugin_skeleton_passthrough_macos.dylib`
-- `orc-plugin_skeleton_passthrough_windows.dll`
+- `orc-plugin_skeleton_passthrough_linux.so` (legacy, untagged)
+- `orc-plugin_skeleton_passthrough_linux_abi8.so` (ABI-tagged)
+- `orc-plugin_skeleton_passthrough_macos_abi8.dylib`
+- `orc-plugin_skeleton_passthrough_windows_abi8.dll`
 
 External plugin repository names follow the same prefix convention
 (`orc-plugin_<name>`), both for official decode-orc organization repositories

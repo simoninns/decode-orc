@@ -11,6 +11,17 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          # Full history so the ABI bump-procedure guard can diff contract
+          # headers against origin/main.
+          fetch-depth: 0
+
+      # Pure-bash guard (no build): fails when the ABI/API header constants,
+      # abi_history.yaml, and the generated docs table drift, or when a contract
+      # header changed without an acknowledged history edit. Runs before the
+      # expensive Nix build so an ABI-procedure slip fails fast.
+      - name: ABI bump procedure guard
+        run: bash tools/check_abi_bump.sh .
 
       - name: Install Nix
         uses: cachix/install-nix-action@8aa03977d8d733052d78f4e008a241fd1dbf36b3 # v31

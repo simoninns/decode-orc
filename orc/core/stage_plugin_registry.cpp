@@ -16,9 +16,10 @@
 #include <filesystem>
 #include <fstream>
 #include <optional>
-#include <regex>
 
+#include "include/plugin_artifact_name.h"
 #include "include/plugin_remote_loader.h"
+#include "orc/abi/orc_plugin_abi.h"
 
 namespace orc {
 namespace {
@@ -35,14 +36,6 @@ bool is_valid_sha256_hex(const std::string& value) {
     }
   }
   return true;
-}
-
-bool is_valid_release_asset_name(const std::string& name) {
-  // Phase 7C convention:
-  // orc-plugin_<stage-name>_<platform>.<so|dylib|dll>
-  static const std::regex kPattern(
-      R"(^orc-plugin_[A-Za-z0-9._-]+_[A-Za-z0-9._-]+\.(so|dylib|dll)$)");
-  return std::regex_match(name, kPattern);
 }
 
 std::optional<std::string> extract_github_repo_name(const std::string& url) {
@@ -160,7 +153,8 @@ StagePluginRegistryEntry parse_plugin_entry(
     warnings.push_back(
         "Registry entry has invalid release_asset_name '" +
         entry.release_asset_name +
-        "' (expected orc-plugin_<stage-name>_<platform>.<so|dylib|dll>)");
+        "' (expected "
+        "orc-plugin_<stage-name>_<platform>[_abi<N>].<so|dylib|dll>)");
   }
 
   if (const auto repo_name = extract_github_repo_name(entry.source_repo_url);
@@ -258,6 +252,27 @@ StagePluginRegistry::LoadResult StagePluginRegistry::parse_yaml(
 
   for (const auto& plugin_node : plugins_node) {
     auto entry = parse_plugin_entry(plugin_node, result.warnings);
+
+    // ABI gate: an entry that declares an incompatible required_host_abi is
+    // neither downloaded nor loaded — the load-time gate in the loader would
+    // reject the binary anyway, so fail early with a clearer message. A zero
+    // value means "unspecified" and is not gated (legacy entries). Core
+    // plugins are compiled in-tree against the current ABI and are exempt
+    // (mirroring is_entry_trusted). Keep the entry visible with no resolved
+    // path so GUI/CLI listings can explain why, mirroring the trust gate below.
+    if (!entry.is_core_plugin && entry.required_host_abi != 0 &&
+        entry.required_host_abi != kStagePluginHostAbiVersion) {
+      result.warnings.push_back(
+          "Plugin '" + entry.plugin_id + "' targets Orc ABI " +
+          std::to_string(entry.required_host_abi) + " but the host is ABI " +
+          std::to_string(kStagePluginHostAbiVersion) +
+          "; it needs a rebuild for ABI " +
+          std::to_string(kStagePluginHostAbiVersion) +
+          ". Skipping download and load.");
+      entry.path.clear();
+      result.entries.push_back(std::move(entry));
+      continue;
+    }
 
     // If entry has no path but references a remote release asset, attempt to
     // download it

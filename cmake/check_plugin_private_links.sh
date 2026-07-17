@@ -5,8 +5,8 @@
 #
 # Usage:       check_plugin_private_links.sh [<root>]
 #              In-tree mode (<root> is a decode-orc checkout): scans
-#              <root>/orc/plugins/stages and <root>/3rd-party-plugins.
-#              Standalone mode (neither directory exists under <root>):
+#              <root>/orc/plugins/stages.
+#              Standalone mode (that directory does not exist under <root>):
 #              scans every CMakeLists.txt under <root> itself — this is how
 #              third-party plugin authors run the gate against their own
 #              repository.
@@ -63,14 +63,11 @@ scan_file() {
 echo "Scanning plugin build files for private host link targets..."
 echo
 
-if [[ -d "$REPO_ROOT/orc/plugins/stages" || -d "$REPO_ROOT/3rd-party-plugins" ]]; then
+if [[ -d "$REPO_ROOT/orc/plugins/stages" ]]; then
     # In-tree mode: decode-orc checkout.
-    for scan_root in "$REPO_ROOT/orc/plugins/stages" "$REPO_ROOT/3rd-party-plugins"; do
-        [[ -d "$scan_root" ]] || continue
-        while IFS= read -r cmake_file; do
-            scan_file "$cmake_file"
-        done < <(find "$scan_root" -name CMakeLists.txt -type f | sort)
-    done
+    while IFS= read -r cmake_file; do
+        scan_file "$cmake_file"
+    done < <(find "$REPO_ROOT/orc/plugins/stages" -name CMakeLists.txt -type f | sort)
 else
     # Standalone mode: <root> is a single external plugin tree.
     while IFS= read -r cmake_file; do

@@ -7,8 +7,8 @@
 #
 # Usage:       check_plugin_private_includes.sh [<root>]
 #              In-tree mode (<root> is a decode-orc checkout): scans
-#              <root>/orc/plugins/stages and <root>/3rd-party-plugins.
-#              Standalone mode (neither directory exists under <root>):
+#              <root>/orc/plugins/stages.
+#              Standalone mode (that directory does not exist under <root>):
 #              scans <root> itself as a single external plugin tree — this
 #              is how third-party plugin authors run the gate against their
 #              own repository.
@@ -24,12 +24,11 @@ set -u
 
 REPO_ROOT="${1:-.}"
 PLUGIN_STAGES_DIR="${REPO_ROOT}/orc/plugins/stages"
-THIRD_PARTY_DIR="${REPO_ROOT}/3rd-party-plugins"
 
 # Standalone mode: <root> is a single external plugin tree, not a decode-orc
 # checkout. The whole tree is one plugin owner.
 STANDALONE_TREE=0
-if [ ! -d "$PLUGIN_STAGES_DIR" ] && [ ! -d "$THIRD_PARTY_DIR" ]; then
+if [ ! -d "$PLUGIN_STAGES_DIR" ]; then
     STANDALONE_TREE=1
 fi
 
@@ -311,11 +310,6 @@ else
     echo "Scanning in-tree plugin code against the SDK include allowlist..."
     echo
     scan_tree "$PLUGIN_STAGES_DIR" ""
-
-    echo
-    echo "Scanning third-party plugin code against the SDK include allowlist..."
-    echo
-    scan_tree "$THIRD_PARTY_DIR" " (3rd-party)"
 fi
 
 echo

@@ -45,7 +45,9 @@ For comprehensive build instructions covering Nix, CMake, and platform-specific 
 ## Plugin Development
 
 Third-party plugins are external repositories and should follow the naming
-convention `orc-plugin_<stage-name>`.
+convention `orc-plugin_<stage-name>`. They build against the standalone Plugin
+SDK package alone — no decode-orc source tree or host dependency stack is
+required.
 
 Canonical starter template repository:
 
@@ -54,8 +56,16 @@ Canonical starter template repository:
 Decode-Orc host integration consumes pre-compiled plugin artifacts from release
 assets (or a local pre-compiled path for development/testing).
 
-For in-repo simulated external-plugin workflow details, see
-`3rd-party-plugins/README.md`.
+Documentation:
+
+- [Plugin Author Guide](docs/technical/plugin-author-guide.md) — end-to-end
+  walkthrough from an empty directory to a plugin loaded in the host.
+- [Plugin Publishing Guide](docs/technical/plugin-publishing.md) — release-asset
+  naming, digests, ABI-rebuild expectations, and submitting a curated-index entry.
+- [Plugin SDK Developer Guide](docs/technical/plugin-sdk.md) — tiered header
+  reference, CMake integration, and the versioning/ABI policy.
+- [Plugin Architecture](docs/technical/plugin-architecture.md) — runtime flow,
+  compatibility gating, registry, and the curated index.
 
 # Using Agentic Coding AI
 

@@ -11,9 +11,9 @@
 #         -DCMAKE_PREFIX_PATH=<scratch-prefix>
 #   cmake --build <fixture-build-dir>
 #
-# Living under orc-tests/ keeps it outside the in-tree plugin scan roots
-# (orc/plugins/stages, 3rd-party-plugins); the installed gate scripts are run
-# against this directory explicitly in standalone-tree mode.
+# Living under orc-tests/ keeps it outside the in-tree plugin scan root
+# (orc/plugins/stages); the installed gate scripts are run against this
+# directory explicitly in standalone-tree mode.
 
 cmake_minimum_required(VERSION 3.20)
 project(orc-external-fixture-plugin VERSION 0.1.0 LANGUAGES CXX)

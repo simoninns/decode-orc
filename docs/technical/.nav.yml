@@ -3,3 +3,5 @@ nav:
   - disc-mapping.md
   - plugin-architecture.md
   - plugin-sdk.md
+  - plugin-author-guide.md
+  - plugin-publishing.md

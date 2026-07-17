@@ -374,8 +374,8 @@ Plugin architecture and SDK documentation are published in `docs/technical/plugi
 
 | Change | Doc to update |
 |--------|---------------|
-| `kStagePluginHostAbiVersion` or `kStagePluginApiVersion` bumped | Both files — update version tables and compatibility sections |
-| New or removed public SDK header (`orc/sdk/include/orc/plugin/` or `orc/sdk/include/orc/stage/`) | `plugin-sdk.md` — SDK Headers section, and the allowlist in `cmake/check_plugin_private_includes.sh` |
+| `kStagePluginHostAbiVersion` or `kStagePluginApiVersion` bumped | `orc/sdk/abi_history.yaml` (source of truth) → regenerate the `plugin-sdk.md` version-history block with `tools/gen_abi_history_docs.sh`; update the compatibility sections in both files. The `AbiHistorySync`/`AbiVersionDocsSync` gates and `tools/check_abi_bump.sh` enforce this |
+| New or removed public SDK header (`orc/sdk/include/orc/abi/`, `orc/stage/`, or `orc/support/`) | `orc/sdk/sdk_headers.yaml` (single-source manifest) → regenerate the allowlist (`tools/gen_sdk_header_allowlist.sh` → `cmake/sdk_header_allowlist.txt`) and the `plugin-sdk.md` header tables (`tools/gen_sdk_header_docs.sh`). The `SdkHeaderManifestSync`/`SdkHeaderDocsSync` gates enforce this — do not hand-edit the allowlist or the generated tables |
 | `StagePluginDescriptor`, entrypoint signatures, or callback contract changed | `plugin-architecture.md` — Compatibility Gating section |
 | Registry YAML schema fields added or removed | `plugin-architecture.md` — Plugin Registry table |
 | Curated plugin index (`registry_schema`) fields added or removed | `plugin-architecture.md` — Curated plugin index table; `orc-plugin-registry/README.md` |

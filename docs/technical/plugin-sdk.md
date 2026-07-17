@@ -367,13 +367,13 @@ orc-plugin_<stage-name>_<platform>.<ext>
 
 ### Minimal plugin structure
 
-The registration helpers in `<orc/plugin/orc_plugin_registration.h>` (pulled
+The registration helpers in `<orc/abi/orc_plugin_registration.h>` (pulled
 in by the umbrella header) expand the entire plugin boilerplate — descriptor
 version/toolchain fields, both entrypoints, service-table storage, and stage
 registration — from two statements:
 
 ```cpp
-#include <orc/plugin/orc_plugin_sdk.h>
+#include <orc/abi/orc_plugin_sdk.h>
 
 #include "my_stage.h"  // Your DAGStage subclass
 
@@ -414,7 +414,7 @@ signatures, conditional registration, dynamic stage sets — can write the two
 exported entrypoints by hand instead:
 
 ```cpp
-#include <orc/plugin/orc_plugin_sdk.h>
+#include <orc/abi/orc_plugin_sdk.h>
 
 #include "my_stage.h"
 
@@ -425,7 +425,7 @@ namespace {
 orc::DAGStagePtr create_my_stage() { return std::make_shared<MyStage>(); }
 
 // Plugin descriptor. Fields are positional and must follow the declaration
-// order in <orc/plugin/orc_plugin_abi.h>. All pointer fields must point to
+// order in <orc/abi/orc_plugin_abi.h>. All pointer fields must point to
 // static storage.
 constexpr orc::StagePluginDescriptor kDescriptor{
     "com.example.stage.my-filter",    // plugin_id

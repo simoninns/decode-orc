@@ -434,13 +434,15 @@ Enforcement happens at two levels:
    dependencies are therefore invisible to plugin translation units; including a
    private host header fails the plugin's compile. Third-party libraries a
    plugin uses directly must be declared by the plugin's own CMake target.
-2. **Scan gates** — two hard-fail CI gates (`ctest -L sdk`) run on
-   `orc/plugins/stages/` and `3rd-party-plugins/`:
+2. **Scan gates** — two hard-fail CI gates (`ctest -L sdk`) run on the
+   in-tree plugin tree `orc/plugins/stages/`:
    `check_plugin_private_includes.sh` fails on any include that is not an
    allowlisted SDK header, a plugin-local header, a standard-library or
    platform header, or a permitted third-party header;
    `check_plugin_private_links.sh` fails on plugin build files that link
-   private host targets directly.
+   private host targets directly. Third-party authors run the same scripts
+   in standalone mode against their own repository (see
+   [Publishing a plugin](../technical/plugin-publishing.md)).
 
 ## Third-Party Plugin Repositories
 
@@ -454,4 +456,8 @@ It provides:
 - Packaging conventions
 - SPDX / licensing guidance
 
-Use it as the starting point for any new out-of-tree plugin.
+Use it as the starting point for any new out-of-tree plugin. For a
+step-by-step walkthrough from an empty directory to a loaded plugin, see the
+[Plugin Author Guide](../technical/plugin-author-guide.md); for release and
+registry submission, see the
+[Plugin Publishing Guide](../technical/plugin-publishing.md).

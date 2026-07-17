@@ -13,16 +13,15 @@
 #include <orc/stage/observation/black_psnr_observer.h>
 #include <orc/stage/observation/burst_level_observer.h>
 #include <orc/stage/observation/closed_caption_observer.h>
+#include <orc/stage/observation/colour_frame_phase_observer.h>
+#include <orc/stage/observation/field_quality_observer.h>
+#include <orc/stage/observation/fm_code_observer.h>
+#include <orc/stage/observation/white_flag_observer.h>
 #include <orc/stage/observation/white_snr_observer.h>
 #include <orc/support/logging.h>
 
 #include <algorithm>
 #include <sstream>
-
-#include "observers/colour_frame_phase_observer.h"
-#include "observers/field_quality_observer.h"
-#include "observers/fm_code_observer.h"
-#include "observers/white_flag_observer.h"
 
 namespace orc {
 

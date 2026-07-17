@@ -7,7 +7,7 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "include/observer_config.h"
+#include "observer_config.h"
 
 #include <sstream>
 

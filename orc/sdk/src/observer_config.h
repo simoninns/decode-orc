@@ -1,6 +1,6 @@
 /*
  * File:        observer_config.h
- * Module:      orc-core
+ * Module:      orc-sdk-support
  * Purpose:     Observer configuration schema and validation
  *
  * SPDX-License-Identifier: GPL-3.0-or-later

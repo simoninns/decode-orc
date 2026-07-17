@@ -1,6 +1,6 @@
 /*
  * File:        fm_code_observer.h
- * Module:      orc-core
+ * Module:      decode-orc Plugin SDK (stage contract)
  * Purpose:     FM code observer (NTSC line 10)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -8,6 +8,9 @@
  */
 
 #pragma once
+
+// SDK TIER: stage/observation — stage contract type crossing the plugin
+// boundary. A layout change here bumps the host ABI version.
 
 #include <orc/stage/observation/observer.h>
 

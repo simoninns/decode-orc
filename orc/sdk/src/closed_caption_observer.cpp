@@ -13,8 +13,7 @@
 #include <orc/stage/observation/observation_context.h>
 #include <orc/stage/video_frame_representation.h>
 #include <orc/support/logging.h>
-
-#include "vbi_utilities.h"
+#include <orc/support/vbi_utilities.h>
 
 namespace orc {
 

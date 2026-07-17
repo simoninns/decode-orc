@@ -1,6 +1,6 @@
 /*
  * File:        vbi_utilities.h
- * Module:      orc-core
+ * Module:      decode-orc Plugin SDK (support tier)
  * Purpose:     Vbi Utilities
  *
  * SPDX-License-Identifier: GPL-3.0-or-later

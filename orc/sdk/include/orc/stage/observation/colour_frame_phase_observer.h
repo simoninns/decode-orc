@@ -1,6 +1,6 @@
 /*
  * File:        colour_frame_phase_observer.h
- * Module:      orc-core
+ * Module:      decode-orc Plugin SDK (stage contract)
  * Purpose:     Colour-frame sequence index observer
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -8,6 +8,9 @@
  */
 
 #pragma once
+
+// SDK TIER: stage/observation — stage contract type crossing the plugin
+// boundary. A layout change here bumps the host ABI version.
 
 #include <orc/stage/observation/observer.h>
 

@@ -7,7 +7,7 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
-#include "vbi_utilities.h"
+#include <orc/support/vbi_utilities.h>
 
 #include <algorithm>
 

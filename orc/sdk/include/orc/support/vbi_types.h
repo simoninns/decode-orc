@@ -1,6 +1,6 @@
 /*
  * File:        vbi_types.h
- * Module:      orc-core
+ * Module:      decode-orc Plugin SDK (support tier)
  * Purpose:     VBI data types
  *
  * SPDX-License-Identifier: GPL-3.0-or-later

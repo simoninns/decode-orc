@@ -133,10 +133,14 @@ grouped by domain. A layout change here bumps the host ABI version.
 | `<orc/stage/observation/black_psnr_observer.h>` | Black PSNR (Peak Signal-to-Noise Ratio) observer |
 | `<orc/stage/observation/burst_level_observer.h>` | Color burst median IRE level observer |
 | `<orc/stage/observation/closed_caption_observer.h>` | Closed caption observer (EIA-608 line 21/22) |
+| `<orc/stage/observation/colour_frame_phase_observer.h>` | Colour-frame sequence index observer |
+| `<orc/stage/observation/field_quality_observer.h>` | Field quality metrics observer |
+| `<orc/stage/observation/fm_code_observer.h>` | FM code observer (NTSC line 10) |
 | `<orc/stage/observation/observation_context.h>` | Pipeline-scoped observation storage |
 | `<orc/stage/observation/observation_context_interface.h>` | Pipeline-scoped observation storage |
 | `<orc/stage/observation/observation_schema.h>` | Observation schema definitions |
 | `<orc/stage/observation/observer.h>` | Observer base class |
+| `<orc/stage/observation/white_flag_observer.h>` | White flag observer (NTSC line 11) |
 | `<orc/stage/observation/white_snr_observer.h>` | White SNR (Signal-to-Noise Ratio) observer |
 
 **params**
@@ -174,6 +178,8 @@ plugin at the author's convenience.
 | `<orc/support/lru_cache.h>` | Thread-safe least-recently-used cache |
 | `<orc/support/preview_helpers.h>` | Helper functions for stage preview rendering |
 | `<orc/support/stage_instructions.h>` | Runtime loader for a stage's instructions.md (platform file I/O) |
+| `<orc/support/vbi_types.h>` | VBI line data structures shared by the VBI decoder and observers |
+| `<orc/support/vbi_utilities.h>` | VBI bit-extraction and manchester/biphase decode helpers |
 
 #### Deprecated pre-tier include paths
 

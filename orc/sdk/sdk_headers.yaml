@@ -281,6 +281,24 @@ headers:
     deprecated: false
     since_abi: ""
     notes: "Closed caption observer (EIA-608 line 21/22)"
+  - path: orc/stage/observation/colour_frame_phase_observer.h
+    tier: stage
+    domain: "observation"
+    deprecated: false
+    since_abi: ""
+    notes: "Colour-frame sequence index observer"
+  - path: orc/stage/observation/field_quality_observer.h
+    tier: stage
+    domain: "observation"
+    deprecated: false
+    since_abi: ""
+    notes: "Field quality metrics observer"
+  - path: orc/stage/observation/fm_code_observer.h
+    tier: stage
+    domain: "observation"
+    deprecated: false
+    since_abi: ""
+    notes: "FM code observer (NTSC line 10)"
   - path: orc/stage/observation_context.h
     tier: stage
     domain: "foundation"
@@ -323,6 +341,12 @@ headers:
     deprecated: true
     since_abi: ""
     notes: "Deprecated include-path shim — forwards to the tiered SDK layout"
+  - path: orc/stage/observation/white_flag_observer.h
+    tier: stage
+    domain: "observation"
+    deprecated: false
+    since_abi: ""
+    notes: "White flag observer (NTSC line 11)"
   - path: orc/stage/observation/white_snr_observer.h
     tier: stage
     domain: "observation"
@@ -575,3 +599,15 @@ headers:
     deprecated: false
     since_abi: ""
     notes: "Runtime loader for a stage's instructions.md (platform file I/O)"
+  - path: orc/support/vbi_types.h
+    tier: support
+    domain: ""
+    deprecated: false
+    since_abi: ""
+    notes: "VBI line data structures shared by the VBI decoder and observers"
+  - path: orc/support/vbi_utilities.h
+    tier: support
+    domain: ""
+    deprecated: false
+    since_abi: ""
+    notes: "VBI bit-extraction and manchester/biphase decode helpers"

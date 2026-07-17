@@ -22,6 +22,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -1008,11 +1009,16 @@ PluginIndexArtifactInfo to_artifact_info(const orc::PluginIndexArtifact& a) {
 // Build a PluginIndexClient wired to the on-disk last-good cache.
 orc::PluginIndexClient::RefreshResult refresh_plugin_index(
     const orc::IHttpFetcher& fetcher) {
-  const std::string cache_path = orc::PluginIndexClient::default_cache_path();
+  // Capture the path through a shared_ptr so the cache-callback closures are
+  // nothrow-copy/move-constructible: a by-value std::string capture makes the
+  // closure's (std::function-required) copy constructor potentially-throwing,
+  // which bugprone-exception-escape flags as an error under -Werror.
+  const auto cache_path = std::make_shared<std::string>(
+      orc::PluginIndexClient::default_cache_path());
   orc::PluginIndexClient client(
       fetcher,
       [cache_path]() -> std::optional<std::string> {
-        std::ifstream in(cache_path, std::ios::binary);
+        std::ifstream in(*cache_path, std::ios::binary);
         if (!in) {
           return std::nullopt;
         }
@@ -1023,8 +1029,8 @@ orc::PluginIndexClient::RefreshResult refresh_plugin_index(
       [cache_path](const std::string& body) {
         std::error_code ec;
         std::filesystem::create_directories(
-            std::filesystem::path(cache_path).parent_path(), ec);
-        std::ofstream out(cache_path, std::ios::binary | std::ios::trunc);
+            std::filesystem::path(*cache_path).parent_path(), ec);
+        std::ofstream out(*cache_path, std::ios::binary | std::ios::trunc);
         if (out) {
           out << body;
         }

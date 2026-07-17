@@ -9,9 +9,10 @@
 
 #include "vbi_presenter.h"
 
+#include <orc/support/vbi_types.h>
+
 #include "../core/include/dag_frame_renderer.h"
 #include "../core/include/vbi_decoder.h"
-#include "../core/include/vbi_types.h"
 #include "vbi_view_models.h"
 
 namespace orc::presenters {

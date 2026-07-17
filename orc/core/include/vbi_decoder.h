@@ -13,13 +13,12 @@
 #include <orc/stage/field_id.h>
 #include <orc/stage/node_id.h>
 #include <orc/support/lru_cache.h>
+#include <orc/support/vbi_types.h>
 
 #include <array>
 #include <memory>
 #include <optional>
 #include <string>
-
-#include "vbi_types.h"
 
 namespace orc {
 

@@ -1,6 +1,6 @@
 /*
  * File:        white_flag_observer.h
- * Module:      orc-core
+ * Module:      decode-orc Plugin SDK (stage contract)
  * Purpose:     White flag observer (NTSC line 11)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -8,6 +8,9 @@
  */
 
 #pragma once
+
+// SDK TIER: stage/observation — stage contract type crossing the plugin
+// boundary. A layout change here bumps the host ABI version.
 
 #include <orc/stage/observation/observer.h>
 

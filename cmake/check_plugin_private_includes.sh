@@ -265,7 +265,29 @@ scan_tree() {
 
     [ -d "$root_dir" ] || return 0
 
+    # Collect the source file list up front so the find(1) process substitution
+    # is fully drained and closed before the scan body runs. The body calls
+    # check_include() → resolves_in_tree() for every #include, each forking
+    # realpath/find; keeping the outer process substitution live across that
+    # subprocess storm triggers an intermittent bash abort ("Abort trap: 6",
+    # SIGABRT with no diagnostic) — observed with bash 5.x on macOS. Draining
+    # find first, then iterating a plain array, keeps at most one short-lived
+    # descriptor open at a time and is equally correct. (No bash-4 features:
+    # array += and a for-loop work on macOS's bash 3.2 for standalone authors.)
+    local src_files=()
     while IFS= read -r src_file; do
+        src_files+=("$src_file")
+    done < <(find "$root_dir" \
+        -type f \
+        \( -name '*.h' -o -name '*.hpp' -o -name '*.hh' -o -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) \
+        ! -path '*/tests/*' \
+        ! -path '*/build/*' \
+        ! -path '*/.git/*')
+
+    [ "${#src_files[@]}" -eq 0 ] && return 0
+
+    local src_file
+    for src_file in "${src_files[@]}"; do
         local src_violation_count=0
         local rel_file="${src_file#"$REPO_ROOT"/}"
         local including_dir
@@ -277,6 +299,13 @@ scan_tree() {
             # Standalone tree: owner is the root itself; report its basename.
             owner="$(basename "$owner_dir")"
         fi
+
+        # Capture the file's include directives before the resolve loop, so no
+        # process substitution is live while check_include() forks below.
+        local includes
+        includes="$(grep -hoE '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^">]+[">]' \
+            "$src_file" 2>/dev/null \
+            | sed -E 's/^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"]([^">]+)[">]/\1/')"
 
         while IFS= read -r include_path; do
             [ -n "$include_path" ] || continue
@@ -291,15 +320,8 @@ scan_tree() {
                 VIOLATIONS=$((VIOLATIONS + 1))
                 STAGE_VIOLATIONS+=("$owner")
             fi
-        done < <(grep -hoE '^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"][^">]+[">]' \
-            "$src_file" 2>/dev/null \
-            | sed -E 's/^[[:space:]]*#[[:space:]]*include[[:space:]]*[<"]([^">]+)[">]/\1/')
-    done < <(find "$root_dir" \
-        -type f \
-        \( -name '*.h' -o -name '*.hpp' -o -name '*.hh' -o -name '*.cpp' -o -name '*.cc' -o -name '*.cxx' \) \
-        ! -path '*/tests/*' \
-        ! -path '*/build/*' \
-        ! -path '*/.git/*')
+        done <<< "$includes"
+    done
 }
 
 if [ "$STANDALONE_TREE" = "1" ]; then

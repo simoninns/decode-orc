@@ -1,6 +1,6 @@
 /*
  * File:        biphase_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     Biphase VBI data extraction observer
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -10,10 +10,7 @@
 #ifndef ORC_CORE_BIPHASE_OBSERVER_H
 #define ORC_CORE_BIPHASE_OBSERVER_H
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 #include <memory>
 
@@ -30,10 +27,7 @@ class VideoFrameRepresentation;
  * and populates the observation context with raw biphase data.
  * The data can then be decoded by VBIDecoder or other analysis tools.
  */
-class [[deprecated(
-    "Obtain observations via IObservationService::create_observer(\"biphase\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] BiphaseObserver : public Observer {
+class BiphaseObserver : public Observer {
  public:
   BiphaseObserver() = default;
   ~BiphaseObserver() override = default;

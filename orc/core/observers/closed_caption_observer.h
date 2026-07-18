@@ -1,6 +1,6 @@
 /*
  * File:        closed_caption_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     Closed caption observer (EIA-608 line 21/22)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,19 +9,11 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 namespace orc {
 
-class [[deprecated(
-    "Obtain observations via "
-    "IObservationService::create_observer(\"closed_caption\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] ClosedCaptionObserver
-    : public Observer {
+class ClosedCaptionObserver : public Observer {
  public:
   ClosedCaptionObserver() = default;
   ~ClosedCaptionObserver() override = default;

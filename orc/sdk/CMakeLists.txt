@@ -70,22 +70,6 @@ add_library(orc-sdk-support STATIC
     # host-free test binaries reach get_logger()/init_logging() through the SDK,
     # so the implementation must live here rather than in the host.
     src/logging.cpp
-    # Observers: their headers are the <orc/stage/observation/...> stage
-    # contract, so their implementations must be linkable by any plugin that
-    # instantiates them without tethering to the host. All observers live here
-    # (the base Observer and its observer_config helper included); orc-core
-    # links this lib so the host keeps using them unchanged.
-    src/observer.cpp
-    src/observer_config.cpp
-    src/biphase_observer.cpp
-    src/closed_caption_observer.cpp
-    src/burst_level_observer.cpp
-    src/white_snr_observer.cpp
-    src/black_psnr_observer.cpp
-    src/fm_code_observer.cpp
-    src/white_flag_observer.cpp
-    src/colour_frame_phase_observer.cpp
-    src/field_quality_observer.cpp
 )
 set_target_properties(orc-sdk-support PROPERTIES POSITION_INDEPENDENT_CODE ON)
 # Compile-time spdlog verbosity for the support sources' own ORC_LOG_* sites,

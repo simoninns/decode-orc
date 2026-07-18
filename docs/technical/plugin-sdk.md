@@ -133,7 +133,6 @@ grouped by domain. A layout change here bumps the host ABI version.
 | `<orc/stage/observation/observation_context_interface.h>` | Pipeline-scoped observation storage |
 | `<orc/stage/observation/observation_schema.h>` | Observation schema definitions |
 | `<orc/stage/observation/observation_service_interface.h>` | Host-owned observation service reached via OrcPluginServices |
-| `<orc/stage/observation/observer.h>` | Observer base class |
 
 **params**
 
@@ -175,7 +174,7 @@ plugin at the author's convenience.
 
 #### Deprecated pre-tier include paths
 
-The 45 flat `<orc/plugin/...>` / `<orc/stage/...>` paths that
+The 27 flat `<orc/plugin/...>` / `<orc/stage/...>` paths that
 predate this layout are retained as forwarding shims for one release, gated
 by the `ORC_SDK_DEPRECATED_INCLUDE_SHIMS` CMake option (default ON). New
 code must use the tiered paths above; building with the option OFF turns any
@@ -204,17 +203,15 @@ A few allowlist entries carry rationale worth knowing:
   `orc/common/include/logging.h` (`get_app_logger()`) is unrelated and is the
   GUI/CLI surface only; the contract header lives at `<orc/support/logging.h>`
   precisely so the two can never be confused via include-path order.
-- **Observer classes are deprecated (ABI 9).** The concrete
-  `<orc/stage/observation/*_observer.h>` classes are superseded by the
-  host-owned [`IObservationService`](#observation-service-abi-9): plugins now
-  select observers by stable id instead of linking the classes. The classes
-  carry `[[deprecated]]` attributes and remain linkable through
-  `orc-sdk-support` for one release to give out-of-tree plugins a migration
-  window; they are scheduled for removal in the ABI 10 SDK release. Do not grow
-  new dependencies on them — use the service. (The remaining
-  `<orc/stage/observation/...>` entries — `observation_context*.h`,
-  `observation_schema.h`, `observation_service_interface.h`, and the `observer.h`
-  base — stay part of the contract.)
+- **Observer classes were removed (ABI 10).** The concrete
+  `<orc/stage/observation/*_observer.h>` classes and the `Observer` base
+  (`<orc/stage/observation/observer.h>`), deprecated in ABI 9, are removed from
+  the SDK as of ABI 10: they are host-internal and no longer shipped in
+  `orc-sdk-support`. Obtain observations through the host-owned
+  [`IObservationService`](#observation-service-abi-9), selecting observers by
+  stable id. (The remaining `<orc/stage/observation/...>` entries —
+  `observation_context*.h`, `observation_schema.h`, and
+  `observation_service_interface.h` — stay part of the contract.)
 - **`lru_cache.h`** is a self-contained generic container with no host
   coupling, allowlisted because several plugins legitimately use it for frame
   caching — preferable to each plugin vendoring a copy.
@@ -664,15 +661,13 @@ method — in short, the service is safe to call concurrently, but a single
 ##### Migrating from the observer classes
 
 The concrete observer classes under `<orc/stage/observation/*_observer.h>`
-(`BiphaseObserver`, `WhiteSNRObserver`, …) are **deprecated as of ABI 9** and
-carry `[[deprecated]]` attributes naming their replacement id. They remain
-linkable through `orc-sdk-support` for **one release** so out-of-tree plugins
-can migrate, and are scheduled for **removal in the ABI 10 SDK release**, when
-the headers leave the plugin-facing SDK entirely. Replace direct construction
+(`BiphaseObserver`, `WhiteSNRObserver`, …) were **deprecated in ABI 9** and are
+**removed in ABI 10**: the headers have left the plugin-facing SDK and
+`orc-sdk-support` no longer ships their object code. Replace direct construction
 with a service call keyed by the id below:
 
-| Deprecated class | Observer id | Header (removed in ABI 10) |
-|------------------|-------------|----------------------------|
+| Removed class | Observer id | Former header (removed in ABI 10) |
+|---------------|-------------|-----------------------------------|
 | `BiphaseObserver` | `biphase` | `<orc/stage/observation/biphase_observer.h>` |
 | `BlackPSNRObserver` | `black_psnr` | `<orc/stage/observation/black_psnr_observer.h>` |
 | `BurstLevelObserver` | `burst_level` | `<orc/stage/observation/burst_level_observer.h>` |
@@ -877,6 +872,7 @@ source of truth for the ABI/API version log. Do not edit it by hand; run
 | 7 | 2 | Channel-pair audio (SMPTE 272M-1994): the track-indexed audio API is replaced by the channel-pair API — `audio_channel_pair_count()`, `get_audio_channel_pair_descriptor(pair)`, and `get_audio_samples(pair, id)` returning 24-bit-in-int32 samples. All audio is 48 kHz frame-locked (synchronous); the free-running stream accessors are removed. Contract header `<orc/stage/audio_track.h>` is replaced by `<orc/stage/audio/audio_channel_pair.h>`. The vtable layout change requires all plugins to be rebuilt |
 | 8 | 2 | `VideoFrameRepresentation` gains `prime_audio_decode()`: a hook that forces a deferred whole-stream audio decode (e.g. EFM audio) to run up front with progress reporting, forwarded down the wrapper chain so sinks can meter it on the progress dialog. The appended virtual changes the vtable layout, requiring all plugins to be rebuilt |
 | 9 | 2 | `OrcPluginServices` gains the appended `observation_service` pointer (`IObservationService`, new contract header `<orc/stage/observation/observation_service_interface.h>`): a host-owned service that runs the standard observers by stable string id, reached via `plugin::get_observation_service()`. Guarded by `services_size`; older hosts leave it null. Appended field only — plugins need not be rebuilt to keep working against ABI 8 behaviour |
+| 10 | 2 | The concrete observer classes (the nine `<orc/stage/observation/*_observer.h>` headers — `BiphaseObserver`, `WhiteSNRObserver`, …) and the `Observer` base (`<orc/stage/observation/observer.h>`) are removed from the plugin SDK: observers are now host-internal and reached exclusively through the `IObservationService` added in ABI 9, selected by stable string id. `orc-sdk-support` no longer ships observer object code, and the deprecated pre-tier observation include-path shims (`<orc/stage/observers/...>` and the flat `<orc/stage/observation_*.h>` paths) are removed. `observation_schema.h`, `observation_context*.h`, and `observation_service_interface.h` remain the contract. Source-breaking for any plugin still including the observer classes — migrate to `IObservationService::create_observer(id)` |
 
 <!-- END GENERATED ABI VERSION HISTORY -->
 

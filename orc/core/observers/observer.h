@@ -1,6 +1,6 @@
 /*
  * File:        observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     Observer base class
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,18 +9,11 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
 #include <orc/stage/frame_id.h>
 #include <orc/stage/observation/observation_context.h>
 #include <orc/stage/observation/observation_schema.h>
-#include <orc/stage/params/stage_parameter.h>
 #include <orc/stage/video_frame_representation.h>
 
-#include <map>
-#include <memory>
-#include <optional>
 #include <string>
 #include <vector>
 
@@ -103,32 +96,6 @@ class Observer {
    * @return Vector of observation keys
    */
   virtual std::vector<ObservationKey> get_provided_observations() const = 0;
-
-  /**
-   * @brief Get configuration schema
-   *
-   * Returns parameter descriptors defining valid configuration for this
-   * observer. Default implementation returns empty vector (no configuration).
-   *
-   * @return Vector of parameter descriptors
-   */
-  virtual std::vector<ParameterDescriptor> get_configuration_schema() const {
-    return {};  // Default: no configuration
-  }
-
-  /**
-   * @brief Set configuration
-   *
-   * Configuration is validated against the schema before being applied.
-   * Throws std::invalid_argument if configuration is invalid.
-   *
-   * @param config Configuration map
-   */
-  virtual void set_configuration(
-      const std::map<std::string, ParameterValue>& config);
-
- protected:
-  std::map<std::string, ParameterValue> configuration_;
 };
 
 }  // namespace orc

@@ -10,7 +10,7 @@
 
 #include "frame_map_range_analysis.h"
 
-#include <orc/stage/observation/biphase_observer.h>
+#include <biphase_observer.h>
 #include <orc/stage/video_frame_representation.h>
 #include <orc/support/logging.h>
 

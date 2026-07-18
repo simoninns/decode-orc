@@ -1,6 +1,6 @@
 /*
  * File:        white_flag_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     White flag observer (NTSC line 11)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,10 +9,7 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 namespace orc {
 
@@ -22,12 +19,7 @@ namespace orc {
  * Observations (namespace "white_flag"):
  * - present (bool, optional): true when white flag detected on the field
  */
-class [[deprecated(
-    "Obtain observations via "
-    "IObservationService::create_observer(\"white_flag\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] WhiteFlagObserver
-    : public Observer {
+class WhiteFlagObserver : public Observer {
  public:
   WhiteFlagObserver() = default;
   ~WhiteFlagObserver() override = default;

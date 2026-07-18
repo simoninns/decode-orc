@@ -1,6 +1,6 @@
 /*
  * File:        field_quality_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     Field quality observer for field quality metrics
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,10 +9,7 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 #include <array>
 #include <cstdint>
@@ -33,12 +30,7 @@ class ObservationContext;
  * Used by disc mapping policy to choose best duplicate when multiple
  * fields have the same VBI frame number.
  */
-class [[deprecated(
-    "Obtain observations via "
-    "IObservationService::create_observer(\"disc_quality\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] FieldQualityObserver
-    : public Observer {
+class FieldQualityObserver : public Observer {
  public:
   FieldQualityObserver() = default;
 

@@ -10,8 +10,8 @@
 
 #include "disc_mapper_analysis.h"
 
+#include <biphase_observer.h>
 #include <frame_numbering.h>
-#include <orc/stage/observation/biphase_observer.h>
 #include <orc/stage/video_frame_representation.h>
 #include <orc/support/logging.h>
 

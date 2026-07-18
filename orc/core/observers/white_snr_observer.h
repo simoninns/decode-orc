@@ -1,6 +1,6 @@
 /*
  * File:        white_snr_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     White SNR (Signal-to-Noise Ratio) observer
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,10 +9,7 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 #include <vector>
 
@@ -28,12 +25,7 @@ namespace orc {
  * Stores observations in the "white_snr" namespace:
  * - "snr_db" (double): Signal-to-noise ratio in decibels
  */
-class [[deprecated(
-    "Obtain observations via "
-    "IObservationService::create_observer(\"white_snr\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] WhiteSNRObserver
-    : public Observer {
+class WhiteSNRObserver : public Observer {
  public:
   WhiteSNRObserver() = default;
   ~WhiteSNRObserver() override = default;

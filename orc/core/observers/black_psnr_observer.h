@@ -1,6 +1,6 @@
 /*
  * File:        black_psnr_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     Black PSNR (Peak Signal-to-Noise Ratio) observer
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,10 +9,7 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 #include <vector>
 
@@ -28,12 +25,7 @@ namespace orc {
  * Stores observations in the "black_psnr" namespace:
  * - "psnr_db" (double): Peak signal-to-noise ratio in decibels
  */
-class [[deprecated(
-    "Obtain observations via "
-    "IObservationService::create_observer(\"black_psnr\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] BlackPSNRObserver
-    : public Observer {
+class BlackPSNRObserver : public Observer {
  public:
   BlackPSNRObserver() = default;
   ~BlackPSNRObserver() override = default;

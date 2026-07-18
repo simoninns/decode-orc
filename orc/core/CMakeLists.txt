@@ -19,11 +19,19 @@ add_library(orc-core SHARED
     # VBI utilities (vbi_utilities.cpp lives in orc-sdk-support)
     vbi_decoder.cpp
 
-    # All observers live in orc-sdk-support (see orc/sdk): their headers are the
-    # <orc/stage/observation/...> stage contract, so any plugin can instantiate
-    # them without linking the host. orc-core links orc-sdk-support, so the host
-    # keeps using them unchanged.
-    
+    # Observers (host-internal). The standard observer set is host-owned and
+    # reached by plugins through IObservationService (see core_observation_service);
+    # the concrete classes and their headers no longer cross the plugin boundary.
+    observers/biphase_observer.cpp
+    observers/closed_caption_observer.cpp
+    observers/burst_level_observer.cpp
+    observers/white_snr_observer.cpp
+    observers/black_psnr_observer.cpp
+    observers/fm_code_observer.cpp
+    observers/white_flag_observer.cpp
+    observers/colour_frame_phase_observer.cpp
+    observers/field_quality_observer.cpp
+
     # Analysis framework
     analysis/analysis_registry.cpp
     analysis/analysis_init.cpp

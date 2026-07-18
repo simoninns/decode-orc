@@ -1,6 +1,6 @@
 /*
  * File:        fm_code_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     FM code observer (NTSC line 10)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,10 +9,7 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 namespace orc {
 
@@ -24,10 +21,7 @@ namespace orc {
  * - data_value (int32, optional): 20-bit FM code payload
  * - field_flag (bool, optional): field indicator bit
  */
-class [[deprecated(
-    "Obtain observations via IObservationService::create_observer(\"fm_code\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] FmCodeObserver : public Observer {
+class FmCodeObserver : public Observer {
  public:
   FmCodeObserver() = default;
   ~FmCodeObserver() override = default;

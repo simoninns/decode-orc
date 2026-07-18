@@ -1,6 +1,6 @@
 /*
  * File:        burst_level_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     Color burst median IRE level observer
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,10 +9,7 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 #include <vector>
 
@@ -30,12 +27,7 @@ namespace orc {
  * - "median_burst_10bit" (double): Median burst peak amplitude in 10-bit
  *   sample units
  */
-class [[deprecated(
-    "Obtain observations via "
-    "IObservationService::create_observer(\"burst_level\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] BurstLevelObserver
-    : public Observer {
+class BurstLevelObserver : public Observer {
  public:
   BurstLevelObserver() = default;
   ~BurstLevelObserver() override = default;

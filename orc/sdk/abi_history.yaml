@@ -21,6 +21,7 @@
 #                entrypoint-signature(entrypoint parameter/return change)
 #                data-contract-swap  (a boundary type is replaced wholesale)
 #                contract-vtable     (a contract interface vtable layout change)
+#                contract-removal    (a public SDK contract header/class removed)
 #   contracts — SDK contract headers whose layout the change touches (paths as
 #               in orc/sdk/sdk_headers.yaml; [] when none).
 #   summary  — one-line prose used as the docs table "Change" cell.
@@ -128,3 +129,22 @@ history:
       `plugin::get_observation_service()`. Guarded by `services_size`; older
       hosts leave it null. Appended field only — plugins need not be rebuilt to
       keep working against ABI 8 behaviour
+  - abi: 10
+    api: 2
+    cause: contract-removal
+    contracts:
+      - orc/stage/observation/observer.h
+    summary: >-
+      The concrete observer classes (the nine
+      `<orc/stage/observation/*_observer.h>` headers — `BiphaseObserver`,
+      `WhiteSNRObserver`, …) and the `Observer` base
+      (`<orc/stage/observation/observer.h>`) are removed from the plugin SDK:
+      observers are now host-internal and reached exclusively through the
+      `IObservationService` added in ABI 9, selected by stable string id.
+      `orc-sdk-support` no longer ships observer object code, and the deprecated
+      pre-tier observation include-path shims (`<orc/stage/observers/...>` and
+      the flat `<orc/stage/observation_*.h>` paths) are removed.
+      `observation_schema.h`, `observation_context*.h`, and
+      `observation_service_interface.h` remain the contract. Source-breaking for
+      any plugin still including the observer classes — migrate to
+      `IObservationService::create_observer(id)`

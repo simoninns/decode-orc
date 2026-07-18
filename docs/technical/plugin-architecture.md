@@ -137,12 +137,12 @@ skipped with a logged diagnostic. For guidance on which changes force a
 Controls the binary ABI: the layout of `StagePluginDescriptor`, the entrypoint
 signatures, and the `register_stage` callback contract.
 
-**Current value:** `9` (`OrcPluginServices` gained the appended
-`observation_service` pointer — a host-owned `IObservationService` that runs
-the standard observers by stable string id. An appended service-table field
-guarded by `services_size`, so older-ABI behaviour is unaffected). The
-authoritative per-version change log is `orc/sdk/abi_history.yaml`, rendered as
-the version-history table in [plugin-sdk.md](plugin-sdk.md#version-history).
+**Current value:** `10` (the concrete observer classes and the `Observer` base
+were removed from the plugin SDK — they are host-internal and reached through
+the `IObservationService` added in ABI 9. The deprecated pre-tier observation
+include-path shims were removed with them). The authoritative per-version change
+log is `orc/sdk/abi_history.yaml`, rendered as the version-history table in
+[plugin-sdk.md](plugin-sdk.md#version-history).
 
 Bumped when any of the following change:
 - `StagePluginDescriptor` field order or alignment
@@ -150,6 +150,7 @@ Bumped when any of the following change:
 - Callback calling convention
 - `OrcPluginServices` gains or loses a field
 - `IStageServices` gains or loses methods
+- A public SDK contract header or class is removed
 - The vtable layout of a contract type crossing the boundary (e.g.
   `VideoFrameRepresentation`) changes
 

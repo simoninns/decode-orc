@@ -1,6 +1,6 @@
 /*
  * File:        colour_frame_phase_observer.h
- * Module:      decode-orc Plugin SDK (stage contract)
+ * Module:      orc-core
  * Purpose:     Colour-frame sequence index observer
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
@@ -9,10 +9,7 @@
 
 #pragma once
 
-// SDK TIER: stage/observation — stage contract type crossing the plugin
-// boundary. A layout change here bumps the host ABI version.
-
-#include <orc/stage/observation/observer.h>
+#include <observer.h>
 
 #include <vector>
 
@@ -34,12 +31,7 @@ namespace orc {
 //
 // EBU Tech. 3280-E §1.1.1 (PAL); SMPTE 244M-2003 §3.2 (NTSC);
 // ITU-R BT.1700-1 Annex 1 Part B (PAL_M).
-class [[deprecated(
-    "Obtain observations via "
-    "IObservationService::create_observer(\"colour_frame_phase\") "
-    "(<orc/stage/observation/observation_service_interface.h>); this class "
-    "leaves the plugin SDK next release.")]] ColourFramePhaseObserver
-    : public Observer {
+class ColourFramePhaseObserver : public Observer {
  public:
   ColourFramePhaseObserver() = default;
   ~ColourFramePhaseObserver() override = default;

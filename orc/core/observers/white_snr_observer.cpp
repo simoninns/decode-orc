@@ -10,9 +10,9 @@
 #include <orc/stage/cvbs_signal_constants.h>
 #include <orc/stage/field_id.h>
 #include <orc/stage/observation/observation_context.h>
-#include <orc/stage/observation/white_snr_observer.h>
 #include <orc/stage/video_frame_representation.h>
 #include <orc/support/logging.h>
+#include <white_snr_observer.h>
 
 #include <algorithm>
 #include <array>

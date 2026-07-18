@@ -26,8 +26,11 @@ VALID_PLATFORMS = ("linux", "macos", "windows")
 VALID_EXTENSIONS = (".so", ".dylib", ".dll")
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 # orc-plugin_<stage>_<platform>[-<arch>][_abi<N>].<ext>
+# The <stage> token may itself contain underscores (e.g. "skeleton_passthrough"),
+# matching the host's authoritative parser segment class in
+# orc/core/plugin_artifact_name.cpp.
 ASSET_NAME_RE = re.compile(
-    r"^orc-plugin_[A-Za-z0-9.\-]+_(linux|macos|windows)"
+    r"^orc-plugin_[A-Za-z0-9._\-]+_(linux|macos|windows)"
     r"(-[A-Za-z0-9_]+)?(_abi[0-9]+)?\.(so|dylib|dll)$"
 )
 # A permissive SPDX identifier shape (not the full SPDX grammar).

@@ -9,4 +9,27 @@
 # Schema documented in docs/technical/plugin-architecture.md
 # ("Curated plugin index").
 registry_schema: 1
-plugins: []
+plugins:
+  - id: org.decodeorc.stage.skeleton_passthrough
+    display_name: Skeleton Passthrough
+    description: Minimal external plugin stage that forwards one input artifact.
+    maintainer: Simon Inns
+    license_spdx: GPL-3.0-or-later
+    source_repo_url: https://github.com/simoninns/orc-plugin_skeleton
+    tags: [transform, example]
+    artifacts:
+      - platform: linux
+        host_abi: 10
+        url: https://github.com/simoninns/orc-plugin_skeleton/releases/download/v1.0.5/orc-plugin_skeleton_passthrough_linux.so
+        sha256: a4000e37642f354e0f6f6d026277755f26e72edb57a3773dc1bfee1643b19a10
+        plugin_version: 1.0.5
+      - platform: macos
+        host_abi: 10
+        url: https://github.com/simoninns/orc-plugin_skeleton/releases/download/v1.0.5/orc-plugin_skeleton_passthrough_macos.dylib
+        sha256: 88841d8eab3c30815917f1968f9a4fed33d14840ff9960f5cfddd4ba380a4887
+        plugin_version: 1.0.5
+      - platform: windows
+        host_abi: 10
+        url: https://github.com/simoninns/orc-plugin_skeleton/releases/download/v1.0.5/orc-plugin_skeleton_passthrough_windows.dll
+        sha256: 2f95ede8dd4e99d27b948c4a19340cb91ef8cd24e3d765bd2e2eba533df1e561
+        plugin_version: 1.0.5

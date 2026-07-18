@@ -186,7 +186,7 @@ if(BUILD_UNIT_TESTS)
 
     add_test(
         NAME CLI.RejectsPreviewExportOption
-        COMMAND $<TARGET_FILE:orc-cli> ${CMAKE_SOURCE_DIR}/test-projects/ntsc-stacking-comp.orcprj --preview-export
+        COMMAND $<TARGET_FILE:orc-cli> --preview-export
     )
     set_tests_properties(CLI.RejectsPreviewExportOption PROPERTIES
         LABELS "unit;cli"

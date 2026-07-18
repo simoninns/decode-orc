@@ -139,6 +139,7 @@ grouped by domain. A layout change here bumps the host ABI version.
 | `<orc/stage/observation/observation_context.h>` | Pipeline-scoped observation storage |
 | `<orc/stage/observation/observation_context_interface.h>` | Pipeline-scoped observation storage |
 | `<orc/stage/observation/observation_schema.h>` | Observation schema definitions |
+| `<orc/stage/observation/observation_service_interface.h>` | Host-owned observation service reached via OrcPluginServices |
 | `<orc/stage/observation/observer.h>` | Observer base class |
 | `<orc/stage/observation/white_flag_observer.h>` | White flag observer (NTSC line 11) |
 | `<orc/stage/observation/white_snr_observer.h>` | White SNR (Signal-to-Noise Ratio) observer |
@@ -787,6 +788,7 @@ source of truth for the ABI/API version log. Do not edit it by hand; run
 | 6 | 2 | Multi-track audio: `VideoFrameRepresentation`'s single-track audio accessors (`audio_locked()`, `get_audio_sample_count(FrameID)`, `get_audio_samples(FrameID)`) are replaced by a track-indexed API — `audio_track_count()`, `get_audio_track_descriptor(track)`, per-track frame-locked accessors, and per-track free-running stream accessors (`get_audio_stream_pair_count` / `get_audio_stream_samples`). New contract header `<orc/stage/audio_track.h>`. The vtable layout change requires all plugins to be rebuilt |
 | 7 | 2 | Channel-pair audio (SMPTE 272M-1994): the track-indexed audio API is replaced by the channel-pair API — `audio_channel_pair_count()`, `get_audio_channel_pair_descriptor(pair)`, and `get_audio_samples(pair, id)` returning 24-bit-in-int32 samples. All audio is 48 kHz frame-locked (synchronous); the free-running stream accessors are removed. Contract header `<orc/stage/audio_track.h>` is replaced by `<orc/stage/audio/audio_channel_pair.h>`. The vtable layout change requires all plugins to be rebuilt |
 | 8 | 2 | `VideoFrameRepresentation` gains `prime_audio_decode()`: a hook that forces a deferred whole-stream audio decode (e.g. EFM audio) to run up front with progress reporting, forwarded down the wrapper chain so sinks can meter it on the progress dialog. The appended virtual changes the vtable layout, requiring all plugins to be rebuilt |
+| 9 | 2 | `OrcPluginServices` gains the appended `observation_service` pointer (`IObservationService`, new contract header `<orc/stage/observation/observation_service_interface.h>`): a host-owned service that runs the standard observers by stable string id, reached via `plugin::get_observation_service()`. Guarded by `services_size`; older hosts leave it null. Appended field only — plugins need not be rebuilt to keep working against ABI 8 behaviour |
 
 <!-- END GENERATED ABI VERSION HISTORY -->
 

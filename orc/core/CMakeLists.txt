@@ -9,6 +9,7 @@ add_library(orc-core SHARED
 
     # Observation system
     observation_context.cpp
+    core_observation_service.cpp
     pipeline_validator.cpp
     
     # Abstract factories

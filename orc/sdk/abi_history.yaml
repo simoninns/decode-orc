@@ -115,3 +115,16 @@ history:
       front with progress reporting, forwarded down the wrapper chain so sinks
       can meter it on the progress dialog. The appended virtual changes the
       vtable layout, requiring all plugins to be rebuilt
+  - abi: 9
+    api: 2
+    cause: descriptor-append
+    contracts:
+      - orc/abi/orc_plugin_services.h
+    summary: >-
+      `OrcPluginServices` gains the appended `observation_service` pointer
+      (`IObservationService`, new contract header
+      `<orc/stage/observation/observation_service_interface.h>`): a host-owned
+      service that runs the standard observers by stable string id, reached via
+      `plugin::get_observation_service()`. Guarded by `services_size`; older
+      hosts leave it null. Appended field only — plugins need not be rebuilt to
+      keep working against ABI 8 behaviour

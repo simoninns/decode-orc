@@ -164,6 +164,8 @@ orc_add_core_unit_tests(
         contracts/plugin_safe_call_test.cpp
         contracts/video_frame_representation_wrapper_contract_test.cpp
         contracts/audio_channel_pair_contract_test.cpp
+        contracts/observation_service_accessor_test.cpp
+        contracts/observation_service_identity_contract_test.cpp
 )
 
 # ---------------------------------------------------------------------------
@@ -279,6 +281,7 @@ orc_add_core_unit_tests(
         "unit"
 
         observers/colour_frame_phase_observer_test.cpp
+        observers/core_observation_service_test.cpp
 )
 
         orc_add_core_unit_tests(

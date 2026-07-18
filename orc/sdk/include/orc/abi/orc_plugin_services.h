@@ -50,6 +50,7 @@ namespace orc {
 struct PreviewImage;
 struct ColourFrameCarrier;
 class IStageServices;
+class IObservationService;
 
 // =============================================================================
 // Log level enum
@@ -111,6 +112,19 @@ struct OrcPluginServices {
   ///
   /// Host may set this to nullptr when the capability is not available.
   IStageServices* stage_services;
+
+  // -------------------------------------------------------------------------
+  // v9 fields (ABI version 9; append-only, guarded by services_size)
+  // -------------------------------------------------------------------------
+
+  /// Host-owned observation service. Plugins request the standard observers by
+  /// stable string id rather than linking the concrete observer classes; see
+  /// <orc/stage/observation/observation_service_interface.h>.
+  ///
+  /// Host may set this to nullptr when the capability is not available. Older
+  /// hosts (services_size below the offset of this field) never populate it,
+  /// so plugins must reach it via plugin::get_observation_service().
+  IObservationService* observation_service;
 };
 
 // =============================================================================
@@ -145,6 +159,21 @@ inline IStageServices* get_stage_services() {
   }
 
   return g_services->stage_services;
+}
+
+inline IObservationService* get_observation_service() {
+  if (!g_services) {
+    return nullptr;
+  }
+
+  const auto required_size =
+      static_cast<uint32_t>(offsetof(OrcPluginServices, observation_service) +
+                            sizeof(IObservationService*));
+  if (g_services->services_size < required_size) {
+    return nullptr;
+  }
+
+  return g_services->observation_service;
 }
 
 }  // namespace plugin

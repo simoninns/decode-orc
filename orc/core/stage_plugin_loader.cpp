@@ -21,6 +21,7 @@
 
 #include "../../sdk/include/orc/abi/orc_plugin_services.h"
 #include "../../sdk/include/orc/plugin/orc_stage_services.h"
+#include "core_observation_service.h"
 #include "factories.h"
 #include "include/plugin_safe_call.h"
 
@@ -431,6 +432,10 @@ StagePluginLoader::LoadResult StagePluginLoader::load_plugin(
     return render_preview_from_colour_carrier(*carrier);
   };
   services.stage_services = &stage_services_adapter;
+  // Host-owned observation service (ABI 9). Stateless, so a single shared
+  // instance backs every plugin; its lifetime spans the whole process.
+  static CoreObservationService observation_service;
+  services.observation_service = &observation_service;
 
   std::string last_error;
   RegisterContext context{&register_stage_callback, &entry.plugin, &last_error,

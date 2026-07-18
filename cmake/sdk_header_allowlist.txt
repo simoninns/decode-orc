@@ -49,6 +49,7 @@ orc/stage/observation/fm_code_observer.h
 orc/stage/observation/observation_context.h
 orc/stage/observation/observation_context_interface.h
 orc/stage/observation/observation_schema.h
+orc/stage/observation/observation_service_interface.h
 orc/stage/observation/observer.h
 orc/stage/observation/white_flag_observer.h
 orc/stage/observation/white_snr_observer.h

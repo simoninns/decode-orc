@@ -329,6 +329,12 @@ headers:
     deprecated: false
     since_abi: ""
     notes: "Observation schema definitions"
+  - path: orc/stage/observation/observation_service_interface.h
+    tier: stage
+    domain: "observation"
+    deprecated: false
+    since_abi: 9
+    notes: "Host-owned observation service reached via OrcPluginServices"
   - path: orc/stage/observation/observer.h
     tier: stage
     domain: "observation"

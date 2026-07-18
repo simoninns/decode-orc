@@ -53,8 +53,9 @@ Frame Map parses a comma-separated list of frame ranges (e.g. `1-11,21-31,12-20`
 
 * `pad_strategy` (string)
     - Strategy for synthesising padding frame content.
-    - Allowed values: `nearest`, `black`.
-    - Default: `nearest`.
+    - Allowed values: `black` (padding frames render as a black-level signal).
+    - Default: `black`.
+    - The legacy `nearest` value never behaved differently from `black`; it is still accepted for backward compatibility with older project files and is treated as `black`.
 
 **Stage tools**
 

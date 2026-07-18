@@ -16,7 +16,7 @@ If `ranges` is empty the stage acts as a passthrough and all source frames are f
 
 When `remove_duplicates` is enabled, the stage removes the second of any two consecutive frames that share the same `colour_frame_index` value (indicating the same disc position was captured twice).
 
-When `pad_gaps` is enabled, the stage inserts synthetic padding frames wherever a break in the `colour_frame_index` sequence is detected (indicating the player skipped). Padding frame content is determined by `pad_strategy`.
+When `pad_gaps` is enabled, the stage inserts synthetic padding frames wherever a break in the `colour_frame_index` sequence is detected (indicating the player skipped). Padding frames render as a black-level signal.
 
 Audio follows the mapping. Every audio channel pair remaps in lockstep with the video, per frame; padding frames carry silence. Each output frame always carries the exact per-frame sample count required by its position in the output timeline (constant on PAL; alternating per the SMPTE 272M five-frame sequence on NTSC/PAL-M), so a mapping that breaks the NTSC/PAL-M sequence phase trims or silence-pads the mapped frame's audio by a single trailing stereo pair. Mappings that preserve the phase — and all PAL mappings — are sample-exact. Sample values and rates are never changed.
 
@@ -34,7 +34,7 @@ When enabled, removes the second of any two consecutive frames with matching `co
 When enabled, inserts synthetic padding frames wherever a break in the `colour_frame_index` sequence is detected, indicating that the player skipped forward. The inserted frames maintain the correct colour-frame phase for downstream stacking. Default: `false`.
 
 ### pad_strategy (string)
-Controls how padding frame content is synthesised when `pad_gaps` is enabled. `nearest` clones the colour-frame index of the nearest real frame; `black` fills with a black level signal. Default: `nearest`.
+Controls how padding frame content is synthesised when `pad_gaps` is enabled. `black` fills each padding frame with a black-level signal. Default: `black`. (The legacy `nearest` value never differed from `black` and is accepted only for backward compatibility with older project files.)
 
 ## Tools
 

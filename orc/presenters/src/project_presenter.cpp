@@ -1433,19 +1433,24 @@ bool ProjectPresenter::triggerAllSinks(ProgressCallback progress_callback) {
 }
 
 bool ProjectPresenter::validateProject() const {
-  // Basic validation - could be expanded
-  if (project_.get()->get_nodes().empty()) {
+  const orc::Project* project = getProject();
+  if (!project || project->get_nodes().empty()) {
     return false;
   }
 
-  // Check for at least one source and one sink
+  // A valid project needs at least one source node and one sink node.
+  // Classify each node by its stored connectivity type; ANALYSIS_SINK counts
+  // as a sink (mirrors dag_executor / observation_cache).
   bool has_source = false;
   bool has_sink = false;
 
-  for (const auto& node : project_.get()->get_nodes()) {
-    // For now, skip detailed validation - just check we have nodes
-    has_source = true;  // Placeholder
-    has_sink = true;    // Placeholder
+  for (const auto& node : project->get_nodes()) {
+    if (node.node_type == orc::NodeType::SOURCE) {
+      has_source = true;
+    } else if (node.node_type == orc::NodeType::SINK ||
+               node.node_type == orc::NodeType::ANALYSIS_SINK) {
+      has_sink = true;
+    }
   }
 
   return has_source && has_sink;
@@ -1454,17 +1459,24 @@ bool ProjectPresenter::validateProject() const {
 std::vector<std::string> ProjectPresenter::getValidationErrors() const {
   std::vector<std::string> errors;
 
-  if (project_.get()->get_nodes().empty()) {
+  const orc::Project* project = getProject();
+  if (!project || project->get_nodes().empty()) {
     errors.push_back("Project has no nodes");
+    return errors;
   }
 
+  // Classify nodes the same way validateProject() does so the reported errors
+  // reflect real graph content.
   bool has_source = false;
   bool has_sink = false;
 
-  for (const auto& node : project_.get()->get_nodes()) {
-    // Placeholder validation
-    has_source = true;
-    has_sink = true;
+  for (const auto& node : project->get_nodes()) {
+    if (node.node_type == orc::NodeType::SOURCE) {
+      has_source = true;
+    } else if (node.node_type == orc::NodeType::SINK ||
+               node.node_type == orc::NodeType::ANALYSIS_SINK) {
+      has_sink = true;
+    }
   }
 
   if (!has_source) {

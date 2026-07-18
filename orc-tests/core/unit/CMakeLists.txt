@@ -168,6 +168,16 @@ orc_add_core_unit_tests(
         contracts/observation_service_identity_contract_test.cpp
 )
 
+# Presenter-layer unit tests. These link orc-presenters in addition to the
+# core/plugin libraries provided by orc_add_core_unit_tests().
+orc_add_core_unit_tests(
+        orc-core-unit-tests-presenters
+        "unit;presenters"
+
+        presenters/project_presenter_validation_test.cpp
+)
+target_link_libraries(orc-core-unit-tests-presenters orc-presenters)
+
 # ---------------------------------------------------------------------------
 # Test-fixture plugin shared libraries for loader version rejection tests
 # ---------------------------------------------------------------------------

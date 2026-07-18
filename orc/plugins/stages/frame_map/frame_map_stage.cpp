@@ -422,8 +422,7 @@ int FrameMapStage::next_colour_index(int current, VideoSystem sys) {
 size_t FrameMapStage::apply_pad_gaps(
     std::vector<FrameID>& mapping,
     std::vector<FrameMappedRepresentation::PaddingDescriptor>& pads,
-    const VideoFrameRepresentation& source, const std::string& pad_strategy,
-    std::string& gap_positions_out) {
+    const VideoFrameRepresentation& source, std::string& gap_positions_out) {
   size_t total_inserted = 0;
   std::ostringstream gap_ss;
   bool first_gap = true;
@@ -495,13 +494,6 @@ size_t FrameMapStage::apply_pad_gaps(
       pd.height = height;
       pd.samples_total = samples_total;
       pd.samples_per_line_nominal = samples_per_line_nominal;
-
-      if (pad_strategy == "nearest") {
-        // Use the nearest real source frame — keep as padding for descriptor
-        // but mark so get_frame returns the nearest real frame sample data
-        // We still set as padding (UINT64_MAX) so consumers see
-        // is_padding_frame
-      }
 
       mapping.insert(mapping.begin() + static_cast<std::ptrdiff_t>(insert_pos),
                      FrameID{UINT64_MAX});
@@ -603,8 +595,7 @@ std::vector<ArtifactPtr> FrameMapStage::execute(
   size_t padded_count = 0;
   std::string gap_positions;
   if (pad_gaps_) {
-    padded_count =
-        apply_pad_gaps(mapping, pads, *source, pad_strategy_, gap_positions);
+    padded_count = apply_pad_gaps(mapping, pads, *source, gap_positions);
     ORC_LOG_DEBUG("FrameMapStage: inserted {} padding frame(s) into {} gap(s)",
                   padded_count, gap_positions.empty() ? 0 : 1);
   }
@@ -671,12 +662,12 @@ std::vector<ParameterDescriptor> FrameMapStage::get_parameter_descriptors(
                                std::nullopt}},
       ParameterDescriptor{
           "pad_strategy", "Padding Strategy",
-          "How to fill gaps: 'nearest' (nearest real frame) or 'black'",
+          "How to fill gaps: 'black' (blank padding frames)",
           ParameterType::STRING,
           ParameterConstraints{std::nullopt,
                                std::nullopt,
-                               ParameterValue{std::string("nearest")},
-                               {"nearest", "black"},
+                               ParameterValue{std::string("black")},
+                               {"black"},
                                false,
                                std::nullopt}},
   };
@@ -722,11 +713,19 @@ bool FrameMapStage::set_parameters(
       }
     } else if (key == "pad_strategy") {
       if (auto* v = std::get_if<std::string>(&value)) {
-        if (*v != "nearest" && *v != "black") {
+        // "nearest" was a no-op that always rendered black; it is retained as
+        // a deprecated alias so existing project files still load.
+        if (*v == "nearest") {
+          ORC_LOG_WARN(
+              "FrameMapStage: pad_strategy 'nearest' is deprecated and treated "
+              "as 'black'");
+          pad_strategy_ = "black";
+        } else if (*v == "black") {
+          pad_strategy_ = "black";
+        } else {
           ORC_LOG_ERROR("FrameMapStage: unknown pad_strategy '{}'", *v);
           return false;
         }
-        pad_strategy_ = *v;
       } else {
         return false;
       }

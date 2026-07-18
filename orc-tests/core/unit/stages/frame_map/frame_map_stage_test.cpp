@@ -134,10 +134,20 @@ TEST(FrameMapStageTest, SetParameters_AcceptsPadGapsTrue) {
   EXPECT_TRUE(std::get<bool>(stage.get_parameters().at("pad_gaps")));
 }
 
-TEST(FrameMapStageTest, SetParameters_AcceptsValidPadStrategies) {
+TEST(FrameMapStageTest, SetParameters_AcceptsBlackPadStrategy) {
+  orc::FrameMapStage stage;
+  EXPECT_TRUE(stage.set_parameters({{"pad_strategy", std::string("black")}}));
+  EXPECT_EQ(std::get<std::string>(stage.get_parameters().at("pad_strategy")),
+            "black");
+}
+
+TEST(FrameMapStageTest, SetParameters_CoercesLegacyNearestToBlack) {
+  // "nearest" was always a no-op that rendered black; it survives only as a
+  // deprecated alias so older project files still load.
   orc::FrameMapStage stage;
   EXPECT_TRUE(stage.set_parameters({{"pad_strategy", std::string("nearest")}}));
-  EXPECT_TRUE(stage.set_parameters({{"pad_strategy", std::string("black")}}));
+  EXPECT_EQ(std::get<std::string>(stage.get_parameters().at("pad_strategy")),
+            "black");
 }
 
 TEST(FrameMapStageTest, SetParameters_RejectsInvalidPadStrategy) {

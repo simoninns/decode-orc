@@ -37,6 +37,8 @@ String, default `EFM digital audio`. Human-readable name for the decoded EFM aud
 ### report
 Boolean, default `false`. Enable to write a detailed decode statistics report (the same per-stage CIRC/error/timing statistics the EFM Decoder Sink writes) once the lazy decode runs. When enabled, set the report destination in **report_path**.
 
+The report separates losses caused by the input from losses caused by the decoder's own de-interleave warm-up and end-of-stream drain, and attributes concealment to disc regions (lead-in, pause, programme, lead-out) on the latency-compensated audio timeline. Only genuine losses in the programme area affect the overall assessment. See the EFM Decoder Sink instructions for a full description.
+
 ### report_path
 File path, default empty. Destination for the decode report; only used when **report** is enabled. Because this stage decodes into a scratch cache rather than a user-named output file, the report location is given explicitly here rather than being derived from an output filename. If **report** is enabled but this path is empty, no report is written.
 

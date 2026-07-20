@@ -35,6 +35,20 @@ constexpr int kFrameBitCountAcceptMax = 600;
 // section including the S0/S1 sync frames.)
 constexpr int kFramesPerSection = 98;
 
+// The CIRC de-interleaver is a mirror-delay chain: inverse third delay (1
+// frame) -> C1 -> inverse second delay (27xD..0, D=4, so 108 frames) -> C2 ->
+// inverse first delay (2 frames). Its latency is therefore a constant 111 F1
+// frames. (IEC 60908 §16 "Error correction"; ECMA-130 Annex C.) The first this
+// many output frames are warm-up filler and the last are drain filler; neither
+// carries disc data.
+constexpr int kDeinterleaveLatencyF1Frames = 1 + 108 + 2;  // 111
+
+// Each F1 frame carries 24 bytes = 12 mono samples = 6 stereo pairs, so the
+// de-interleave latency expressed in per-channel audio samples is:
+constexpr int kSamplesPerChannelPerF1Frame = 6;
+constexpr int kDeinterleaveLatencySamples =
+    kDeinterleaveLatencyF1Frames * kSamplesPerChannelPerF1Frame;  // 666
+
 // A raw (unscrambled) CD sector is 2352 bytes. (ECMA-130 §14 "Sector".)
 constexpr int kRawSectorSize = 2352;
 

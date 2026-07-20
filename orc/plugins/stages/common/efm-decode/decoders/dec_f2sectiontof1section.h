@@ -33,13 +33,23 @@ class F2SectionToF1Section : public Decoder {
 
   void showStatistics() const;
 
-  // Accessors for the curated decode report (CIRC C1/C2 health).
+  // Accessors for the curated decode report (CIRC C1/C2 health). valid/fixed/
+  // error cover fully-populated codewords only; padded counts the words that
+  // contained warm-up or drain filler and so could not be scored.
   int32_t validC1s() const { return m_circ.validC1s(); }
   int32_t fixedC1s() const { return m_circ.fixedC1s(); }
   int32_t errorC1s() const { return m_circ.errorC1s(); }
+  int32_t paddedC1s() const { return m_circ.paddedC1s(); }
   int32_t validC2s() const { return m_circ.validC2s(); }
   int32_t fixedC2s() const { return m_circ.fixedC2s(); }
   int32_t errorC2s() const { return m_circ.errorC2s(); }
+  int32_t paddedC2s() const { return m_circ.paddedC2s(); }
+
+  // Substitute F1 frames emitted while the delay lines were still filling
+  // (warm-up) versus those emitted by flush() once the genuine tail had been
+  // carried out (drain). Both are structural, not input defects.
+  uint64_t warmupLostFrames() const { return m_warmupLostFramesCount; }
+  uint64_t drainLostFrames() const { return m_drainLostFramesCount; }
 
  private:
   void processQueue();
@@ -79,6 +89,8 @@ class F2SectionToF1Section : public Decoder {
   uint64_t m_invalidOutputF1FramesCount;
   uint64_t m_validOutputF1FramesCount;
   uint64_t m_dlLostFramesCount;
+  uint64_t m_warmupLostFramesCount;
+  uint64_t m_drainLostFramesCount;
   uint64_t m_continuityErrorCount;
 
   uint64_t m_inputByteErrors;
@@ -95,6 +107,10 @@ class F2SectionToF1Section : public Decoder {
   // Metadata stays false until at least one real section has been processed.
   SectionMetadata m_lastSectionMetadata;
   bool m_haveSectionMetadata;
+
+  // Set for the duration of flush() so that substitute frames emitted while
+  // draining the delay lines are attributed to the drain rather than warm-up.
+  bool m_draining;
 };
 
 #endif  // DEC_F2SECTIONTOF1SECTION_H

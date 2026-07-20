@@ -40,11 +40,26 @@ ReedSolomon::ReedSolomon() {
   m_validC1s = 0;
   m_fixedC1s = 0;
   m_errorC1s = 0;
+  m_paddedC1s = 0;
 
   m_validC2s = 0;
   m_fixedC2s = 0;
   m_errorC2s = 0;
+  m_paddedC2s = 0;
 }
+
+namespace {
+
+// True if any symbol of the received word is decoder-supplied padding (CIRC
+// warm-up fill or end-of-stream drain) rather than data read from the disc.
+// Such a word is not fully populated: its parity check is meaningless, so its
+// outcome must not be scored as an input defect.
+bool containsPadding(const std::vector<uint8_t>& paddedData) {
+  return std::any_of(paddedData.begin(), paddedData.end(),
+                     [](uint8_t value) { return value != 0; });
+}
+
+}  // namespace
 
 // Perform a C1 Reed-Solomon decoding operation on the input data
 // This is a (32,28) Reed-Solomon encode - 32 bytes in, 28 bytes out
@@ -57,8 +72,22 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
     throw efm::EfmDecodeError(__func__);
   }
 
+  // Classify the received word before the parity symbols are trimmed away, so
+  // padding carried in positions 28-31 is still visible.
+  const bool partiallyPopulated = containsPadding(paddedData);
+
   // Trim the parity bytes from the padded data (32 → 28)
   paddedData.resize(paddedData.size() - 4);
+
+  // A word that contains any filler cannot be validated as a whole, so none of
+  // its output symbols can be trusted - not even the ones that did come from
+  // the disc. Mark them all as filler so downstream attributes them to the
+  // decode boundary rather than treating them as recovered disc data that
+  // happened to fail. Without this the genuine symbols of a drain codeword
+  // arrive flagged error=1, padded=0 and are scored as input defects.
+  if (partiallyPopulated) {
+    std::fill(paddedData.begin(), paddedData.end(), 1);
+  }
 
   // Copy input into reusable scratch for the ezpwd decoder (which modifies in
   // place). assign() retains the scratch buffer's capacity (P-6).
@@ -82,7 +111,11 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
   if (suppliedErasures.size() > 4) {
     inputData.resize(inputData.size() - 4);  // keep received bytes 0..27
     errorData.assign(inputData.size(), 1);
-    ++m_errorC1s;
+    if (partiallyPopulated) {
+      ++m_paddedC1s;
+    } else {
+      ++m_errorC1s;
+    }
     return;
   }
 
@@ -110,7 +143,9 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
     inputData.assign(m_scratchData.begin(), m_scratchData.end() - 4);
     errorData.assign(inputData.size(), 0);
 
-    if (result == 0) {
+    if (partiallyPopulated) {
+      ++m_paddedC1s;
+    } else if (result == 0) {
       ++m_validC1s;
     } else {
       ++m_fixedC1s;
@@ -121,7 +156,11 @@ void ReedSolomon::c1Decode(std::vector<uint8_t>& inputData,
   // Rejected: propagate the RECEIVED bytes (first 28) and flag all as corrupt.
   inputData.resize(inputData.size() - 4);
   errorData.assign(inputData.size(), 1);
-  ++m_errorC1s;
+  if (partiallyPopulated) {
+    ++m_paddedC1s;
+  } else {
+    ++m_errorC1s;
+  }
   return;
 }
 
@@ -141,8 +180,18 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
     throw efm::EfmDecodeError(__func__);
   }
 
+  // Classify the received word before the parity symbols are removed, so
+  // padding carried in positions 12-15 is still visible.
+  const bool partiallyPopulated = containsPadding(paddedData);
+
   // Remove parity positions 12-15 from paddedData (28 → 24)
   paddedData.erase(paddedData.begin() + 12, paddedData.begin() + 16);
+
+  // As in c1Decode: if the word was not fully populated, every symbol it
+  // produces is filler-contaminated and must be flagged as such.
+  if (partiallyPopulated) {
+    std::fill(paddedData.begin(), paddedData.end(), 1);
+  }
 
   // Copy input into reusable scratch for the ezpwd decoder (which modifies in
   // place). assign() retains the scratch buffer's capacity (P-6).
@@ -166,7 +215,11 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
     // Remove parity byte positions 12-15 and assign result
     inputData.erase(inputData.begin() + 12, inputData.begin() + 16);
     errorData.assign(inputData.size(), 1);
-    ++m_errorC2s;
+    if (partiallyPopulated) {
+      ++m_paddedC2s;
+    } else {
+      ++m_errorC2s;
+    }
     return;
   }
 
@@ -207,7 +260,9 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
               inputData.begin() + 12);
     errorData.assign(inputData.size(), 0);
 
-    if (result == 0) {
+    if (partiallyPopulated) {
+      ++m_paddedC2s;
+    } else if (result == 0) {
       ++m_validC2s;
     } else {
       ++m_fixedC2s;
@@ -219,7 +274,11 @@ void ReedSolomon::c2Decode(std::vector<uint8_t>& inputData,
   // which may hold a miscorrection) and flag all outputs as corrupt.
   inputData.erase(inputData.begin() + 12, inputData.begin() + 16);
   errorData.assign(inputData.size(), 1);
-  ++m_errorC2s;
+  if (partiallyPopulated) {
+    ++m_paddedC2s;
+  } else {
+    ++m_errorC2s;
+  }
   return;
 }
 
@@ -235,3 +294,7 @@ int32_t ReedSolomon::validC2s() const { return m_validC2s; }
 int32_t ReedSolomon::fixedC2s() const { return m_fixedC2s; }
 
 int32_t ReedSolomon::errorC2s() const { return m_errorC2s; }
+
+int32_t ReedSolomon::paddedC1s() const { return m_paddedC1s; }
+
+int32_t ReedSolomon::paddedC2s() const { return m_paddedC2s; }

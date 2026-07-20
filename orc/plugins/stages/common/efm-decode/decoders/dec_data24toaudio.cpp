@@ -70,6 +70,7 @@ void Data24ToAudio::processQueue() {
       const Data24& d24Frame = data24Section.frame(index);
       std::vector<uint8_t> data24Data = d24Frame.data();
       std::vector<uint8_t> data24ErrorData = d24Frame.errorData();
+      std::vector<uint8_t> data24PaddedData = d24Frame.paddedData();
 
       if (d24Frame.countErrors() != 0) {
         ++m_invalidData24FramesCount;
@@ -81,6 +82,7 @@ void Data24ToAudio::processQueue() {
       std::vector<int16_t> audioData;
       std::vector<uint8_t> audioErrorData;
       std::vector<uint8_t> audioConcealedData;
+      std::vector<uint8_t> audioPaddedData;
       for (int i = 0; i < 24; i += 2) {
         int16_t sample =
             static_cast<int16_t>(static_cast<uint16_t>(data24Data[i + 1] << 8) |
@@ -88,6 +90,11 @@ void Data24ToAudio::processQueue() {
 
         if (data24ErrorData[i]) m_invalidByteCount++;
         if (data24ErrorData[i + 1]) m_invalidByteCount++;
+
+        // A sample is structural filler if either of its bytes came from the
+        // CIRC warm-up fill or the end-of-stream drain.
+        audioPaddedData.push_back(
+            (data24PaddedData[i] || data24PaddedData[i + 1]) ? 1 : 0);
 
         // Set an error flag if either byte of the sample is an error
         if (data24ErrorData[i + 1] || data24ErrorData[i]) {
@@ -111,6 +118,7 @@ void Data24ToAudio::processQueue() {
       audio.setData(audioData);
       audio.setErrorData(audioErrorData);
       audio.setConcealedData(audioConcealedData);
+      audio.setPaddedData(audioPaddedData);
 
       audioSection.pushFrame(audio);
     }

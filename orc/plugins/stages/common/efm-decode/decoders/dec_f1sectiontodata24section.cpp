@@ -18,6 +18,8 @@ F1SectionToData24Section::F1SectionToData24Section()
     : m_invalidF1FramesCount(0),
       m_validF1FramesCount(0),
       m_corruptBytesCount(0),
+      m_populatedBytesCount(0),
+      m_populatedCorruptBytesCount(0),
       m_paddedBytesCount(0),
       m_unpaddedF1FramesCount(0),
       m_paddedF1FramesCount(0) {}
@@ -89,6 +91,16 @@ void F1SectionToData24Section::processQueue() {
       uint32_t errorCount = f1Frame.countErrors();
 
       m_corruptBytesCount += errorCount;
+
+      // Per-byte split of the same frame into bytes that carry disc data and
+      // bytes supplied by the decoder's own warm-up / drain padding. Only the
+      // former can constitute data loss. errorData and paddedData were swapped
+      // in step with data above, so the indices still line up.
+      for (size_t i = 0; i < errorData.size() && i < paddedData.size(); ++i) {
+        if (paddedData[i] != 0) continue;
+        ++m_populatedBytesCount;
+        if (errorData[i] != 0) ++m_populatedCorruptBytesCount;
+      }
 
       if (errorCount > 0) {
         ++m_invalidF1FramesCount;
@@ -181,4 +193,15 @@ void F1SectionToData24Section::showStatistics() const {
                            static_cast<double>(totalBytes)
                      : 0.0;
   ORC_LOG_INFO("    Data loss: {:.3f}%", dataLoss);
+
+  // The figure that describes the input rather than the decode boundaries.
+  const double populatedLoss =
+      m_populatedBytesCount > 0
+          ? (static_cast<double>(m_populatedCorruptBytesCount) * 100.0) /
+                static_cast<double>(m_populatedBytesCount)
+          : 0.0;
+  ORC_LOG_INFO("    Populated bytes (disc data only): {}",
+               m_populatedBytesCount);
+  ORC_LOG_INFO("    Corrupt populated bytes: {}", m_populatedCorruptBytesCount);
+  ORC_LOG_INFO("    Data loss (populated bytes only): {:.3f}%", populatedLoss);
 }

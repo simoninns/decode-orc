@@ -30,6 +30,13 @@ class Audio {
   void setConcealedData(const std::vector<uint8_t>& paddingData);
   const std::vector<uint8_t>& concealedData() const;
 
+  // Per-sample flag marking a sample that was assembled from decoder-supplied
+  // filler (CIRC warm-up or end-of-stream drain) rather than from the disc.
+  // Carried through from the Data24 frame so that concealment can tell a
+  // structural boundary artefact apart from a genuine unrecoverable sample.
+  void setPaddedData(const std::vector<uint8_t>& paddedData);
+  const std::vector<uint8_t>& paddedData() const;
+
   bool isFull() const;
   bool isEmpty() const;
 
@@ -40,6 +47,7 @@ class Audio {
   std::vector<int16_t> m_audioData;
   std::vector<uint8_t> m_audioErrorData;
   std::vector<uint8_t> m_audioConcealedData;
+  std::vector<uint8_t> m_audioPaddedData;
 };
 
 #endif  // AUDIO_H

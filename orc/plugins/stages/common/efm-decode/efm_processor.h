@@ -235,6 +235,9 @@ class EfmProcessor {
   void showSummary() const;       // Part A - at-a-glance decode quality
   void showDiscContents() const;  // Part B - Q-channel / track table
   void showQuality() const;       // Part C - signal & error-correction quality
+  // Part C - the decoder's own de-interleave warm-up / drain boundaries and the
+  // window of the stream they leave recoverable. Informational, not a defect.
+  void showDecodeBoundaries() const;
 };
 
 #endif  // EFM_PROCESSOR_H

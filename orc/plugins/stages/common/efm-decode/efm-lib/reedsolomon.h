@@ -45,6 +45,8 @@ class ReedSolomon {
                 std::vector<uint8_t>& errorData,
                 std::vector<uint8_t>& paddedData);
 
+  // Codewords that were fully populated with received disc data. These are the
+  // only ones whose outcome says anything about the input's quality.
   int32_t validC1s() const;
   int32_t fixedC1s() const;
   int32_t errorC1s() const;
@@ -52,6 +54,14 @@ class ReedSolomon {
   int32_t validC2s() const;
   int32_t fixedC2s() const;
   int32_t errorC2s() const;
+
+  // Codewords containing at least one padding symbol, i.e. assembled partly
+  // from the decoder's own de-interleave warm-up fill or end-of-stream drain
+  // rather than from the disc. Such a word cannot satisfy its parity check, so
+  // counting its failure as an input defect would misreport a clean stream.
+  // Tallied separately and excluded from the valid/fixed/error figures.
+  int32_t paddedC1s() const;
+  int32_t paddedC2s() const;
 
  private:
   // P-6: reusable scratch buffers so the CIRC hot path (decode() is called
@@ -65,10 +75,12 @@ class ReedSolomon {
   int32_t m_validC1s;
   int32_t m_fixedC1s;
   int32_t m_errorC1s;
+  int32_t m_paddedC1s;
 
   int32_t m_validC2s;
   int32_t m_fixedC2s;
   int32_t m_errorC2s;
+  int32_t m_paddedC2s;
 };
 
 #endif  // REEDSOLOMON_H

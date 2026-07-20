@@ -34,13 +34,56 @@ constexpr int kMaxInterpolationGap = 8;
 // the transition to/from silence does not produce an audible click.
 constexpr int kMuteRampSamples = 4;
 
+// Per-channel sample latency of the CIRC de-interleaver. Subcode is carried in
+// the F3 frame and is NOT de-interleaved, so a section's Q-channel time refers
+// to data that emerges from the de-interleaver this many samples later. Region
+// attribution compensates for the lag so that a burst is credited to the track
+// a listener actually hears it in.
+constexpr int kLatencySamples = efm::kDeinterleaveLatencySamples;  // 666
+
+// Map a section's Q-channel metadata onto a disc region.
+DiscRegion regionForMetadata(const SectionMetadata& metadata) {
+  switch (metadata.sectionType().type()) {
+    case SectionType::LeadIn:
+      return DiscRegion::LeadIn;
+    case SectionType::LeadOut:
+      return DiscRegion::LeadOut;
+    case SectionType::UserData:
+    default:
+      // IEC 60908-1999 §17.5.1: in the programme area INDEX 00 marks a pause
+      // (the pre-gap preceding a track's audio); 01 and above are the running
+      // index within the track proper.
+      return metadata.isPause() ? DiscRegion::Pause : DiscRegion::Programme;
+  }
+}
+
 }  // namespace
 
+std::string discRegionName(DiscRegion region) {
+  switch (region) {
+    case DiscRegion::LeadIn:
+      return "Lead-in";
+    case DiscRegion::Pause:
+      return "Pause (pre-gap)";
+    case DiscRegion::Programme:
+      return "Programme";
+    case DiscRegion::LeadOut:
+      return "Lead-out";
+    case DiscRegion::OutsideProgrammeArea:
+    default:
+      return "Outside programme area";
+  }
+}
+
 AudioCorrection::AudioCorrection()
-    : m_firstSectionCorrected(false),
+    : m_nextOrdinal(0),
+      m_historyBase(0),
+      m_firstSectionCorrected(false),
       m_concealedSamplesCount(0),
       m_silencedSamplesCount(0),
-      m_validSamplesCount(0) {}
+      m_validSamplesCount(0),
+      m_warmupSamplesCount(0),
+      m_drainSamplesCount(0) {}
 
 void AudioCorrection::pushSection(const AudioSection& audioSection) {
   // Add the data to the input buffer
@@ -76,7 +119,9 @@ void AudioCorrection::processQueue() {
   if (m_inputBuffer.empty()) return;
 
   // Pop a section from the input buffer (move to avoid a deep copy)
+  recordSectionMetadata(m_inputBuffer.front().metadata);
   m_correctionBuffer.push_back(std::move(m_inputBuffer.front()));
+  m_correctionOrdinals.push_back(m_nextOrdinal++);
   m_inputBuffer.pop_front();
 
   // A section can be corrected once its following neighbour is available.  When
@@ -87,26 +132,60 @@ void AudioCorrection::processQueue() {
     // preceding neighbour, so correct it now - using the second section as its
     // following context - before it is emitted.
     if (!m_firstSectionCorrected) {
-      m_correctionBuffer[0] = correctSection(nullptr, m_correctionBuffer.at(0),
-                                             &m_correctionBuffer.at(1));
+      m_correctionBuffer[0] =
+          correctSection(nullptr, m_correctionBuffer.at(0),
+                         &m_correctionBuffer.at(1), m_correctionOrdinals.at(0));
       m_firstSectionCorrected = true;
     }
 
     m_correctionBuffer[1] =
         correctSection(&m_correctionBuffer.at(0), m_correctionBuffer.at(1),
-                       &m_correctionBuffer.at(2));
+                       &m_correctionBuffer.at(2), m_correctionOrdinals.at(1));
 
     // Emit the (now fully corrected) preceding section.
     m_outputBuffer.push_back(std::move(m_correctionBuffer.at(0)));
     m_correctionBuffer.erase(m_correctionBuffer.begin());
+    m_correctionOrdinals.erase(m_correctionOrdinals.begin());
   }
+}
+
+void AudioCorrection::recordSectionMetadata(const SectionMetadata& metadata) {
+  // The de-interleave latency reaches at most two sections back, so keep a
+  // short window rather than the whole disc.
+  constexpr size_t kHistoryDepth = 4;
+  m_metadataHistory.push_back(metadata);
+  while (m_metadataHistory.size() > kHistoryDepth) {
+    m_metadataHistory.pop_front();
+    ++m_historyBase;
+  }
+}
+
+const SectionMetadata* AudioCorrection::discOriginOf(uint64_t ordinal,
+                                                     int offset) const {
+  // Position of this sample in the emitted per-channel stream, then the disc
+  // position it actually came from once the de-interleave lag is removed.
+  const uint64_t emitted = ordinal * static_cast<uint64_t>(kSamplesPerChannel) +
+                           static_cast<uint64_t>(offset);
+  if (emitted < static_cast<uint64_t>(kLatencySamples)) {
+    // Predates the stream: this sample is de-interleaver warm-up filler and
+    // corresponds to no disc position at all.
+    return nullptr;
+  }
+  const uint64_t discPosition = emitted - kLatencySamples;
+  const uint64_t discSection = discPosition / kSamplesPerChannel;
+  if (discSection < m_historyBase) return nullptr;
+  const size_t index = static_cast<size_t>(discSection - m_historyBase);
+  if (index >= m_metadataHistory.size()) return nullptr;
+  return &m_metadataHistory[index];
 }
 
 void AudioCorrection::appendChannelSamples(const AudioSection& section,
                                            std::vector<int16_t>& valLeft,
                                            std::vector<uint8_t>& errLeft,
+                                           std::vector<uint8_t>& padLeft,
                                            std::vector<int16_t>& valRight,
-                                           std::vector<uint8_t>& errRight) {
+                                           std::vector<uint8_t>& errRight,
+                                           std::vector<uint8_t>& padRight) {
   for (int frameIndex = 0; frameIndex < kFramesPerSection; ++frameIndex) {
     const Audio& frame = section.frame(frameIndex);
     // Reference each vector once per frame (P-3: no per-frame copy or
@@ -114,21 +193,26 @@ void AudioCorrection::appendChannelSamples(const AudioSection& section,
     // zero-filled 12-element vector for empty frames.
     const std::vector<int16_t>& data = frame.data();
     const std::vector<uint8_t>& errorData = frame.errorData();
+    const std::vector<uint8_t>& paddedData = frame.paddedData();
     for (int sample = 0; sample < kSamplesPerChannelPerFrame; ++sample) {
       const int left = sample * 2;
       const int right = left + 1;
       valLeft.push_back(data[left]);
       errLeft.push_back(errorData[left]);
+      padLeft.push_back(paddedData[left]);
       valRight.push_back(data[right]);
       errRight.push_back(errorData[right]);
+      padRight.push_back(paddedData[right]);
     }
   }
 }
 
 void AudioCorrection::correctChannel(std::vector<int16_t>& val,
                                      std::vector<uint8_t>& err,
+                                     const std::vector<uint8_t>& padded,
                                      std::vector<uint8_t>& concealed,
-                                     int midStart, int midEnd) {
+                                     int midStart, int midEnd,
+                                     uint64_t ordinal) {
   const int total = static_cast<int>(val.size());
 
   int index = midStart;
@@ -209,30 +293,99 @@ void AudioCorrection::correctChannel(std::vector<int16_t>& val,
 
     index = runEnd;
   }
+
+  // Attribution pass. Every sample of the corrected region is now in its final
+  // state, so classify it once: first by cause (structural filler carries no
+  // disc data and must never reach a quality figure), otherwise by the disc
+  // region it belongs to once the de-interleave lag is removed.
+  for (int j = midStart; j < midEnd; ++j) {
+    const int offset = j - midStart;
+
+    if (padded[j] != 0) {
+      // Decoder-supplied filler. The first kLatencySamples of the emitted
+      // stream are the de-interleaver warming up; anything later is the
+      // end-of-stream drain.
+      const uint64_t emitted =
+          ordinal * static_cast<uint64_t>(kSamplesPerChannel) +
+          static_cast<uint64_t>(offset);
+      if (emitted < static_cast<uint64_t>(kLatencySamples)) {
+        ++m_warmupSamplesCount;
+      } else {
+        ++m_drainSamplesCount;
+        // Record where on the disc the lost tail falls, so the report can tell
+        // a harmless lead-out drain apart from lost programme audio.
+        const SectionMetadata* origin = discOriginOf(ordinal, offset);
+        const DiscRegion region = (origin != nullptr)
+                                      ? regionForMetadata(*origin)
+                                      : DiscRegion::OutsideProgrammeArea;
+        ++m_drainRegionSamples[static_cast<size_t>(region)];
+      }
+      continue;
+    }
+
+    const SectionMetadata* origin = discOriginOf(ordinal, offset);
+    const DiscRegion region = (origin != nullptr)
+                                  ? regionForMetadata(*origin)
+                                  : DiscRegion::OutsideProgrammeArea;
+    RegionLoss& loss = m_regionLoss[static_cast<size_t>(region)];
+    ++loss.decoded;
+
+    const bool wasConcealed = concealed[j] != 0;
+    const bool wasSilenced = err[j] != 0;
+    if (wasConcealed) ++loss.concealed;
+    if (wasSilenced) ++loss.silenced;
+
+    // Per-track detail, so a warning can name the track and timecode a
+    // listener would hear the damage in.
+    if (region == DiscRegion::Programme && origin != nullptr &&
+        (wasConcealed || wasSilenced)) {
+      TrackLoss& track = m_trackLosses[origin->trackNumber()];
+      if (wasConcealed) ++track.concealed;
+      if (wasSilenced) {
+        ++track.silenced;
+        const SectionTime when = origin->absoluteSectionTime();
+        if (!track.haveSilenced) {
+          track.firstSilenced = when;
+          track.lastSilenced = when;
+          track.haveSilenced = true;
+        } else {
+          if (when < track.firstSilenced) track.firstSilenced = when;
+          if (when > track.lastSilenced) track.lastSilenced = when;
+        }
+      }
+    }
+  }
 }
 
 AudioSection AudioCorrection::correctSection(const AudioSection* preceding,
                                              const AudioSection& correcting,
-                                             const AudioSection* following) {
+                                             const AudioSection* following,
+                                             uint64_t ordinal) {
   // Build contiguous per-channel sample streams spanning
   // [preceding | correcting | following].  Only the correcting section is
   // written back; the neighbours provide concealment anchors.
   std::vector<int16_t> valLeft, valRight;
   std::vector<uint8_t> errLeft, errRight;
+  std::vector<uint8_t> padLeft, padRight;
   const int reserveSize = kSamplesPerChannel * 3;
   valLeft.reserve(reserveSize);
   valRight.reserve(reserveSize);
   errLeft.reserve(reserveSize);
   errRight.reserve(reserveSize);
+  padLeft.reserve(reserveSize);
+  padRight.reserve(reserveSize);
 
   if (preceding != nullptr) {
-    appendChannelSamples(*preceding, valLeft, errLeft, valRight, errRight);
+    appendChannelSamples(*preceding, valLeft, errLeft, padLeft, valRight,
+                         errRight, padRight);
   }
   const int midStart = (preceding != nullptr) ? kSamplesPerChannel : 0;
-  appendChannelSamples(correcting, valLeft, errLeft, valRight, errRight);
+  appendChannelSamples(correcting, valLeft, errLeft, padLeft, valRight,
+                       errRight, padRight);
   const int midEnd = midStart + kSamplesPerChannel;
   if (following != nullptr) {
-    appendChannelSamples(*following, valLeft, errLeft, valRight, errRight);
+    appendChannelSamples(*following, valLeft, errLeft, padLeft, valRight,
+                         errRight, padRight);
   }
 
   // Concealment flags for the middle region (sized to the full stream so it can
@@ -240,8 +393,10 @@ AudioSection AudioCorrection::correctSection(const AudioSection* preceding,
   std::vector<uint8_t> concealedLeft(valLeft.size(), 0);
   std::vector<uint8_t> concealedRight(valRight.size(), 0);
 
-  correctChannel(valLeft, errLeft, concealedLeft, midStart, midEnd);
-  correctChannel(valRight, errRight, concealedRight, midStart, midEnd);
+  correctChannel(valLeft, errLeft, padLeft, concealedLeft, midStart, midEnd,
+                 ordinal);
+  correctChannel(valRight, errRight, padRight, concealedRight, midStart, midEnd,
+                 ordinal);
 
   // Reassemble the corrected middle section from the per-channel streams.
   AudioSection corrected;
@@ -249,6 +404,7 @@ AudioSection AudioCorrection::correctSection(const AudioSection* preceding,
     std::vector<int16_t> data(kSamplesPerFrame);
     std::vector<uint8_t> errorData(kSamplesPerFrame);
     std::vector<uint8_t> concealedData(kSamplesPerFrame);
+    std::vector<uint8_t> paddedData(kSamplesPerFrame);
     const int frameBase = midStart + frameIndex * kSamplesPerChannelPerFrame;
     for (int sample = 0; sample < kSamplesPerChannelPerFrame; ++sample) {
       const int ext = frameBase + sample;
@@ -260,11 +416,14 @@ AudioSection AudioCorrection::correctSection(const AudioSection* preceding,
       errorData[right] = errRight[ext];
       concealedData[left] = concealedLeft[ext];
       concealedData[right] = concealedRight[ext];
+      paddedData[left] = padLeft[ext];
+      paddedData[right] = padRight[ext];
     }
     Audio frame;
     frame.setData(data);
     frame.setErrorData(errorData);
     frame.setConcealedData(concealedData);
+    frame.setPaddedData(paddedData);
     corrected.pushFrame(frame);
   }
 
@@ -280,6 +439,18 @@ void AudioCorrection::showStatistics() const {
   ORC_LOG_INFO("  Valid mono samples: {}", m_validSamplesCount);
   ORC_LOG_INFO("  Concealed mono samples: {}", m_concealedSamplesCount);
   ORC_LOG_INFO("  Silenced mono samples: {}", m_silencedSamplesCount);
+
+  ORC_LOG_INFO("  Structural (no disc data):");
+  ORC_LOG_INFO("    De-interleave warm-up samples: {}", m_warmupSamplesCount);
+  ORC_LOG_INFO("    End-of-stream drain samples: {}", m_drainSamplesCount);
+
+  ORC_LOG_INFO("  By disc region (samples carrying disc data):");
+  for (size_t i = 0; i < static_cast<size_t>(DiscRegion::Count); ++i) {
+    const RegionLoss& loss = m_regionLoss[i];
+    ORC_LOG_INFO("    {}: {} decoded, {} concealed, {} silenced",
+                 discRegionName(static_cast<DiscRegion>(i)), loss.decoded,
+                 loss.concealed, loss.silenced);
+  }
 }
 
 void AudioCorrection::flush() {
@@ -301,7 +472,8 @@ void AudioCorrection::flush() {
     const AudioSection* following =
         (i + 1 < count) ? &m_correctionBuffer.at(i + 1) : nullptr;
     m_correctionBuffer[i] =
-        correctSection(preceding, m_correctionBuffer.at(i), following);
+        correctSection(preceding, m_correctionBuffer.at(i), following,
+                       m_correctionOrdinals.at(i));
   }
   m_firstSectionCorrected = true;
 
@@ -309,4 +481,5 @@ void AudioCorrection::flush() {
     m_outputBuffer.push_back(std::move(section));
   }
   m_correctionBuffer.clear();
+  m_correctionOrdinals.clear();
 }

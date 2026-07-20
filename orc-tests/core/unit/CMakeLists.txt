@@ -236,6 +236,45 @@ gtest_discover_tests(orc-core-unit-tests-efm-deemphasis
         DISCOVERY_TIMEOUT 30
         PROPERTIES LABELS "unit\;sinks")
 
+# CIRC codeword scoring: warm-up / drain padding must be excluded from the
+# C1/C2 valid-fixed-error figures. Links the shared EFM decode library directly,
+# as with the de-emphasis DSP above.
+add_executable(orc-core-unit-tests-efm-reedsolomon-padding
+        stages/efm_common/reedsolomon_padding_test.cpp)
+target_link_libraries(orc-core-unit-tests-efm-reedsolomon-padding
+        orc-efm-decode
+        GTest::gmock_main)
+gtest_discover_tests(orc-core-unit-tests-efm-reedsolomon-padding
+        DISCOVERY_MODE POST_BUILD
+        DISCOVERY_TIMEOUT 30
+        PROPERTIES LABELS "unit\;sinks")
+
+# End-to-end boundary attribution: a stream that is clean by construction is run
+# through the real F2 -> F1 -> Data24 -> Audio -> concealment chain and must
+# report no input defects at all. Guards the regression where drain codewords
+# leaked genuine-looking corrupt bytes into the graded figures.
+add_executable(orc-core-unit-tests-efm-circ-boundary
+        stages/efm_common/circ_boundary_attribution_test.cpp)
+target_link_libraries(orc-core-unit-tests-efm-circ-boundary
+        orc-efm-decode
+        GTest::gmock_main)
+gtest_discover_tests(orc-core-unit-tests-efm-circ-boundary
+        DISCOVERY_MODE POST_BUILD
+        DISCOVERY_TIMEOUT 30
+        PROPERTIES LABELS "unit\;sinks")
+
+# Concealment loss attribution: structural de-interleave filler vs genuine loss,
+# broken down by disc region on the latency-compensated audio timeline.
+add_executable(orc-core-unit-tests-efm-audio-correction-regions
+        stages/efm_common/audio_correction_regions_test.cpp)
+target_link_libraries(orc-core-unit-tests-efm-audio-correction-regions
+        orc-efm-decode
+        GTest::gmock_main)
+gtest_discover_tests(orc-core-unit-tests-efm-audio-correction-regions
+        DISCOVERY_MODE POST_BUILD
+        DISCOVERY_TIMEOUT 30
+        PROPERTIES LABELS "unit\;sinks")
+
 # P-9: bounded blocking queue used to hand F2 sections from the EFM front-end
 # thread to the back-end thread. Links the shared EFM decode library directly
 # (the queue header is internal to orc-efm-decode, as with the de-emphasis DSP).

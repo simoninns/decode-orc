@@ -153,3 +153,22 @@ const std::vector<uint8_t>& Audio::concealedData() const {
   }
   return m_audioConcealedData;
 }
+
+void Audio::setPaddedData(const std::vector<uint8_t>& paddedData) {
+  if (static_cast<int>(paddedData.size()) != frameSize()) {
+    ORC_LOG_ERROR(
+        "Audio::setPaddedData(): Padded data size of {} does not match frame "
+        "size of {}",
+        paddedData.size(), frameSize());
+    throw efm::EfmDecodeError(__func__);
+  }
+  m_audioPaddedData = paddedData;
+}
+
+const std::vector<uint8_t>& Audio::paddedData() const {
+  static const std::vector<uint8_t> emptyPadded(12, 0);
+  if (m_audioPaddedData.empty()) {
+    return emptyPadded;
+  }
+  return m_audioPaddedData;
+}

@@ -29,13 +29,16 @@ F2SectionToF1Section::F2SectionToF1Section()
       m_invalidOutputF1FramesCount(0),
       m_validOutputF1FramesCount(0),
       m_dlLostFramesCount(0),
+      m_warmupLostFramesCount(0),
+      m_drainLostFramesCount(0),
       m_continuityErrorCount(0),
       m_inputByteErrors(0),
       m_outputByteErrors(0),
       m_invalidPaddedF1FramesCount(0),
       m_invalidNonPaddedF1FramesCount(0),
       m_lastFrameNumber(-1),
-      m_haveSectionMetadata(false) {}
+      m_haveSectionMetadata(false),
+      m_draining(false) {}
 
 void F2SectionToF1Section::pushSection(const F2Section& f2Section) {
   // Add the data to the input buffer
@@ -150,6 +153,11 @@ void F2SectionToF1Section::pushSubstituteF1Frame(F1Section& f1Section) {
   f1Frame.setPaddedData(std::vector<uint8_t>(24, 1));
   f1Section.pushFrame(f1Frame);
   m_dlLostFramesCount++;
+  // Substitutes are only ever emitted while the delay lines are filling: by the
+  // time flush() runs they are full, so every frame it produces is a decoded
+  // (but filler-contaminated) frame rather than a substitute. Drain frames are
+  // therefore counted in flush() itself, not here.
+  if (!m_draining) m_warmupLostFramesCount++;
 }
 
 void F2SectionToF1Section::processF2FrameData(std::vector<uint8_t> data,
@@ -229,11 +237,11 @@ void F2SectionToF1Section::flush() {
   // dropped (the truncated-capture tail). Push padding frames through the chain
   // so the trapped genuine frames are carried out as F1 frames. The last frames
   // to emerge are our own padding, marked padded=1 (concealed as silence).
-  constexpr int32_t kMaxCircLatency = 1 + 108 + 2;  // 111 F2 frames
   constexpr int32_t kFramesPerSection = efm::kFramesPerSection;
   // Round up to whole sections so downstream always receives complete sections.
   constexpr int32_t kFlushSections =
-      (kMaxCircLatency + kFramesPerSection - 1) / kFramesPerSection;  // 2
+      (efm::kDeinterleaveLatencyF1Frames + kFramesPerSection - 1) /
+      kFramesPerSection;  // 2
 
   // Nothing to drain if no genuine section was ever processed (e.g. a stream
   // too short to fill the delay lines) — there is no tail to recover and no
@@ -245,6 +253,7 @@ void F2SectionToF1Section::flush() {
   // Continue the section timeline from the last real section.
   SectionMetadata metadata = m_lastSectionMetadata;
 
+  m_draining = true;
   for (int32_t section = 0; section < kFlushSections; ++section) {
     // Advance the (absolute) section time by one 1/75 s frame per section so
     // the flushed sections remain contiguous with the decoded stream.
@@ -260,7 +269,11 @@ void F2SectionToF1Section::flush() {
     }
     f1Section.metadata = metadata;
     m_outputBuffer.push_back(f1Section);
+    // Every frame emitted by the drain is filler-contaminated: it was assembled
+    // from codewords that contained the padding pushed through above.
+    m_drainLostFramesCount += kFramesPerSection;
   }
+  m_draining = false;
 }
 
 void F2SectionToF1Section::showData(const std::string& description,
@@ -302,6 +315,8 @@ void F2SectionToF1Section::showStatistics() const {
   ORC_LOG_INFO("    Corrupt frames: {} frames containing {} byte errors",
                m_invalidInputF2FramesCount, m_inputByteErrors);
   ORC_LOG_INFO("    Delay line lost frames: {}", m_dlLostFramesCount);
+  ORC_LOG_INFO("      of which warm-up: {}", m_warmupLostFramesCount);
+  ORC_LOG_INFO("      of which drain: {}", m_drainLostFramesCount);
   ORC_LOG_INFO("    Continuity errors: {}", m_continuityErrorCount);
 
   ORC_LOG_INFO("  Output F1 Frames (after CIRC):");
@@ -313,13 +328,17 @@ void F2SectionToF1Section::showStatistics() const {
   ORC_LOG_INFO("    Invalid frames (total): {}", m_invalidOutputF1FramesCount);
   ORC_LOG_INFO("    Output byte errors: {}", m_outputByteErrors);
 
-  ORC_LOG_INFO("  C1 decoder:");
+  ORC_LOG_INFO("  C1 decoder (fully-populated codewords):");
   ORC_LOG_INFO("    Valid C1s: {}", m_circ.validC1s());
   ORC_LOG_INFO("    Fixed C1s: {}", m_circ.fixedC1s());
   ORC_LOG_INFO("    Error C1s: {}", m_circ.errorC1s());
+  ORC_LOG_INFO("    Padded C1s (warm-up/drain, not scored): {}",
+               m_circ.paddedC1s());
 
-  ORC_LOG_INFO("  C2 decoder:");
+  ORC_LOG_INFO("  C2 decoder (fully-populated codewords):");
   ORC_LOG_INFO("    Valid C2s: {}", m_circ.validC2s());
   ORC_LOG_INFO("    Fixed C2s: {}", m_circ.fixedC2s());
   ORC_LOG_INFO("    Error C2s: {}", m_circ.errorC2s());
+  ORC_LOG_INFO("    Padded C2s (warm-up/drain, not scored): {}",
+               m_circ.paddedC2s());
 }

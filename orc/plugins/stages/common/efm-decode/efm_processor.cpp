@@ -17,6 +17,8 @@
 #include <string>
 #include <utility>
 
+#include "efm-lib/efm_constants.h"
+
 EfmProcessor::EfmProcessor()
     : m_audioMode(true),
       m_noTimecodes(false),
@@ -721,40 +723,51 @@ void EfmProcessor::showSummary() const {
     duration = (f2.absoluteEndTime() - f2.absoluteStartTime()).toString();
   }
 
-  // Grade + concealment.
+  // Grade + concealment. Only losses that describe the INPUT may influence the
+  // grade: the CIRC warm-up and end-of-stream drain are properties of where the
+  // decode starts and stops, and a listener judges a disc by its programme
+  // area, so both are excluded here and reported separately below.
   const bool concealmentRan = m_audioMode && !m_noAudioConcealment;
-  const uint64_t concealed = m_audioCorrection.concealedSamples();
-  const uint64_t silenced = m_audioCorrection.silencedSamples();
-  const uint64_t totalMono =
-      m_audioCorrection.validSamples() + concealed + silenced;
-  const double concealPct = percentOf(concealed + silenced, totalMono);
+  const RegionLoss& programme =
+      m_audioCorrection.regionLoss(DiscRegion::Programme);
+  const double programmeConcealPct =
+      percentOf(programme.concealed, programme.decoded);
+  const double programmeLossPct =
+      percentOf(programme.concealed + programme.silenced, programme.decoded);
 
-  const uint64_t totalBytes = m_f1SectionToData24Section.totalBytes();
-  const uint64_t corruptBytes = m_f1SectionToData24Section.corruptBytes();
-  const double dataLossPct = percentOf(corruptBytes, totalBytes);
+  // Bytes that carry disc data, excluding warm-up / drain padding from both the
+  // numerator and the denominator.
+  const uint64_t populatedBytes = m_f1SectionToData24Section.populatedBytes();
+  const uint64_t populatedCorruptBytes =
+      m_f1SectionToData24Section.populatedCorruptBytes();
+  const double dataLossPct = percentOf(populatedCorruptBytes, populatedBytes);
+
+  const bool sectionsUnsound =
+      f2.missingSections() > 0 || f2.uncorrectableSections() > 0;
 
   std::string grade;
   if (m_audioMode) {
-    if (concealPct == 0.0 && f2.missingSections() == 0 &&
-        m_f2SectionToF1Section.errorC2s() == 0) {
-      grade = "EXCELLENT";
-    } else if (concealPct < 0.10) {
-      grade = "GOOD";
-    } else if (concealPct < 1.0) {
-      grade = "FAIR";
-    } else {
+    if (programmeLossPct >= 1.0 || sectionsUnsound) {
       grade = "POOR";
+    } else if (programme.concealed == 0 && programme.silenced == 0 &&
+               m_f2SectionToF1Section.errorC1s() == 0 &&
+               m_f2SectionToF1Section.errorC2s() == 0) {
+      grade = "EXCELLENT";
+    } else if (programmeConcealPct < 0.10 && programme.silenced == 0) {
+      grade = "GOOD";
+    } else {
+      grade = "FAIR";
     }
     if (!concealmentRan) grade += " (concealment disabled)";
   } else {
-    if (dataLossPct == 0.0 && m_rawSectorToSector.invalidSectors() == 0) {
+    if (dataLossPct >= 1.0 || m_rawSectorToSector.invalidSectors() > 0) {
+      grade = "POOR";
+    } else if (dataLossPct == 0.0) {
       grade = "EXCELLENT";
     } else if (dataLossPct < 0.10) {
       grade = "GOOD";
-    } else if (dataLossPct < 1.0) {
-      grade = "FAIR";
     } else {
-      grade = "POOR";
+      grade = "FAIR";
     }
   }
 
@@ -777,14 +790,37 @@ void EfmProcessor::showSummary() const {
   ORC_LOG_INFO("");
 
   if (m_audioMode) {
-    ORC_LOG_INFO("  Audio integrity");
     if (concealmentRan) {
-      ORC_LOG_INFO("    Samples decoded    : {}", commas(totalMono));
-      ORC_LOG_INFO("    Concealed (interp) : {}   ({})", commas(concealed),
-                   fmtPercent(concealed, totalMono, 4));
-      ORC_LOG_INFO("    Silenced (muted)   : {}   ({})", commas(silenced),
-                   fmtPercent(silenced, totalMono, 4));
+      ORC_LOG_INFO("  Audio integrity (programme area)");
+      ORC_LOG_INFO("    Samples decoded    : {}", commas(programme.decoded));
+      ORC_LOG_INFO("    Concealed (interp) : {}   ({})",
+                   commas(programme.concealed),
+                   fmtPercent(programme.concealed, programme.decoded, 4));
+      ORC_LOG_INFO("    Silenced (muted)   : {}   ({})",
+                   commas(programme.silenced),
+                   fmtPercent(programme.silenced, programme.decoded, 4));
+      ORC_LOG_INFO("");
+
+      ORC_LOG_INFO("  Audio integrity (outside programme area)");
+      for (DiscRegion region :
+           {DiscRegion::LeadIn, DiscRegion::Pause, DiscRegion::LeadOut,
+            DiscRegion::OutsideProgrammeArea}) {
+        const RegionLoss& loss = m_audioCorrection.regionLoss(region);
+        if (region == DiscRegion::OutsideProgrammeArea && loss.decoded == 0) {
+          continue;
+        }
+        ORC_LOG_INFO("    {:<19}: {} concealed, {} muted   (of {} decoded)",
+                     discRegionName(region), commas(loss.concealed),
+                     commas(loss.silenced), commas(loss.decoded));
+      }
+      ORC_LOG_INFO(
+          "    {:<19}: {} sample(s) - structural, carries no disc data",
+          "Pipeline warm-up", commas(m_audioCorrection.warmupSamples()));
+      ORC_LOG_INFO(
+          "    {:<19}: {} sample(s) - structural, carries no disc data",
+          "Pipeline drain", commas(m_audioCorrection.drainSamples()));
     } else {
+      ORC_LOG_INFO("  Audio integrity");
       ORC_LOG_INFO("    Concealment        : disabled (audio emitted as-is)");
     }
   } else {
@@ -797,21 +833,23 @@ void EfmProcessor::showSummary() const {
   }
   ORC_LOG_INFO("");
 
-  ORC_LOG_INFO("  Error-correction health");
-  ORC_LOG_INFO("    C1 uncorrectable   : {}",
-               fmtPercent(m_f2SectionToF1Section.errorC1s(),
-                          m_f2SectionToF1Section.validC1s() +
-                              m_f2SectionToF1Section.fixedC1s() +
-                              m_f2SectionToF1Section.errorC1s(),
-                          4));
-  ORC_LOG_INFO("    C2 uncorrectable   : {}",
-               fmtPercent(m_f2SectionToF1Section.errorC2s(),
-                          m_f2SectionToF1Section.validC2s() +
-                              m_f2SectionToF1Section.fixedC2s() +
-                              m_f2SectionToF1Section.errorC2s(),
-                          4));
+  // A codeword that contains warm-up or drain filler cannot satisfy its parity
+  // check, so it is excluded from both the numerator and the denominator here.
+  const int32_t c1Scored = m_f2SectionToF1Section.validC1s() +
+                           m_f2SectionToF1Section.fixedC1s() +
+                           m_f2SectionToF1Section.errorC1s();
+  const int32_t c2Scored = m_f2SectionToF1Section.validC2s() +
+                           m_f2SectionToF1Section.fixedC2s() +
+                           m_f2SectionToF1Section.errorC2s();
+  ORC_LOG_INFO("  Error-correction health (fully-populated codewords only)");
+  ORC_LOG_INFO("    C1 uncorrectable   : {}   ({})",
+               commas(m_f2SectionToF1Section.errorC1s()),
+               fmtPercent(m_f2SectionToF1Section.errorC1s(), c1Scored, 4));
+  ORC_LOG_INFO("    C2 uncorrectable   : {}   ({})",
+               commas(m_f2SectionToF1Section.errorC2s()),
+               fmtPercent(m_f2SectionToF1Section.errorC2s(), c2Scored, 4));
   ORC_LOG_INFO("    Data loss (post-C2): {}",
-               fmtPercent(corruptBytes, totalBytes, 4));
+               fmtPercent(populatedCorruptBytes, populatedBytes, 4));
   ORC_LOG_INFO("    Sections missing   : {}   (reconstructed by interpolation)",
                commas(f2.missingSections()));
   ORC_LOG_INFO("    Sections out-of-order / uncorrectable : {} / {}",
@@ -894,9 +932,37 @@ void EfmProcessor::showSummary() const {
              ? "flag ignored, raw pre-emphasised signal kept."
              : "a 50/15us de-emphasis filter was applied to the output."));
   }
-  if (m_audioMode && concealmentRan && silenced > 0) {
-    warnings.push_back(commas(silenced) +
-                       " audio sample(s) were muted (unrecoverable).");
+  // Muting warnings name the track and the absolute time span, so the user can
+  // go and listen to the damage. Structural causes (warm-up, drain, truncation)
+  // are deliberately NOT warned about here - they say nothing about the disc
+  // and are reported as informational text in Part C instead.
+  if (m_audioMode && concealmentRan) {
+    for (const auto& [trackNumber, loss] : m_audioCorrection.trackLosses()) {
+      if (loss.silenced == 0) continue;
+      std::string where;
+      if (loss.haveSilenced) {
+        where = "  (" + loss.firstSilenced.toString() + " - " +
+                loss.lastSilenced.toString() + ")";
+      }
+      warnings.push_back(commas(loss.silenced) + " sample(s) muted in track " +
+                         std::to_string(trackNumber) + where + ".");
+    }
+  }
+  // A drain that lands inside the programme area means the capture stops before
+  // the lead-out, so the tail of the audio really is lost. That IS a property
+  // of the input and is worth warning about. The quantity lost is exactly the
+  // de-interleave latency - the drain window itself runs on past the end of the
+  // disc data, so its length would overstate the loss.
+  const bool drainHitsProgramme =
+      m_audioCorrection.drainSamplesIn(DiscRegion::Programme) > 0 ||
+      m_audioCorrection.drainSamplesIn(DiscRegion::Pause) > 0;
+  if (m_audioMode && concealmentRan && drainHitsProgramme) {
+    warnings.push_back(
+        "Stream ends " + commas(efm::kDeinterleaveLatencyF1Frames) +
+        " frame(s) before the de-interleaver drains; the final " +
+        commas(static_cast<uint64_t>(efm::kDeinterleaveLatencyF1Frames) * 12) +
+        " sample(s) of programme audio are not recoverable (the capture "
+        "carries no lead-out).");
   }
 
   ORC_LOG_INFO("  Warnings");
@@ -909,18 +975,28 @@ void EfmProcessor::showSummary() const {
   }
   ORC_LOG_INFO("");
 
-  ORC_LOG_INFO(
-      "  Assessment scale:  EXCELLENT  no concealment, no missing sections, C2 "
-      "clean");
   if (m_audioMode) {
     ORC_LOG_INFO(
-        "                     GOOD       concealment < 0.10 %, few missing "
-        "sections");
-    ORC_LOG_INFO("                     FAIR       concealment < 1.0 %");
+        "  Assessment scale:  EXCELLENT  no concealment or muting in the "
+        "programme area,");
     ORC_LOG_INFO(
-        "                     POOR       concealment >= 1.0 % or many "
-        "uncorrectable");
+        "                                no uncorrectable C1/C2, no missing "
+        "sections");
+    ORC_LOG_INFO(
+        "                     GOOD       programme concealment < 0.10 %, no "
+        "muting");
+    ORC_LOG_INFO(
+        "                     FAIR       programme concealment < 1.0 %");
+    ORC_LOG_INFO(
+        "                     POOR       programme loss >= 1.0 %, or missing / "
+        "uncorrectable sections");
+    ORC_LOG_INFO(
+        "                     The de-interleave warm-up and drain are excluded "
+        "from all of the above.");
   } else {
+    ORC_LOG_INFO(
+        "  Assessment scale:  EXCELLENT  no data loss, no uncorrectable "
+        "sectors");
     ORC_LOG_INFO("                     GOOD       data loss < 0.10 %");
     ORC_LOG_INFO("                     FAIR       data loss < 1.0 %");
     ORC_LOG_INFO(
@@ -1032,6 +1108,80 @@ void EfmProcessor::showDiscContents() const {
   ORC_LOG_INFO("");
 }
 
+// The CIRC de-interleaver has a constant latency, so the decode necessarily
+// begins and ends with frames the disc never supplied. This block states those
+// boundaries plainly as information rather than letting them surface as
+// warnings or as input defects (which is what they are not).
+void EfmProcessor::showDecodeBoundaries() const {
+  const uint64_t warmupFrames = m_f2SectionToF1Section.warmupLostFrames();
+  const uint64_t drainFrames = m_f2SectionToF1Section.drainLostFrames();
+  const uint64_t totalF1Frames = m_f1SectionToData24Section.totalBytes() / 24;
+
+  ORC_LOG_INFO("  Decode boundaries (structural - not input defects)");
+  ORC_LOG_INFO(
+      "    De-interleave latency : {} F1 frames  ({} sample(s) per channel, "
+      "{:.1f} ms)",
+      efm::kDeinterleaveLatencyF1Frames, efm::kDeinterleaveLatencySamples,
+      static_cast<double>(efm::kDeinterleaveLatencySamples) * 1000.0 / 44100.0);
+
+  if (totalF1Frames > warmupFrames + drainFrames) {
+    ORC_LOG_INFO("    Recoverable window    : F1 frames {} - {} of {}",
+                 commas(warmupFrames), commas(totalF1Frames - drainFrames - 1),
+                 commas(totalF1Frames));
+  }
+
+  if (m_audioMode && !m_noAudioConcealment) {
+    const uint64_t warmupSamples = m_audioCorrection.warmupSamples();
+    const uint64_t drainSamples = m_audioCorrection.drainSamples();
+    if (warmupSamples > 0) {
+      ORC_LOG_INFO(
+          "    i {} sample(s) at the start of the stream fall inside the",
+          commas(warmupSamples));
+      ORC_LOG_INFO(
+          "      de-interleave warm-up ({} F1 frames) and carry no disc data.",
+          commas(warmupFrames));
+      ORC_LOG_INFO(
+          "      The de-interleaver only delays the output, so no disc data is "
+          "lost here. This is normal.");
+    }
+    if (drainSamples > 0) {
+      ORC_LOG_INFO(
+          "    i {} sample(s) at the end of the stream fall inside the",
+          commas(drainSamples));
+      ORC_LOG_INFO(
+          "      end-of-stream drain ({} F1 frames). The newest frames are "
+          "still",
+          commas(drainFrames));
+      ORC_LOG_INFO(
+          "      spread across the delay lines and cannot be assembled from "
+          "complete");
+      ORC_LOG_INFO(
+          "      codewords. Exactly {} F1 frame(s) ({} sample(s)) of disc data "
+          "sit in that",
+          efm::kDeinterleaveLatencyF1Frames,
+          efm::kDeinterleaveLatencyF1Frames * 12);
+      ORC_LOG_INFO(
+          "      tail; the rest of the drain window runs on past the end of "
+          "the "
+          "stream.");
+      ORC_LOG_INFO("      Where the drain window falls on the disc:");
+      for (DiscRegion region :
+           {DiscRegion::LeadOut, DiscRegion::Programme, DiscRegion::Pause,
+            DiscRegion::LeadIn, DiscRegion::OutsideProgrammeArea}) {
+        const uint64_t count = m_audioCorrection.drainSamplesIn(region);
+        if (count == 0) continue;
+        ORC_LOG_INFO("        {:<24}: {} sample(s)", discRegionName(region),
+                     commas(count));
+      }
+      ORC_LOG_INFO(
+          "      A drain that falls in the lead-out costs nothing: IEC "
+          "60908-1999 §17.5.1");
+      ORC_LOG_INFO("      makes the lead-out digital silence by construction.");
+    }
+  }
+  ORC_LOG_INFO("");
+}
+
 void EfmProcessor::showQuality() const {
   const F2SectionCorrection& f2 = m_f2SectionCorrection;
 
@@ -1062,7 +1212,7 @@ void EfmProcessor::showQuality() const {
   const int32_t c2total = m_f2SectionToF1Section.validC2s() +
                           m_f2SectionToF1Section.fixedC2s() +
                           m_f2SectionToF1Section.errorC2s();
-  ORC_LOG_INFO("  CIRC error correction");
+  ORC_LOG_INFO("  CIRC error correction (fully-populated codewords)");
   ORC_LOG_INFO("    C1 :  valid {}   fixed {}   uncorrectable {}   ({})",
                commas(m_f2SectionToF1Section.validC1s()),
                commas(m_f2SectionToF1Section.fixedC1s()),
@@ -1073,19 +1223,35 @@ void EfmProcessor::showQuality() const {
                commas(m_f2SectionToF1Section.fixedC2s()),
                commas(m_f2SectionToF1Section.errorC2s()),
                fmtPercent(m_f2SectionToF1Section.errorC2s(), c2total, 4));
+  ORC_LOG_INFO(
+      "    Excluded: {} C1 and {} C2 codeword(s) contained de-interleave "
+      "warm-up",
+      commas(m_f2SectionToF1Section.paddedC1s()),
+      commas(m_f2SectionToF1Section.paddedC2s()));
+  ORC_LOG_INFO(
+      "              or end-of-stream drain symbols and so could not be "
+      "scored.");
   ORC_LOG_INFO("");
+
+  showDecodeBoundaries();
 
   const uint64_t totalBytes = m_f1SectionToData24Section.totalBytes();
   const uint64_t corruptBytes = m_f1SectionToData24Section.corruptBytes();
   const uint64_t paddedBytes = m_f1SectionToData24Section.paddedBytes();
   const uint64_t validBytes =
       totalBytes >= corruptBytes ? totalBytes - corruptBytes : 0;
+  const uint64_t populatedBytes = m_f1SectionToData24Section.populatedBytes();
+  const uint64_t populatedCorruptBytes =
+      m_f1SectionToData24Section.populatedCorruptBytes();
   ORC_LOG_INFO("  Byte-level data integrity (Data24)");
   ORC_LOG_INFO("    Total     : {}", fmtBytes(totalBytes));
   ORC_LOG_INFO("    Valid     : {}", fmtBytes(validBytes));
   ORC_LOG_INFO("    Corrupt   : {}", fmtBytes(corruptBytes));
-  ORC_LOG_INFO("    Padded    : {}", fmtBytes(paddedBytes));
-  ORC_LOG_INFO("    Data loss : {}", fmtPercent(corruptBytes, totalBytes, 4));
+  ORC_LOG_INFO("    Padded    : {}   (warm-up / drain filler, no disc data)",
+               fmtBytes(paddedBytes));
+  ORC_LOG_INFO("    Data loss : {}   (over the {} that carry disc data)",
+               fmtPercent(populatedCorruptBytes, populatedBytes, 4),
+               fmtBytes(populatedBytes));
   ORC_LOG_INFO("");
 
   if (m_audioMode) {
@@ -1093,13 +1259,58 @@ void EfmProcessor::showQuality() const {
       const uint64_t concealed = m_audioCorrection.concealedSamples();
       const uint64_t silenced = m_audioCorrection.silencedSamples();
       const uint64_t valid = m_audioCorrection.validSamples();
-      ORC_LOG_INFO("  Audio concealment");
+      ORC_LOG_INFO("  Audio concealment (whole stream)");
       ORC_LOG_INFO("    Total mono samples : {}",
                    commas(valid + concealed + silenced));
       ORC_LOG_INFO("    Valid              : {}", commas(valid));
       ORC_LOG_INFO("    Concealed (interp) : {}", commas(concealed));
       ORC_LOG_INFO("    Silenced (muted)   : {}", commas(silenced));
       ORC_LOG_INFO("");
+
+      // Same samples, split two ways. Each breakdown accounts for every sample,
+      // so both columns reconcile with the whole-stream totals above.
+      ORC_LOG_INFO("  Concealment by disc region (samples carrying disc data)");
+      for (size_t i = 0; i < static_cast<size_t>(DiscRegion::Count); ++i) {
+        const RegionLoss& loss =
+            m_audioCorrection.regionLoss(static_cast<DiscRegion>(i));
+        if (loss.decoded == 0) continue;
+        ORC_LOG_INFO("    {:<24}: {} decoded, {} concealed, {} muted",
+                     discRegionName(static_cast<DiscRegion>(i)),
+                     commas(loss.decoded), commas(loss.concealed),
+                     commas(loss.silenced));
+      }
+      ORC_LOG_INFO("    {:<24}: {} sample(s)", "Pipeline warm-up",
+                   commas(m_audioCorrection.warmupSamples()));
+      ORC_LOG_INFO("    {:<24}: {} sample(s)", "Pipeline drain",
+                   commas(m_audioCorrection.drainSamples()));
+      ORC_LOG_INFO("");
+      ORC_LOG_INFO(
+          "    Region boundaries are on the AUDIO timeline: the {}-frame "
+          "de-interleave",
+          efm::kDeinterleaveLatencyF1Frames);
+      ORC_LOG_INFO(
+          "    latency is subtracted from each section's Q time before a "
+          "sample is attributed,");
+      ORC_LOG_INFO(
+          "    because subcode rides in the F3 frame and is not "
+          "de-interleaved.");
+      ORC_LOG_INFO("");
+
+      const auto& trackLosses = m_audioCorrection.trackLosses();
+      if (!trackLosses.empty()) {
+        ORC_LOG_INFO("  Programme-area losses by track");
+        for (const auto& [trackNumber, loss] : trackLosses) {
+          std::string span;
+          if (loss.haveSilenced) {
+            span = "   muted " + loss.firstSilenced.toString() + " - " +
+                   loss.lastSilenced.toString();
+          }
+          ORC_LOG_INFO("    Track {:>2} : {} concealed, {} muted{}",
+                       trackNumber, commas(loss.concealed),
+                       commas(loss.silenced), span);
+        }
+        ORC_LOG_INFO("");
+      }
     }
     if (!m_ignorePreemphasis) {
       ORC_LOG_INFO("  Pre-emphasis / de-emphasis");

@@ -30,6 +30,15 @@ class F1SectionToData24Section : public Decoder {
   uint64_t corruptBytes() const { return m_corruptBytesCount; }
   uint64_t paddedBytes() const { return m_paddedBytesCount; }
 
+  // Data-loss figures restricted to bytes that actually carry disc data.
+  // Bytes supplied by the CIRC warm-up fill or the end-of-stream drain are
+  // excluded from BOTH the numerator and the denominator: they are a property
+  // of where the decode starts and stops, not of the input.
+  uint64_t populatedBytes() const { return m_populatedBytesCount; }
+  uint64_t populatedCorruptBytes() const {
+    return m_populatedCorruptBytesCount;
+  }
+
  private:
   void processQueue();
 
@@ -39,6 +48,9 @@ class F1SectionToData24Section : public Decoder {
   uint64_t m_invalidF1FramesCount;
   uint64_t m_validF1FramesCount;
   uint64_t m_corruptBytesCount;
+
+  uint64_t m_populatedBytesCount;
+  uint64_t m_populatedCorruptBytesCount;
 
   uint64_t m_paddedBytesCount;
   uint64_t m_unpaddedF1FramesCount;

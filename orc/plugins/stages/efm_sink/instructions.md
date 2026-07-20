@@ -42,6 +42,30 @@ Write a bad-sector map file alongside the sector output recording the position o
 ### report (boolean)
 Write a detailed decode statistics report file alongside the main output. Default: `false`.
 
+## Reading the decode report
+
+The report separates losses caused by the input from losses caused by the decode boundaries, because only the former say anything about the disc.
+
+The CIRC de-interleaver has a fixed latency of 111 F1 frames, so every decode necessarily begins with 111 frames of warm-up filler and ends by draining the delay lines. Neither carries disc data, so neither is counted as an error:
+
+- **Pipeline warm-up** — the de-interleaver only delays its output, so no disc data is lost here.
+- **Pipeline drain** — the newest 111 frames are still spread across the delay lines at end of stream and cannot be assembled from complete codewords. On a normal disc this falls in the lead-out, which is digital silence by construction (IEC 60908-1999 §17.5.1), and costs nothing. If the capture stops inside the programme area the report says so and warns.
+
+Codewords containing warm-up or drain symbols are excluded from the C1/C2 uncorrectable percentages and from the post-C2 data-loss figure — from both the numerator and the denominator. A stream with no invalid EFM symbols, no sync losses and no missing sections therefore reports 0.0000 % and grades `EXCELLENT`.
+
+Concealed and muted samples are broken down twice over: by disc region (lead-in, pause, programme, lead-out) and by cause (warm-up, drain, genuine). Each breakdown accounts for every sample. Region boundaries are computed on the **audio** timeline: subcode rides in the F3 frame and is not de-interleaved, so the 111-frame latency (666 samples per channel, 15.1 ms) is subtracted from each section's Q time before a sample is attributed.
+
+The overall assessment is driven only by genuine losses in the programme area:
+
+| Grade | Condition |
+|---|---|
+| `EXCELLENT` | No concealment or muting in the programme area, no uncorrectable C1/C2, no missing sections |
+| `GOOD` | Programme concealment < 0.10 %, no muting |
+| `FAIR` | Programme concealment < 1.0 % |
+| `POOR` | Programme loss >= 1.0 %, or missing / uncorrectable sections |
+
+Warnings (`!`) are raised only for genuine losses and name the affected track and timecode. Structural boundary information appears as informational (`i`) text in Part C.
+
 ## Notes
 
 The upstream source stage must supply EFM data — the pipeline will abort if no EFM data is present in the VideoFieldRepresentation. Audio and data modes are mutually exclusive; set `decode_mode` before triggering. Parameters marked "audio only" or "data only" are silently ignored when the corresponding mode is not active.

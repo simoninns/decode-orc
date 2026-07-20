@@ -48,6 +48,13 @@ class F2SectionCorrection : public Decoder {
   uint32_t paddingSections() const { return m_paddingSections; }
   uint32_t outOfOrderSections() const { return m_outOfOrderSections; }
 
+  // Trailing sections whose Q-channel never decoded and which the stream ended
+  // before they could be bracketed for correction. Their metadata is
+  // forward-filled from the last valid section at flush() time. Structural
+  // (a consequence of where the capture stops), so counted separately from
+  // uncorrectableSections().
+  uint32_t tailFilledSections() const { return m_tailFilledSections; }
+
   uint32_t qmode1Sections() const { return m_qmode1Sections; }
   uint32_t qmode2Sections() const { return m_qmode2Sections; }
   uint32_t qmode3Sections() const { return m_qmode3Sections; }
@@ -115,6 +122,7 @@ class F2SectionCorrection : public Decoder {
   void processInternalBuffer();
   void outputSections();
   void emitSection();
+  void forwardFillTrailingInvalidSections();
 
   std::queue<F2Section> m_inputBuffer;
   std::deque<F2Section> m_leadinBuffer;
@@ -135,6 +143,7 @@ class F2SectionCorrection : public Decoder {
   uint32_t m_missingSections;
   uint32_t m_paddingSections;
   uint32_t m_outOfOrderSections;
+  uint32_t m_tailFilledSections;
 
   uint32_t m_qmode1Sections;
   uint32_t m_qmode2Sections;

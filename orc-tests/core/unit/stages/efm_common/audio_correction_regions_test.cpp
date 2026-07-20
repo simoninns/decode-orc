@@ -60,6 +60,9 @@ SectionMetadata makeMetadata(Region region, uint8_t trackNumber,
   }
   metadata.setTrackNumber(trackNumber);
   metadata.setAbsoluteSectionTime(SectionTime(absoluteFrame));
+  // A section whose Q-channel decoded successfully is marked valid; attribution
+  // deliberately ignores sections that are not, so the fixture must match.
+  metadata.setValid(true);
   return metadata;
 }
 

@@ -41,6 +41,7 @@ F2SectionCorrection::F2SectionCorrection()
       m_missingSections(0),
       m_paddingSections(0),
       m_outOfOrderSections(0),
+      m_tailFilledSections(0),
       m_qmode1Sections(0),
       m_qmode2Sections(0),
       m_qmode3Sections(0),
@@ -1012,9 +1013,74 @@ void F2SectionCorrection::emitSection() {
   m_outputBuffer.push(std::move(section));
 }
 
+// Give the trailing invalid sections best-effort metadata continued from the
+// last known-good section.
+//
+// Precise correction brackets a run of invalid sections between two valid ones,
+// so a run at the very end of the stream can never be corrected: there is no
+// following valid section and never will be. Those sections still hold their
+// CRC-failure defaults (UserData, track 0, absolute time 00:00:00 - see
+// Subcode::fromData()), and emitting them unchanged pushes that phantom
+// position through the rest of the pipeline, where it reaches the WAV
+// timeline, the Audacity labels and the decode report.
+//
+// Forward-fill instead, using the same degradation already applied to an
+// over-long or unreconcilable gap in processInternalBuffer(): copy the last
+// valid section's metadata and advance the timeline one section at a time.
+void F2SectionCorrection::forwardFillTrailingInvalidSections() {
+  if (m_internalBuffer.empty()) return;
+  if (m_internalBuffer.back().metadata.isValid()) return;
+
+  int lastValid = -1;
+  for (int i = static_cast<int>(m_internalBuffer.size()) - 1; i >= 0; --i) {
+    if (m_internalBuffer[i].metadata.isValid()) {
+      lastValid = i;
+      break;
+    }
+  }
+
+  if (lastValid < 0) {
+    // Nothing in the buffer ever decoded, so there is no timeline to continue
+    // from. Leave the sections as they are: their metadata stays flagged
+    // invalid, which is what downstream needs in order to disregard it.
+    ORC_LOG_WARN(
+        "F2SectionCorrection::forwardFillTrailingInvalidSections(): {} "
+        "trailing section(s) have invalid metadata and there is no valid "
+        "section to continue the timeline from; leaving them flagged invalid.",
+        m_internalBuffer.size());
+    return;
+  }
+
+  const SectionMetadata anchor = m_internalBuffer[lastValid].metadata;
+  const int filled = static_cast<int>(m_internalBuffer.size()) - 1 - lastValid;
+  for (int i = lastValid + 1; i < static_cast<int>(m_internalBuffer.size());
+       ++i) {
+    const int offset = i - lastValid;
+    m_internalBuffer[i].metadata = anchor;
+    m_internalBuffer[i].metadata.setAbsoluteSectionTime(
+        anchor.absoluteSectionTime() + offset);
+    m_internalBuffer[i].metadata.setSectionTime(anchor.sectionTime() + offset);
+    m_internalBuffer[i].metadata.setValid(true);
+  }
+
+  // Deliberately NOT counted as uncorrectable sections. A run longer than the
+  // correctable gap has already been forward-filled and charged as
+  // uncorrectable by processInternalBuffer(), so whatever survives to here is
+  // short by construction and is an artefact of the stream ending rather than
+  // a defect in the disc. It is reported separately so it stays visible.
+  m_tailFilledSections += static_cast<uint32_t>(filled);
+  ORC_LOG_DEBUG(
+      "F2SectionCorrection::forwardFillTrailingInvalidSections(): "
+      "forward-filled {} trailing section(s) from absolute time {}",
+      filled, anchor.absoluteSectionTime().toString());
+}
+
 void F2SectionCorrection::flush() {
-  // Flush the entire internal buffer, including any remaining trailing sections
-  // (an end-of-stream tail may still contain uncorrected/invalid sections).
+  // The end-of-stream tail may still hold sections whose metadata never became
+  // valid; give them a continued timeline before they are emitted.
+  forwardFillTrailingInvalidSections();
+
+  // Flush the entire internal buffer.
   while (!m_internalBuffer.empty()) {
     emitSection();
   }

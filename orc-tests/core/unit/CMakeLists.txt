@@ -249,6 +249,19 @@ gtest_discover_tests(orc-core-unit-tests-efm-reedsolomon-padding
         DISCOVERY_TIMEOUT 30
         PROPERTIES LABELS "unit\;sinks")
 
+# End-of-stream Q-channel metadata: a trailing run of CRC-failure sections must
+# have its timeline continued from the last valid section instead of being
+# emitted with the default (track 0, 00:00:00) metadata.
+add_executable(orc-core-unit-tests-efm-f2-tail
+        stages/efm_common/f2_section_correction_tail_test.cpp)
+target_link_libraries(orc-core-unit-tests-efm-f2-tail
+        orc-efm-decode
+        GTest::gmock_main)
+gtest_discover_tests(orc-core-unit-tests-efm-f2-tail
+        DISCOVERY_MODE POST_BUILD
+        DISCOVERY_TIMEOUT 30
+        PROPERTIES LABELS "unit\;sinks")
+
 # End-to-end boundary attribution: a stream that is clean by construction is run
 # through the real F2 -> F1 -> Data24 -> Audio -> concealment chain and must
 # report no input defects at all. Guards the regression where drain codewords

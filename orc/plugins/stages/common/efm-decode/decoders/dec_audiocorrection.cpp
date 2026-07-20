@@ -174,8 +174,20 @@ const SectionMetadata* AudioCorrection::discOriginOf(uint64_t ordinal,
   const uint64_t discPosition = emitted - kLatencySamples;
   const uint64_t discSection = discPosition / kSamplesPerChannel;
   if (discSection < m_historyBase) return nullptr;
-  const size_t index = static_cast<size_t>(discSection - m_historyBase);
+  size_t index = static_cast<size_t>(discSection - m_historyBase);
   if (index >= m_metadataHistory.size()) return nullptr;
+
+  // A section whose Q-channel CRC failed carries default metadata (UserData,
+  // track 0, time 00:00:00), and F2SectionCorrection::flush() emits any such
+  // sections still in its buffer at end of stream. Attributing samples with
+  // that metadata would invent a track 0 at 00:00:00, so walk back to the
+  // nearest section whose Q position was actually decoded. The Q timeline is
+  // contiguous, so the preceding valid section still describes the right
+  // region to within the length of the invalid run.
+  while (!m_metadataHistory[index].isValid()) {
+    if (index == 0) return nullptr;
+    --index;
+  }
   return &m_metadataHistory[index];
 }
 

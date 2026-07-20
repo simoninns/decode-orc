@@ -1118,6 +1118,17 @@ void EfmProcessor::showDecodeBoundaries() const {
   const uint64_t totalF1Frames = m_f1SectionToData24Section.totalBytes() / 24;
 
   ORC_LOG_INFO("  Decode boundaries (structural - not input defects)");
+  if (m_f2SectionCorrection.tailFilledSections() > 0) {
+    ORC_LOG_INFO(
+        "    i {} trailing section(s) had no decodable Q-channel and the "
+        "stream "
+        "ended",
+        commas(m_f2SectionCorrection.tailFilledSections()));
+    ORC_LOG_INFO(
+        "      before they could be bracketed for correction. Their timeline "
+        "was continued");
+    ORC_LOG_INFO("      from the last valid section.");
+  }
   ORC_LOG_INFO(
       "    De-interleave latency : {} F1 frames  ({} sample(s) per channel, "
       "{:.1f} ms)",

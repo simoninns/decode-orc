@@ -190,6 +190,50 @@ TEST(CircBoundaryAttribution, DrainOfADiscWithLeadOutFallsInTheLeadOut) {
   EXPECT_EQ(pipeline.correction.drainSamplesIn(DiscRegion::Programme), 0u);
 }
 
+// F2SectionCorrection::flush() emits whatever is left in its buffer at end of
+// stream without checking validity, so a capture can end with sections whose
+// Q-channel CRC failed. Those carry subcode.cpp's defaults: UserData, track 0,
+// absolute time 00:00:00. Attributing samples with that metadata invents a
+// "track 0 at 00:00:00" that is nowhere on the disc.
+TEST(CircBoundaryAttribution, IgnoresInvalidTailMetadataWhenAttributing) {
+  Pipeline pipeline;
+
+  int32_t absolute = 0;
+  for (int i = 0; i < kLeadInSections; ++i) {
+    pipeline.f2ToF1.pushSection(
+        makeCleanF2Section(makeMetadata(Kind::LeadIn, 0, absolute++)));
+  }
+  pipeline.pump();
+  for (int i = 0; i < kProgrammeSections; ++i) {
+    pipeline.f2ToF1.pushSection(
+        makeCleanF2Section(makeMetadata(Kind::Programme, 1, absolute++)));
+  }
+  pipeline.pump();
+  for (int i = 0; i < kLeadOutSections; ++i) {
+    pipeline.f2ToF1.pushSection(
+        makeCleanF2Section(makeMetadata(Kind::LeadOut, 0, absolute++)));
+  }
+  pipeline.pump();
+
+  // The CRC-fail tail: default-constructed metadata, explicitly invalid.
+  for (int i = 0; i < 3; ++i) {
+    SectionMetadata invalid;  // UserData, track 0, INDEX 01, 00:00:00
+    invalid.setValid(false);
+    pipeline.f2ToF1.pushSection(makeCleanF2Section(invalid));
+  }
+  pipeline.pump();
+  pipeline.finish();
+
+  // Nothing may be credited to the phantom track 0.
+  EXPECT_EQ(pipeline.correction.trackLosses().count(0), 0u);
+  // The tail follows the lead-out, so the drain still belongs to the lead-out
+  // rather than being dragged into the programme area by bogus metadata.
+  EXPECT_EQ(pipeline.correction.drainSamplesIn(DiscRegion::Programme), 0u);
+  EXPECT_EQ(pipeline.correction.regionLoss(DiscRegion::Programme).silenced, 0u);
+  EXPECT_EQ(pipeline.correction.regionLoss(DiscRegion::Programme).concealed,
+            0u);
+}
+
 // Regions must still be told apart end to end, not collapsed into one bucket.
 TEST(CircBoundaryAttribution, AttributesEachRegionSeparately) {
   Pipeline pipeline;

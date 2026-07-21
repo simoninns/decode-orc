@@ -1433,10 +1433,16 @@ bool VideoSinkStage::run_export_trigger(
     return false;
   }
 
-  const DecoderParams decoderParams{
-      chroma_gain_,         chroma_phase_,    luma_nr_,
-      chroma_nr_,           ntsc_phase_comp_, simple_pal_,
-      transform_threshold_, chroma_weight_,   adapt_threshold_};
+  DecoderParams decoderParams;
+  decoderParams.chromaGain = chroma_gain_;
+  decoderParams.chromaPhase = chroma_phase_;
+  decoderParams.lumaNr = luma_nr_;
+  decoderParams.chromaNr = chroma_nr_;
+  decoderParams.ntscPhaseComp = ntsc_phase_comp_;
+  decoderParams.simplePal = simple_pal_;
+  decoderParams.transformThreshold = transform_threshold_;
+  decoderParams.chromaWeight = chroma_weight_;
+  decoderParams.adaptThreshold = adapt_threshold_;
 
   std::unique_ptr<Decoder> decoder =
       make_decoder(decoder_type_, decoderParams, videoParams);
@@ -2258,10 +2264,16 @@ std::optional<ColourFrameCarrier> VideoSinkStage::get_colour_preview_carrier(
     preview_decoder_cache_.chroma_weight = chroma_weight_;
     preview_decoder_cache_.adapt_threshold = adapt_threshold_;
 
-    const DecoderParams decoderParams{
-        chroma_gain_,         chroma_phase_,    luma_nr_,
-        chroma_nr_,           ntsc_phase_comp_, simple_pal_,
-        transform_threshold_, chroma_weight_,   adapt_threshold_};
+    DecoderParams decoderParams;
+    decoderParams.chromaGain = chroma_gain_;
+    decoderParams.chromaPhase = chroma_phase_;
+    decoderParams.lumaNr = luma_nr_;
+    decoderParams.chromaNr = chroma_nr_;
+    decoderParams.ntscPhaseComp = ntsc_phase_comp_;
+    decoderParams.simplePal = simple_pal_;
+    decoderParams.transformThreshold = transform_threshold_;
+    decoderParams.chromaWeight = chroma_weight_;
+    decoderParams.adaptThreshold = adapt_threshold_;
     preview_decoder_cache_.decoder =
         make_decoder(effectiveDecoderType, decoderParams, safeVideoParams);
   }

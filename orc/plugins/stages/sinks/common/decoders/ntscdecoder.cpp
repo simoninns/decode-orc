@@ -12,6 +12,8 @@
 
 #include <orc/support/logging.h>
 
+#include <utility>
+
 #include "../video_parameter_safety.h"
 
 NtscDecoder::NtscDecoder(const Comb::Configuration& combConfig) {
@@ -19,6 +21,9 @@ NtscDecoder::NtscDecoder(const Comb::Configuration& combConfig) {
 }
 
 bool NtscDecoder::configure(const ::orc::SourceParameters& videoParameters) {
+  // A failed reconfiguration must not leave the previous configuration usable.
+  configurationValid_ = false;
+
   // Ensure the source video is NTSC
   if (videoParameters.system != orc::VideoSystem::NTSC) {
     ORC_LOG_ERROR("This decoder is for NTSC video sources only");
@@ -42,6 +47,18 @@ bool NtscDecoder::configure(const ::orc::SourceParameters& videoParameters) {
 
   config.videoParameters = safety.params;
 
+  comb = std::make_unique<Comb>();
+  comb->updateConfiguration(config.videoParameters, config.combConfig);
+
+  // The Y/C luma channel is already clean, so filterChroma stays off.
+  MonoDecoder::MonoConfiguration lumaConfig;
+  lumaConfig.yNRLevel = config.combConfig.yNRLevel;
+  lumaConfig.filterChroma = false;
+  lumaConfig.videoParameters = config.videoParameters;
+  ycLumaDecoder = std::make_unique<MonoDecoder>(lumaConfig);
+
+  configurationValid_ = true;
+
   return true;
 }
 
@@ -51,4 +68,61 @@ int32_t NtscDecoder::getLookBehind() const {
 
 int32_t NtscDecoder::getLookAhead() const {
   return config.combConfig.getLookAhead();
+}
+
+void NtscDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
+                               int32_t startIndex, int32_t endIndex,
+                               std::vector<ComponentFrame>& componentFrames) {
+  if (!configurationValid_) {
+    ORC_LOG_ERROR(
+        "NtscDecoder::decodeFrames(): Decoder configuration is invalid");
+    return;
+  }
+
+  if (!inputFields.empty() && inputFields[0].is_yc) {
+    decodeFramesYc(inputFields, startIndex, endIndex, componentFrames);
+    return;
+  }
+
+  comb->decodeFrames(inputFields, startIndex, endIndex, componentFrames);
+}
+
+void NtscDecoder::decodeFramesYc(const std::vector<SourceField>& inputFields,
+                                 int32_t startIndex, int32_t endIndex,
+                                 std::vector<ComponentFrame>& componentFrames) {
+  // Split each Y/C field into a luma-only and a chroma-only composite field.
+  std::vector<SourceField> lumaFields;
+  std::vector<SourceField> chromaFields;
+  lumaFields.reserve(inputFields.size());
+  chromaFields.reserve(inputFields.size());
+
+  for (const auto& field : inputFields) {
+    SourceField lumaField = field;
+    lumaField.is_yc = false;
+    lumaField.data = field.luma_data;
+    lumaField.luma_data = nullptr;
+    lumaField.chroma_data = nullptr;
+    lumaField.line_ptrs = field.luma_line_ptrs;
+    lumaField.luma_line_ptrs.clear();
+    lumaField.chroma_line_ptrs.clear();
+    lumaFields.push_back(std::move(lumaField));
+
+    SourceField chromaField = field;
+    chromaField.is_yc = false;
+    chromaField.data = field.chroma_data;
+    chromaField.luma_data = nullptr;
+    chromaField.chroma_data = nullptr;
+    chromaField.line_ptrs = field.chroma_line_ptrs;
+    chromaField.luma_line_ptrs.clear();
+    chromaField.chroma_line_ptrs.clear();
+    chromaFields.push_back(std::move(chromaField));
+  }
+
+  std::vector<ComponentFrame> lumaFrames(componentFrames.size());
+  ycLumaDecoder->decodeFrames(lumaFields, startIndex, endIndex, lumaFrames);
+  comb->decodeFrames(chromaFields, startIndex, endIndex, componentFrames);
+
+  for (size_t i = 0; i < componentFrames.size(); i++) {
+    componentFrames[i].merge_luma_from(lumaFrames[i]);
+  }
 }

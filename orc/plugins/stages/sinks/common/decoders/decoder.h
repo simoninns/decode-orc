@@ -53,7 +53,16 @@ class Decoder {
   // decoders.
   virtual int32_t getLookAhead() const;
 
-  // Decode a sequence of composite fields into a sequence of component frames
+  // Decode a sequence of composite fields into component frames.
+  //
+  // inputFields runs look-behind, decode, look-ahead, two fields per frame.
+  // [startIndex, endIndex) is the half-open decode range; the caller aligns it
+  // to getLookBehind() * 2 so every frame decodes at the same temporal
+  // position (required by the 3D decoders).  Fields outside it are context.
+  // componentFrames must be pre-sized to (endIndex - startIndex) / 2.
+  //
+  // Y/C sources set is_yc and carry luma/chroma in luma_data/chroma_data;
+  // decoders without Y/C support decode the composite data channel instead.
   virtual void decodeFrames(const std::vector<SourceField>& inputFields,
                             int32_t startIndex, int32_t endIndex,
                             std::vector<ComponentFrame>& componentFrames) = 0;

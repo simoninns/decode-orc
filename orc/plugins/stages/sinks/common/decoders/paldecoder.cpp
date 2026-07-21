@@ -12,6 +12,8 @@
 
 #include <orc/support/logging.h>
 
+#include <utility>
+
 #include "../video_parameter_safety.h"
 
 PalDecoder::PalDecoder(const PalColour::Configuration& palConfig) {
@@ -19,6 +21,9 @@ PalDecoder::PalDecoder(const PalColour::Configuration& palConfig) {
 }
 
 bool PalDecoder::configure(const ::orc::SourceParameters& videoParameters) {
+  // A failed reconfiguration must not leave the previous configuration usable.
+  configurationValid_ = false;
+
   // Ensure the source video is PAL
   if (videoParameters.system != orc::VideoSystem::PAL &&
       videoParameters.system != orc::VideoSystem::PAL_M) {
@@ -43,9 +48,80 @@ bool PalDecoder::configure(const ::orc::SourceParameters& videoParameters) {
 
   config.videoParameters = safety.params;
 
+  // Transform PAL builds FFTW plans here with FFTW_MEASURE; per-thread
+  // construction must be serialised by the caller.
+  palColour = std::make_unique<PalColour>();
+  palColour->updateConfiguration(config.videoParameters, config.pal);
+
+  // The Y/C luma channel is already clean, so filterChroma stays off.
+  MonoDecoder::MonoConfiguration lumaConfig;
+  lumaConfig.yNRLevel = config.pal.yNRLevel;
+  lumaConfig.filterChroma = false;
+  lumaConfig.videoParameters = config.videoParameters;
+  ycLumaDecoder = std::make_unique<MonoDecoder>(lumaConfig);
+
+  configurationValid_ = true;
+
   return true;
 }
 
 int32_t PalDecoder::getLookBehind() const { return config.pal.getLookBehind(); }
 
 int32_t PalDecoder::getLookAhead() const { return config.pal.getLookAhead(); }
+
+void PalDecoder::decodeFrames(const std::vector<SourceField>& inputFields,
+                              int32_t startIndex, int32_t endIndex,
+                              std::vector<ComponentFrame>& componentFrames) {
+  if (!configurationValid_) {
+    ORC_LOG_ERROR(
+        "PalDecoder::decodeFrames(): Decoder configuration is invalid");
+    return;
+  }
+
+  if (!inputFields.empty() && inputFields[0].is_yc) {
+    decodeFramesYc(inputFields, startIndex, endIndex, componentFrames);
+    return;
+  }
+
+  palColour->decodeFrames(inputFields, startIndex, endIndex, componentFrames);
+}
+
+void PalDecoder::decodeFramesYc(const std::vector<SourceField>& inputFields,
+                                int32_t startIndex, int32_t endIndex,
+                                std::vector<ComponentFrame>& componentFrames) {
+  // Split each Y/C field into a luma-only and a chroma-only composite field.
+  std::vector<SourceField> lumaFields;
+  std::vector<SourceField> chromaFields;
+  lumaFields.reserve(inputFields.size());
+  chromaFields.reserve(inputFields.size());
+
+  for (const auto& field : inputFields) {
+    SourceField lumaField = field;
+    lumaField.is_yc = false;
+    lumaField.data = field.luma_data;
+    lumaField.luma_data = nullptr;
+    lumaField.chroma_data = nullptr;
+    lumaField.line_ptrs = field.luma_line_ptrs;
+    lumaField.luma_line_ptrs.clear();
+    lumaField.chroma_line_ptrs.clear();
+    lumaFields.push_back(std::move(lumaField));
+
+    SourceField chromaField = field;
+    chromaField.is_yc = false;
+    chromaField.data = field.chroma_data;
+    chromaField.luma_data = nullptr;
+    chromaField.chroma_data = nullptr;
+    chromaField.line_ptrs = field.chroma_line_ptrs;
+    chromaField.luma_line_ptrs.clear();
+    chromaField.chroma_line_ptrs.clear();
+    chromaFields.push_back(std::move(chromaField));
+  }
+
+  std::vector<ComponentFrame> lumaFrames(componentFrames.size());
+  ycLumaDecoder->decodeFrames(lumaFields, startIndex, endIndex, lumaFrames);
+  palColour->decodeFrames(chromaFields, startIndex, endIndex, componentFrames);
+
+  for (size_t i = 0; i < componentFrames.size(); i++) {
+    componentFrames[i].merge_luma_from(lumaFrames[i]);
+  }
+}

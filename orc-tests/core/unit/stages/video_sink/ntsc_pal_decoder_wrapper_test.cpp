@@ -1,7 +1,8 @@
 /*
  * File:        ntsc_pal_decoder_wrapper_test.cpp
  * Module:      orc-core-tests
- * Purpose:     Unit test(s) for NTSC/PAL decoder wrapper configuration
+ * Purpose:     Unit test(s) for NTSC/PAL decoder wrapper configuration and
+ *              decoding
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -9,29 +10,13 @@
 
 #include <gtest/gtest.h>
 
+#include <vector>
+
 #include "../../../../orc/plugins/stages/sinks/common/decoders/ntscdecoder.h"
 #include "../../../../orc/plugins/stages/sinks/common/decoders/paldecoder.h"
 
 namespace orc_unit_test {
 namespace {
-class TestableNtscDecoder : public NtscDecoder {
- public:
-  explicit TestableNtscDecoder(const Comb::Configuration& config)
-      : NtscDecoder(config) {}
-
-  void decodeFrames(const std::vector<SourceField>&, int32_t, int32_t,
-                    std::vector<ComponentFrame>&) override {}
-};
-
-class TestablePalDecoder : public PalDecoder {
- public:
-  explicit TestablePalDecoder(const PalColour::Configuration& config)
-      : PalDecoder(config) {}
-
-  void decodeFrames(const std::vector<SourceField>&, int32_t, int32_t,
-                    std::vector<ComponentFrame>&) override {}
-};
-
 orc::SourceParameters make_ntsc_params() {
   orc::SourceParameters p;
   p.system = orc::VideoSystem::NTSC;
@@ -45,11 +30,82 @@ orc::SourceParameters make_pal_params() {
   p.frame_width_nominal = 32;
   return p;
 }
+
+// Video parameters with an active region, as required to decode rather than
+// merely configure.
+orc::SourceParameters make_ntsc_decode_params() {
+  orc::SourceParameters p = make_ntsc_params();
+  p.active_video_start = 16;
+  p.active_video_end = 24;
+  p.first_active_frame_line = 0;
+  p.last_active_frame_line = 6;
+  return p;
+}
+
+orc::SourceParameters make_pal_decode_params() {
+  orc::SourceParameters p = make_pal_params();
+  p.active_video_start = 16;
+  p.active_video_end = 24;
+  p.first_active_frame_line = 0;
+  p.last_active_frame_line = 6;
+  return p;
+}
+
+// Owning wrapper: holds the sample buffers and the non-owning SourceField
+// that points into them.
+struct OwnedField {
+  std::vector<int16_t> composite_buf;
+  std::vector<int16_t> luma_buf;
+  std::vector<int16_t> chroma_buf;
+  SourceField field;
+
+  static OwnedField makeYc(bool is_first_field, int16_t luma_base,
+                           int16_t chroma_base, int width, int height) {
+    OwnedField of;
+    of.field.is_yc = true;
+    of.field.is_first_field = is_first_field;
+    of.field.frame_phase_id = is_first_field ? 1 : 2;
+    of.field.line_count = static_cast<size_t>(height);
+    of.field.samples_per_line = static_cast<size_t>(width);
+
+    of.luma_buf.reserve(static_cast<size_t>(width * height));
+    of.chroma_buf.reserve(static_cast<size_t>(width * height));
+    for (int line = 0; line < height; ++line) {
+      for (int x = 0; x < width; ++x) {
+        of.luma_buf.push_back(static_cast<int16_t>(luma_base + line * 4 + x));
+        of.chroma_buf.push_back(
+            static_cast<int16_t>(chroma_base + ((x % 4) * 10)));
+      }
+    }
+    of.field.luma_data = of.luma_buf.data();
+    of.field.chroma_data = of.chroma_buf.data();
+    return of;
+  }
+
+  static OwnedField makeComposite(bool is_first_field, int16_t base, int width,
+                                  int height) {
+    OwnedField of;
+    of.field.is_yc = false;
+    of.field.is_first_field = is_first_field;
+    of.field.frame_phase_id = is_first_field ? 1 : 2;
+    of.field.line_count = static_cast<size_t>(height);
+    of.field.samples_per_line = static_cast<size_t>(width);
+
+    of.composite_buf.reserve(static_cast<size_t>(width * height));
+    for (int line = 0; line < height; ++line) {
+      for (int x = 0; x < width; ++x) {
+        of.composite_buf.push_back(static_cast<int16_t>(base + line * 8 + x));
+      }
+    }
+    of.field.data = of.composite_buf.data();
+    return of;
+  }
+};
 }  // namespace
 
 TEST(NtscDecoderWrapperTest, Configure_AcceptsNtscAndRejectsPal) {
   Comb::Configuration config;
-  TestableNtscDecoder decoder(config);
+  NtscDecoder decoder(config);
 
   EXPECT_TRUE(decoder.configure(make_ntsc_params()));
   EXPECT_FALSE(decoder.configure(make_pal_params()));
@@ -58,7 +114,7 @@ TEST(NtscDecoderWrapperTest, Configure_AcceptsNtscAndRejectsPal) {
 TEST(NtscDecoderWrapperTest, Look_AroundFollowsCombConfiguration) {
   Comb::Configuration config;
   config.dimensions = 3;
-  TestableNtscDecoder decoder(config);
+  NtscDecoder decoder(config);
 
   EXPECT_EQ(decoder.getLookBehind(), 1);
   EXPECT_EQ(decoder.getLookAhead(), 1);
@@ -66,7 +122,7 @@ TEST(NtscDecoderWrapperTest, Look_AroundFollowsCombConfiguration) {
 
 TEST(PalDecoderWrapperTest, Configure_AcceptsPalAndRejectsNtsc) {
   PalColour::Configuration config;
-  TestablePalDecoder decoder(config);
+  PalDecoder decoder(config);
 
   EXPECT_TRUE(decoder.configure(make_pal_params()));
   EXPECT_FALSE(decoder.configure(make_ntsc_params()));
@@ -75,14 +131,14 @@ TEST(PalDecoderWrapperTest, Configure_AcceptsPalAndRejectsNtsc) {
 TEST(PalDecoderWrapperTest, Look_AroundDependsOnPalFilterMode) {
   PalColour::Configuration config_2d;
   config_2d.chromaFilter = PalColour::transform2DFilter;
-  TestablePalDecoder decoder_2d(config_2d);
+  PalDecoder decoder_2d(config_2d);
 
   EXPECT_EQ(decoder_2d.getLookBehind(), 0);
   EXPECT_EQ(decoder_2d.getLookAhead(), 0);
 
   PalColour::Configuration config_3d;
   config_3d.chromaFilter = PalColour::transform3DFilter;
-  TestablePalDecoder decoder_3d(config_3d);
+  PalDecoder decoder_3d(config_3d);
 
   EXPECT_GT(decoder_3d.getLookBehind(), 0);
   EXPECT_GT(decoder_3d.getLookAhead(), 0);
@@ -90,7 +146,7 @@ TEST(PalDecoderWrapperTest, Look_AroundDependsOnPalFilterMode) {
 
 TEST(NtscDecoderWrapperTest, Configure_RejectsInvalidGeometry) {
   Comb::Configuration config;
-  TestableNtscDecoder decoder(config);
+  NtscDecoder decoder(config);
 
   auto params = make_ntsc_params();
   params.frame_width_nominal = 8;
@@ -100,11 +156,124 @@ TEST(NtscDecoderWrapperTest, Configure_RejectsInvalidGeometry) {
 
 TEST(PalDecoderWrapperTest, Configure_RejectsInvalidGeometry) {
   PalColour::Configuration config;
-  TestablePalDecoder decoder(config);
+  PalDecoder decoder(config);
 
   auto params = make_pal_params();
   params.frame_width_nominal = 8;
 
   EXPECT_FALSE(decoder.configure(params));
+}
+
+TEST(NtscDecoderWrapperTest, DecodeFramesCompositePath_ProducesDecodedFrame) {
+  Comb::Configuration config;
+  config.dimensions = 2;
+  config.phaseCompensation = false;
+
+  NtscDecoder decoder(config);
+  ASSERT_TRUE(decoder.configure(make_ntsc_decode_params()));
+
+  auto first_owned = OwnedField::makeComposite(true, 1000, 32, 4);
+  auto second_owned = OwnedField::makeComposite(false, 2000, 32, 4);
+  std::vector<SourceField> fields = {first_owned.field, second_owned.field};
+  std::vector<ComponentFrame> output(1);
+
+  decoder.decodeFrames(fields, 0, 2, output);
+
+  EXPECT_EQ(output[0].getWidth(), 32);
+  EXPECT_EQ(output[0].getHeight(), 525);
+}
+
+TEST(NtscDecoderWrapperTest, DecodeFramesYcPath_PreservesLumaInActiveRegion) {
+  Comb::Configuration config;
+  config.dimensions = 2;
+  config.phaseCompensation = false;
+
+  NtscDecoder decoder(config);
+  ASSERT_TRUE(decoder.configure(make_ntsc_decode_params()));
+
+  auto first_owned = OwnedField::makeYc(true, 1000, 2000, 32, 4);
+  auto second_owned = OwnedField::makeYc(false, 3000, 4000, 32, 4);
+  std::vector<SourceField> fields = {first_owned.field, second_owned.field};
+  std::vector<ComponentFrame> output(1);
+
+  decoder.decodeFrames(fields, 0, 2, output);
+
+  // Y/C luma must survive the split-decode-merge round trip unchanged.
+  const double* line0 = output[0].y(0);
+  const double* line1 = output[0].y(1);
+
+  EXPECT_DOUBLE_EQ(line0[16],
+                   static_cast<double>(first_owned.field.luma_data[16]));
+  EXPECT_DOUBLE_EQ(line0[20],
+                   static_cast<double>(first_owned.field.luma_data[20]));
+  EXPECT_DOUBLE_EQ(line1[16],
+                   static_cast<double>(second_owned.field.luma_data[16]));
+  EXPECT_DOUBLE_EQ(line1[20],
+                   static_cast<double>(second_owned.field.luma_data[20]));
+}
+
+TEST(PalDecoderWrapperTest, DecodeFramesYcPath_PreservesLumaInActiveRegion) {
+  PalColour::Configuration config;
+  config.chromaFilter = PalColour::palColourFilter;
+
+  PalDecoder decoder(config);
+  ASSERT_TRUE(decoder.configure(make_pal_decode_params()));
+
+  auto first_owned = OwnedField::makeYc(true, 1000, 2000, 32, 4);
+  auto second_owned = OwnedField::makeYc(false, 3000, 4000, 32, 4);
+  std::vector<SourceField> fields = {first_owned.field, second_owned.field};
+  std::vector<ComponentFrame> output(1);
+
+  decoder.decodeFrames(fields, 0, 2, output);
+
+  const double* line0 = output[0].y(0);
+  const double* line1 = output[0].y(1);
+
+  EXPECT_DOUBLE_EQ(line0[16],
+                   static_cast<double>(first_owned.field.luma_data[16]));
+  EXPECT_DOUBLE_EQ(line1[16],
+                   static_cast<double>(second_owned.field.luma_data[16]));
+}
+
+// After a failed reconfigure the decoder must refuse, not decode with the
+// previous system's stale configuration.
+TEST(NtscDecoderWrapperTest,
+     DecodeFrames_AfterFailedReconfigure_DoesNotDecode) {
+  Comb::Configuration config;
+  config.dimensions = 2;
+
+  NtscDecoder decoder(config);
+  ASSERT_TRUE(decoder.configure(make_ntsc_decode_params()));
+  ASSERT_FALSE(decoder.configure(make_pal_params()));
+
+  auto first_owned = OwnedField::makeComposite(true, 1000, 32, 4);
+  auto second_owned = OwnedField::makeComposite(false, 2000, 32, 4);
+  std::vector<SourceField> fields = {first_owned.field, second_owned.field};
+  std::vector<ComponentFrame> output(1);
+
+  decoder.decodeFrames(fields, 0, 2, output);
+
+  // Left untouched: a default-constructed ComponentFrame has extent -1.
+  EXPECT_EQ(output[0].getWidth(), -1);
+  EXPECT_EQ(output[0].getHeight(), -1);
+}
+
+TEST(PalDecoderWrapperTest, DecodeFrames_AfterFailedReconfigure_DoesNotDecode) {
+  PalColour::Configuration config;
+  config.chromaFilter = PalColour::palColourFilter;
+
+  PalDecoder decoder(config);
+  ASSERT_TRUE(decoder.configure(make_pal_decode_params()));
+  ASSERT_FALSE(decoder.configure(make_ntsc_params()));
+
+  auto first_owned = OwnedField::makeComposite(true, 1000, 32, 4);
+  auto second_owned = OwnedField::makeComposite(false, 2000, 32, 4);
+  std::vector<SourceField> fields = {first_owned.field, second_owned.field};
+  std::vector<ComponentFrame> output(1);
+
+  decoder.decodeFrames(fields, 0, 2, output);
+
+  EXPECT_EQ(output[0].getWidth(), -1);
+  EXPECT_EQ(output[0].getHeight(), -1);
 }
 }  // namespace orc_unit_test

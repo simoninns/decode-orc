@@ -21,7 +21,6 @@
 #include <vector>
 
 #include "componentframe.h"
-#include "outputwriter.h"
 #include "sourcefield.h"
 
 // Abstract base class for chroma decoders.

@@ -88,6 +88,10 @@ struct DecoderParams {
 // filters directly, so output is unchanged.  Transform PAL creates FFTW plans
 // in configure(); callers constructing per-thread decoders must serialise this
 // behind fftwPlanMutex.
+//
+// Returns nullptr for an unrecognized decoder_type, or when the decoder rejects
+// the source (e.g. a PAL source with an ntsc type), so the caller can abort
+// instead of exporting garbage or black frames.
 std::unique_ptr<Decoder> make_decoder(const std::string& decoder_type,
                                       const DecoderParams& params,
                                       const SourceParameters& videoParameters) {
@@ -116,35 +120,40 @@ std::unique_ptr<Decoder> make_decoder(const std::string& decoder_type,
       config.chromaFilter = PalColour::palColourFilter;
     }
     auto decoder = std::make_unique<PalDecoder>(config);
-    decoder->configure(videoParameters);
-    return decoder;
+    return decoder->configure(videoParameters) ? std::move(decoder) : nullptr;
   }
 
-  Comb::Configuration config;
-  config.chromaGain = params.chromaGain;
-  config.chromaPhase = params.chromaPhase;
-  config.cNRLevel = params.chromaNr;
-  config.yNRLevel = params.lumaNr;
-  config.phaseCompensation = params.ntscPhaseComp;
-  config.chromaWeight = params.chromaWeight;
-  config.adaptThreshold = params.adaptThreshold;
-  config.showMap = false;
-  if (decoder_type == "ntsc1d") {
-    config.dimensions = 1;
-    config.adaptive = false;
-  } else if (decoder_type == "ntsc3d") {
-    config.dimensions = 3;
-    config.adaptive = true;
-  } else if (decoder_type == "ntsc3dnoadapt") {
-    config.dimensions = 3;
-    config.adaptive = false;
-  } else {
-    config.dimensions = 2;
-    config.adaptive = false;
+  if (decoder_type == "ntsc1d" || decoder_type == "ntsc2d" ||
+      decoder_type == "ntsc3d" || decoder_type == "ntsc3dnoadapt") {
+    Comb::Configuration config;
+    config.chromaGain = params.chromaGain;
+    config.chromaPhase = params.chromaPhase;
+    config.cNRLevel = params.chromaNr;
+    config.yNRLevel = params.lumaNr;
+    config.phaseCompensation = params.ntscPhaseComp;
+    config.chromaWeight = params.chromaWeight;
+    config.adaptThreshold = params.adaptThreshold;
+    config.showMap = false;
+    if (decoder_type == "ntsc1d") {
+      config.dimensions = 1;
+      config.adaptive = false;
+    } else if (decoder_type == "ntsc3d") {
+      config.dimensions = 3;
+      config.adaptive = true;
+    } else if (decoder_type == "ntsc3dnoadapt") {
+      config.dimensions = 3;
+      config.adaptive = false;
+    } else {
+      config.dimensions = 2;
+      config.adaptive = false;
+    }
+    auto decoder = std::make_unique<NtscDecoder>(config);
+    return decoder->configure(videoParameters) ? std::move(decoder) : nullptr;
   }
-  auto decoder = std::make_unique<NtscDecoder>(config);
-  decoder->configure(videoParameters);
-  return decoder;
+
+  // Unknown decoder type: return nullptr so the caller's null check aborts the
+  // export rather than silently decoding as NTSC 2D.
+  return nullptr;
 }
 
 bool apply_decoder_safe_video_parameters(

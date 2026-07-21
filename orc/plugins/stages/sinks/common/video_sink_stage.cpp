@@ -2224,23 +2224,45 @@ std::optional<ColourFrameCarrier> VideoSinkStage::get_colour_preview_carrier(
   const uint64_t frame_a_index = preview_frame_range.first + index;
 
   std::vector<SourceField> inputFields;
-  int32_t num_lookbehind_frames = 0;
-  int32_t num_lookahead_frames = 0;
 
-  std::string temp_decoder_type = decoder_type_;
-  if (temp_decoder_type == "transform3d") {
-    // TransformPal3D::getLookBehind() = 1, getLookAhead() = 4 (frames).
-    // Preview must supply at least getLookAhead()*2 = 8 fields after endIndex.
-    num_lookbehind_frames = 2;
-    num_lookahead_frames = 4;
-  } else if (temp_decoder_type == "ntsc3d" ||
-             temp_decoder_type == "ntsc3dnoadapt") {
-    num_lookbehind_frames = 2;
-    num_lookahead_frames = 2;
-  } else {
-    num_lookbehind_frames = 1;
-    num_lookahead_frames = 1;
+  // Build (or reuse) the preview decoder before gathering fields so the
+  // look-around comes from the decoder itself, matching the render path
+  // instead of duplicating per-type values here.
+  std::string effectiveDecoderType = decoder_type_;
+
+  if (!preview_decoder_cache_.matches_config(
+          effectiveDecoderType, chroma_gain_, chroma_phase_, luma_nr_,
+          chroma_nr_, ntsc_phase_comp_, simple_pal_, false,
+          transform_threshold_, chroma_weight_, adapt_threshold_)) {
+    preview_decoder_cache_.decoder.reset();
+    preview_decoder_cache_.decoder_type = effectiveDecoderType;
+    preview_decoder_cache_.chroma_gain = chroma_gain_;
+    preview_decoder_cache_.chroma_phase = chroma_phase_;
+    preview_decoder_cache_.luma_nr = luma_nr_;
+    preview_decoder_cache_.chroma_nr = chroma_nr_;
+    preview_decoder_cache_.ntsc_phase_comp = ntsc_phase_comp_;
+    preview_decoder_cache_.simple_pal = simple_pal_;
+    preview_decoder_cache_.blackandwhite = false;
+    preview_decoder_cache_.transform_threshold = transform_threshold_;
+    preview_decoder_cache_.chroma_weight = chroma_weight_;
+    preview_decoder_cache_.adapt_threshold = adapt_threshold_;
+
+    const DecoderParams decoderParams{
+        chroma_gain_,         chroma_phase_,    luma_nr_,
+        chroma_nr_,           ntsc_phase_comp_, simple_pal_,
+        transform_threshold_, chroma_weight_,   adapt_threshold_};
+    preview_decoder_cache_.decoder =
+        make_decoder(effectiveDecoderType, decoderParams, safeVideoParams);
   }
+
+  if (!preview_decoder_cache_.decoder) {
+    return std::nullopt;
+  }
+
+  const int32_t num_lookbehind_frames =
+      preview_decoder_cache_.decoder->getLookBehind();
+  const int32_t num_lookahead_frames =
+      preview_decoder_cache_.decoder->getLookAhead();
 
   int64_t start_frame_idx =
       static_cast<int64_t>(frame_a_index) - num_lookbehind_frames;
@@ -2344,40 +2366,11 @@ std::optional<ColourFrameCarrier> VideoSinkStage::get_colour_preview_carrier(
   // Each frame contributes 2 SourceFields; lookbehind frames come first.
   const int32_t frameStartIndex = num_lookbehind_frames * 2;
 
-  std::string effectiveDecoderType = decoder_type_;
-
-  if (!preview_decoder_cache_.matches_config(
-          effectiveDecoderType, chroma_gain_, chroma_phase_, luma_nr_,
-          chroma_nr_, ntsc_phase_comp_, simple_pal_, false,
-          transform_threshold_, chroma_weight_, adapt_threshold_)) {
-    preview_decoder_cache_.decoder.reset();
-    preview_decoder_cache_.decoder_type = effectiveDecoderType;
-    preview_decoder_cache_.chroma_gain = chroma_gain_;
-    preview_decoder_cache_.chroma_phase = chroma_phase_;
-    preview_decoder_cache_.luma_nr = luma_nr_;
-    preview_decoder_cache_.chroma_nr = chroma_nr_;
-    preview_decoder_cache_.ntsc_phase_comp = ntsc_phase_comp_;
-    preview_decoder_cache_.simple_pal = simple_pal_;
-    preview_decoder_cache_.blackandwhite = false;
-    preview_decoder_cache_.transform_threshold = transform_threshold_;
-    preview_decoder_cache_.chroma_weight = chroma_weight_;
-    preview_decoder_cache_.adapt_threshold = adapt_threshold_;
-
-    const DecoderParams decoderParams{
-        chroma_gain_,         chroma_phase_,    luma_nr_,
-        chroma_nr_,           ntsc_phase_comp_, simple_pal_,
-        transform_threshold_, chroma_weight_,   adapt_threshold_};
-    preview_decoder_cache_.decoder =
-        make_decoder(effectiveDecoderType, decoderParams, safeVideoParams);
-  }
-
   std::vector<::ComponentFrame> outputFrames(1);
   const int32_t frameEndIndex = frameStartIndex + 2;
 
-  if (preview_decoder_cache_.decoder) {
-    preview_decoder_cache_.decoder->decodeFrames(inputFields, frameStartIndex,
-                                                 frameEndIndex, outputFrames);
-  }
+  preview_decoder_cache_.decoder->decodeFrames(inputFields, frameStartIndex,
+                                               frameEndIndex, outputFrames);
 
   ::ComponentFrame& frame = outputFrames[0];
   int32_t width = frame.getWidth();

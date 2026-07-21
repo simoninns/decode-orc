@@ -134,11 +134,12 @@ F3FrameToF2Section::State F3FrameToF2Section::expectingSync() {
       m_missingSync0++;
       m_internalBuffer[m_internalBuffer.size() - 2].setFrameTypeAsSync0();
 
-      // Extract the section frames and remove them from the internal buffer
+      // Extract the section frames and remove them from the internal buffer,
+      // keeping both the repaired sync0 frame and the sync1 frame.
       m_sectionFrames = std::vector<F3Frame>(m_internalBuffer.begin(),
                                              m_internalBuffer.end() - 2);
       m_internalBuffer = std::vector<F3Frame>(m_internalBuffer.end() - 2,
-                                              m_internalBuffer.end() - 1);
+                                              m_internalBuffer.end());
       ORC_LOG_DEBUG(
           "F3FrameToF2Section::expectingSync - Got sync1 frame without a sync0 "
           "frame - section frame size is {}",
@@ -197,9 +198,10 @@ F3FrameToF2Section::State F3FrameToF2Section::handleUndershoot() {
         "F3FrameToF2Section::handleUndershoot - Undershoot is {} frames; "
         "ignoring sync0 frame",
         padding);
-    // Put the section frames back into the internal buffer (append AFTER the
-    // sync0 that is already there)
-    m_internalBuffer.insert(m_internalBuffer.end(), m_sectionFrames.begin(),
+    // Put the section frames back into the internal buffer, BEFORE the
+    // pending sync frame(s) already there: the put-back frames precede the
+    // sync in the frame stream.
+    m_internalBuffer.insert(m_internalBuffer.begin(), m_sectionFrames.begin(),
                             m_sectionFrames.end());
     m_sectionFrames.clear();
     nextState = ExpectingSync;

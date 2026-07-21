@@ -262,6 +262,19 @@ gtest_discover_tests(orc-core-unit-tests-efm-f2-tail
         DISCOVERY_TIMEOUT 30
         PROPERTIES LABELS "unit\;sinks")
 
+# F3-to-F2 section framing: boundary repair must never drop, reorder or pad
+# frames when the underlying stream is intact. Links the shared EFM decode
+# library directly, as with the de-emphasis DSP above.
+add_executable(orc-core-unit-tests-efm-section-framing
+        stages/efm_common/f3frametof2section_test.cpp)
+target_link_libraries(orc-core-unit-tests-efm-section-framing
+        orc-efm-decode
+        GTest::gmock_main)
+gtest_discover_tests(orc-core-unit-tests-efm-section-framing
+        DISCOVERY_MODE POST_BUILD
+        DISCOVERY_TIMEOUT 30
+        PROPERTIES LABELS "unit\;sinks")
+
 # End-to-end boundary attribution: a stream that is clean by construction is run
 # through the real F2 -> F1 -> Data24 -> Audio -> concealment chain and must
 # report no input defects at all. Guards the regression where drain codewords

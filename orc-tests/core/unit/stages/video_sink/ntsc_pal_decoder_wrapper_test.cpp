@@ -10,9 +10,13 @@
 
 #include <gtest/gtest.h>
 
+#include <functional>
 #include <vector>
 
+#include "../../../../orc/plugins/stages/sinks/common/decoders/comb.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/monodecoder.h"
 #include "../../../../orc/plugins/stages/sinks/common/decoders/ntscdecoder.h"
+#include "../../../../orc/plugins/stages/sinks/common/decoders/palcolour.h"
 #include "../../../../orc/plugins/stages/sinks/common/decoders/paldecoder.h"
 
 namespace orc_unit_test {
@@ -101,6 +105,73 @@ struct OwnedField {
     return of;
   }
 };
+
+// Decodes separate Y/C input the explicit way: split each field into a
+// luma-only and a chroma-only composite view, decode luma with a mono decoder
+// and chroma with the colour decoder, then merge the luma plane into the colour
+// frame. The wrapper's own Y/C handling must match this element for element.
+void decode_yc_reference(
+    const std::vector<SourceField>& inputFields, int32_t startIndex,
+    int32_t endIndex, const orc::SourceParameters& videoParameters,
+    MonoDecoder& lumaDecoder,
+    const std::function<void(const std::vector<SourceField>&, int32_t, int32_t,
+                             std::vector<ComponentFrame>&)>& decodeChroma,
+    std::vector<ComponentFrame>& output) {
+  std::vector<SourceField> lumaFields;
+  std::vector<SourceField> chromaFields;
+  lumaFields.reserve(inputFields.size());
+  chromaFields.reserve(inputFields.size());
+
+  for (const auto& field : inputFields) {
+    SourceField yField = field;
+    yField.is_yc = false;
+    yField.data = field.luma_data;
+    yField.luma_data = nullptr;
+    yField.chroma_data = nullptr;
+    yField.line_ptrs = field.luma_line_ptrs;
+    yField.luma_line_ptrs.clear();
+    yField.chroma_line_ptrs.clear();
+    lumaFields.push_back(std::move(yField));
+
+    SourceField cField = field;
+    cField.is_yc = false;
+    cField.data = field.chroma_data;
+    cField.luma_data = nullptr;
+    cField.chroma_data = nullptr;
+    cField.line_ptrs = field.chroma_line_ptrs;
+    cField.luma_line_ptrs.clear();
+    cField.chroma_line_ptrs.clear();
+    chromaFields.push_back(std::move(cField));
+  }
+
+  std::vector<ComponentFrame> lumaFrames(output.size());
+  lumaDecoder.decodeFrames(lumaFields, startIndex, endIndex, lumaFrames);
+  decodeChroma(chromaFields, startIndex, endIndex, output);
+
+  for (size_t i = 0; i < output.size(); i++) {
+    output[i].merge_luma_from(lumaFrames[i]);
+  }
+}
+
+// Byte-identical comparison of two component frames over their full extent.
+void expect_frames_equal(const ComponentFrame& a, const ComponentFrame& b) {
+  ASSERT_EQ(a.getWidth(), b.getWidth());
+  ASSERT_EQ(a.getHeight(), b.getHeight());
+  const int32_t h = a.getHeight();
+  for (int32_t line = 0; line < h; ++line) {
+    const double* ay = a.y(line);
+    const double* by = b.y(line);
+    const double* au = a.u(line);
+    const double* bu = b.u(line);
+    const double* av = a.v(line);
+    const double* bv = b.v(line);
+    for (int32_t x = 0; x < a.getWidth(); ++x) {
+      EXPECT_EQ(ay[x], by[x]) << "Y line " << line << " x " << x;
+      EXPECT_EQ(au[x], bu[x]) << "U line " << line << " x " << x;
+      EXPECT_EQ(av[x], bv[x]) << "V line " << line << " x " << x;
+    }
+  }
+}
 }  // namespace
 
 TEST(NtscDecoderWrapperTest, Configure_AcceptsNtscAndRejectsPal) {
@@ -275,5 +346,76 @@ TEST(PalDecoderWrapperTest, DecodeFrames_AfterFailedReconfigure_DoesNotDecode) {
 
   EXPECT_EQ(output[0].getWidth(), -1);
   EXPECT_EQ(output[0].getHeight(), -1);
+}
+
+// NtscDecoder's Y/C handling must produce the same frame, element for element,
+// as decoding luma and chroma separately and merging them.
+TEST(NtscDecoderWrapperTest, DecodeFramesYcPath_MatchesSeparateLumaChroma) {
+  const auto params = make_ntsc_decode_params();
+
+  Comb::Configuration combConfig;
+  combConfig.dimensions = 2;
+  combConfig.phaseCompensation = false;
+
+  auto first_owned = OwnedField::makeYc(true, 1000, 2000, 32, 4);
+  auto second_owned = OwnedField::makeYc(false, 3000, 4000, 32, 4);
+  std::vector<SourceField> fields = {first_owned.field, second_owned.field};
+
+  NtscDecoder wrapper(combConfig);
+  ASSERT_TRUE(wrapper.configure(params));
+  std::vector<ComponentFrame> wrapperOut(1);
+  wrapper.decodeFrames(fields, 0, 2, wrapperOut);
+
+  MonoDecoder::MonoConfiguration lumaConfig;
+  lumaConfig.filterChroma = false;
+  lumaConfig.videoParameters = params;
+  MonoDecoder lumaDecoder(lumaConfig);
+  Comb chroma;
+  chroma.updateConfiguration(params, combConfig);
+  std::vector<ComponentFrame> referenceOut(1);
+  decode_yc_reference(
+      fields, 0, 2, params, lumaDecoder,
+      [&chroma](const std::vector<SourceField>& f, int32_t s, int32_t e,
+                std::vector<ComponentFrame>& o) {
+        chroma.decodeFrames(f, s, e, o);
+      },
+      referenceOut);
+
+  expect_frames_equal(wrapperOut[0], referenceOut[0]);
+}
+
+// PalDecoder's Y/C handling must produce the same frame, element for element,
+// as decoding luma and chroma separately and merging them.
+TEST(PalDecoderWrapperTest, DecodeFramesYcPath_MatchesSeparateLumaChroma) {
+  const auto params = make_pal_decode_params();
+
+  PalColour::Configuration palConfig;
+  palConfig.chromaFilter = PalColour::palColourFilter;
+
+  auto first_owned = OwnedField::makeYc(true, 1000, 2000, 32, 4);
+  auto second_owned = OwnedField::makeYc(false, 3000, 4000, 32, 4);
+  std::vector<SourceField> fields = {first_owned.field, second_owned.field};
+
+  PalDecoder wrapper(palConfig);
+  ASSERT_TRUE(wrapper.configure(params));
+  std::vector<ComponentFrame> wrapperOut(1);
+  wrapper.decodeFrames(fields, 0, 2, wrapperOut);
+
+  MonoDecoder::MonoConfiguration lumaConfig;
+  lumaConfig.filterChroma = false;
+  lumaConfig.videoParameters = params;
+  MonoDecoder lumaDecoder(lumaConfig);
+  PalColour chroma;
+  chroma.updateConfiguration(params, palConfig);
+  std::vector<ComponentFrame> referenceOut(1);
+  decode_yc_reference(
+      fields, 0, 2, params, lumaDecoder,
+      [&chroma](const std::vector<SourceField>& f, int32_t s, int32_t e,
+                std::vector<ComponentFrame>& o) {
+        chroma.decodeFrames(f, s, e, o);
+      },
+      referenceOut);
+
+  expect_frames_equal(wrapperOut[0], referenceOut[0]);
 }
 }  // namespace orc_unit_test

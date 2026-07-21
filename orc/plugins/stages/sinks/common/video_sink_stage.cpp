@@ -100,7 +100,8 @@ std::unique_ptr<Decoder> make_decoder(const std::string& decoder_type,
     config.yNRLevel = params.lumaNr;
     config.filterChroma = false;
     config.videoParameters = videoParameters;
-    return std::make_unique<MonoDecoder>(config);
+    auto decoder = std::make_unique<MonoDecoder>(config);
+    return decoder->configure(videoParameters) ? std::move(decoder) : nullptr;
   }
 
   if (decoder_type == "pal2d" || decoder_type == "transform2d" ||

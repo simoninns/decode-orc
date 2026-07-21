@@ -2225,10 +2225,21 @@ std::optional<ColourFrameCarrier> VideoSinkStage::get_colour_preview_carrier(
 
   std::vector<SourceField> inputFields;
 
+  const bool is_yc_source = local_input->has_separate_channels();
+
   // Build (or reuse) the preview decoder before gathering fields so the
   // look-around comes from the decoder itself, matching the render path
   // instead of duplicating per-type values here.
   std::string effectiveDecoderType = decoder_type_;
+
+  // Transform PAL filters operate on composite chroma; a Y/C source has no
+  // composite chroma to filter, so fall back to pal2d.  The render path applies
+  // the same downgrade (there it mutates decoder_type_ to surface it in the
+  // UI); the preview only needs it locally so it decodes what the export will.
+  if (is_yc_source && (effectiveDecoderType == "transform2d" ||
+                       effectiveDecoderType == "transform3d")) {
+    effectiveDecoderType = "pal2d";
+  }
 
   if (!preview_decoder_cache_.matches_config(
           effectiveDecoderType, chroma_gain_, chroma_phase_, luma_nr_,
@@ -2269,7 +2280,6 @@ std::optional<ColourFrameCarrier> VideoSinkStage::get_colour_preview_carrier(
   int64_t end_frame_idx =
       static_cast<int64_t>(frame_a_index) + num_lookahead_frames;
 
-  const bool is_yc_source = local_input->has_separate_channels();
   // PAL_M has NTSC-like frame geometry (525 lines, 909 samples/line); only
   // pure PAL uses the 625-line non-uniform layout.
   const bool preview_is_pal = (safeVideoParams.system == orc::VideoSystem::PAL);

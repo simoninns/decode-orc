@@ -118,4 +118,15 @@ struct SourceField {
   }
 };
 
+// Split each Y/C field in `inputFields` into a luma-only and a chroma-only
+// composite field, writing them to `lumaFields` and `chromaFields`.  Each
+// output field aliases the input's luma_data/chroma_data (and the matching
+// PAL line pointers) as its composite `data`, with is_yc cleared, so a
+// composite decoder can process the two channels separately.  The outputs are
+// cleared first; they reference the same buffers as the inputs and must not
+// outlive them.
+void split_yc_fields(const std::vector<SourceField>& inputFields,
+                     std::vector<SourceField>& lumaFields,
+                     std::vector<SourceField>& chromaFields);
+
 #endif  // SOURCEFIELD_H

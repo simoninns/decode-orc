@@ -3,6 +3,7 @@
 # Define decoder library sources
 set(DECODER_SOURCES
     decoder.cpp
+    sourcefield.cpp
     paldecoder.cpp
     palcolour.cpp
     transformpal.cpp

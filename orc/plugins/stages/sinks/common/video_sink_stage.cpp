@@ -221,15 +221,6 @@ VideoSinkStage::VideoSinkStage()
 
 VideoSinkStage::~VideoSinkStage() {}
 
-std::unique_ptr<MonoDecoder> VideoSinkStage::create_yc_mono_decoder(
-    const orc::SourceParameters& videoParams) const {
-  MonoDecoder::MonoConfiguration config;
-  config.yNRLevel = luma_nr_;
-  config.filterChroma = false;  // Luma-only input contains no chroma to filter.
-  config.videoParameters = videoParams;
-  return std::make_unique<MonoDecoder>(config);
-}
-
 NodeTypeInfo VideoSinkStage::get_node_type_info() const {
   return NodeTypeInfo{
       NodeType::SINK,
@@ -1409,8 +1400,8 @@ bool VideoSinkStage::run_export_trigger(
   // Transform PAL filters operate on composite chroma; a Y/C source has no
   // composite chroma to filter, so fall back to pal2d.  Mutates decoder_type_
   // (persistent stage state, surfaced in the parameter UI).
-  if (is_yc_source && (decoder_type_ == "transform2d" ||
-                       decoder_type_ == "transform3d")) {
+  if (is_yc_source &&
+      (decoder_type_ == "transform2d" || decoder_type_ == "transform3d")) {
     ORC_LOG_ERROR(
         "VideoSink: Transform PAL filters (transform2d/transform3d) are not "
         "compatible with YC sources.");
@@ -1433,11 +1424,10 @@ bool VideoSinkStage::run_export_trigger(
     return false;
   }
 
-  const DecoderParams decoderParams{chroma_gain_,   chroma_phase_,
-                                    luma_nr_,        chroma_nr_,
-                                    ntsc_phase_comp_, simple_pal_,
-                                    transform_threshold_, chroma_weight_,
-                                    adapt_threshold_};
+  const DecoderParams decoderParams{
+      chroma_gain_,         chroma_phase_,    luma_nr_,
+      chroma_nr_,           ntsc_phase_comp_, simple_pal_,
+      transform_threshold_, chroma_weight_,   adapt_threshold_};
 
   std::unique_ptr<Decoder> decoder =
       make_decoder(decoder_type_, decoderParams, videoParams);
@@ -2351,10 +2341,7 @@ std::optional<ColourFrameCarrier> VideoSinkStage::get_colour_preview_carrier(
           effectiveDecoderType, chroma_gain_, chroma_phase_, luma_nr_,
           chroma_nr_, ntsc_phase_comp_, simple_pal_, false,
           transform_threshold_, chroma_weight_, adapt_threshold_)) {
-    preview_decoder_cache_.mono_decoder.reset();
-    preview_decoder_cache_.yc_mono_decoder.reset();
-    preview_decoder_cache_.pal_decoder.reset();
-    preview_decoder_cache_.ntsc_decoder.reset();
+    preview_decoder_cache_.decoder.reset();
     preview_decoder_cache_.decoder_type = effectiveDecoderType;
     preview_decoder_cache_.chroma_gain = chroma_gain_;
     preview_decoder_cache_.chroma_phase = chroma_phase_;
@@ -2367,129 +2354,20 @@ std::optional<ColourFrameCarrier> VideoSinkStage::get_colour_preview_carrier(
     preview_decoder_cache_.chroma_weight = chroma_weight_;
     preview_decoder_cache_.adapt_threshold = adapt_threshold_;
 
-    if (effectiveDecoderType == "mono") {
-      MonoDecoder::MonoConfiguration config;
-      config.yNRLevel = luma_nr_;
-      config.filterChroma = false;
-      config.videoParameters = safeVideoParams;
-      preview_decoder_cache_.mono_decoder =
-          std::make_unique<MonoDecoder>(config);
-    } else if (effectiveDecoderType == "pal2d" ||
-               effectiveDecoderType == "transform2d" ||
-               effectiveDecoderType == "transform3d") {
-      PalColour::Configuration config;
-      config.chromaGain = chroma_gain_;
-      config.chromaPhase = chroma_phase_;
-      config.yNRLevel = luma_nr_;
-      config.simplePAL = simple_pal_;
-      config.transformThreshold = transform_threshold_;
-      config.showFFTs = false;
-
-      if (effectiveDecoderType == "transform3d") {
-        config.chromaFilter = PalColour::transform3DFilter;
-      } else if (effectiveDecoderType == "transform2d") {
-        config.chromaFilter = PalColour::transform2DFilter;
-      } else {
-        config.chromaFilter = PalColour::palColourFilter;
-      }
-
-      preview_decoder_cache_.pal_decoder = std::make_unique<PalColour>();
-      preview_decoder_cache_.pal_decoder->updateConfiguration(safeVideoParams,
-                                                              config);
-    } else {
-      Comb::Configuration config;
-      config.chromaGain = chroma_gain_;
-      config.chromaPhase = chroma_phase_;
-      config.cNRLevel = chroma_nr_;
-      config.yNRLevel = luma_nr_;
-      config.phaseCompensation = ntsc_phase_comp_;
-      config.chromaWeight = chroma_weight_;
-      config.adaptThreshold = adapt_threshold_;
-      config.showMap = false;
-
-      if (effectiveDecoderType == "ntsc1d") {
-        config.dimensions = 1;
-        config.adaptive = false;
-      } else if (effectiveDecoderType == "ntsc3d") {
-        config.dimensions = 3;
-        config.adaptive = true;
-      } else if (effectiveDecoderType == "ntsc3dnoadapt") {
-        config.dimensions = 3;
-        config.adaptive = false;
-      } else {
-        config.dimensions = 2;
-        config.adaptive = false;
-      }
-
-      preview_decoder_cache_.ntsc_decoder = std::make_unique<Comb>();
-      preview_decoder_cache_.ntsc_decoder->updateConfiguration(safeVideoParams,
-                                                               config);
-    }
-
-    if (is_yc_source && effectiveDecoderType != "mono") {
-      preview_decoder_cache_.yc_mono_decoder =
-          create_yc_mono_decoder(safeVideoParams);
-    }
+    const DecoderParams decoderParams{
+        chroma_gain_,         chroma_phase_,    luma_nr_,
+        chroma_nr_,           ntsc_phase_comp_, simple_pal_,
+        transform_threshold_, chroma_weight_,   adapt_threshold_};
+    preview_decoder_cache_.decoder =
+        make_decoder(effectiveDecoderType, decoderParams, safeVideoParams);
   }
 
   std::vector<::ComponentFrame> outputFrames(1);
   const int32_t frameEndIndex = frameStartIndex + 2;
 
-  if (preview_decoder_cache_.yc_mono_decoder) {
-    std::vector<SourceField> ycYFields;
-    std::vector<SourceField> ycCFields;
-    ycYFields.reserve(inputFields.size());
-    ycCFields.reserve(inputFields.size());
-
-    for (const auto& field : inputFields) {
-      SourceField yField = field;
-      yField.is_yc = false;
-      yField.data = field.luma_data;
-      yField.luma_data = nullptr;
-      yField.chroma_data = nullptr;
-      yField.line_ptrs = field.luma_line_ptrs;
-      yField.luma_line_ptrs.clear();
-      yField.chroma_line_ptrs.clear();
-      ycYFields.push_back(std::move(yField));
-
-      SourceField cField = field;
-      cField.is_yc = false;
-      cField.data = field.chroma_data;
-      cField.luma_data = nullptr;
-      cField.chroma_data = nullptr;
-      cField.line_ptrs = field.chroma_line_ptrs;
-      cField.luma_line_ptrs.clear();
-      cField.chroma_line_ptrs.clear();
-      ycCFields.push_back(std::move(cField));
-    }
-
-    std::vector<::ComponentFrame> yFrames(1);
-    std::vector<::ComponentFrame> uvFrames(1);
-
-    preview_decoder_cache_.yc_mono_decoder->decodeFrames(
-        ycYFields, frameStartIndex, frameEndIndex, yFrames);
-
-    if (preview_decoder_cache_.pal_decoder) {
-      preview_decoder_cache_.pal_decoder->decodeFrames(
-          ycCFields, frameStartIndex, frameEndIndex, uvFrames);
-    } else if (preview_decoder_cache_.ntsc_decoder) {
-      preview_decoder_cache_.ntsc_decoder->decodeFrames(
-          ycCFields, frameStartIndex, frameEndIndex, uvFrames);
-    } else {
-      uvFrames[0] = yFrames[0];
-    }
-
-    uvFrames[0].merge_luma_from(yFrames[0]);
-    outputFrames[0] = std::move(uvFrames[0]);
-  } else if (preview_decoder_cache_.mono_decoder) {
-    preview_decoder_cache_.mono_decoder->decodeFrames(
-        inputFields, frameStartIndex, frameEndIndex, outputFrames);
-  } else if (preview_decoder_cache_.pal_decoder) {
-    preview_decoder_cache_.pal_decoder->decodeFrames(
-        inputFields, frameStartIndex, frameEndIndex, outputFrames);
-  } else if (preview_decoder_cache_.ntsc_decoder) {
-    preview_decoder_cache_.ntsc_decoder->decodeFrames(
-        inputFields, frameStartIndex, frameEndIndex, outputFrames);
+  if (preview_decoder_cache_.decoder) {
+    preview_decoder_cache_.decoder->decodeFrames(inputFields, frameStartIndex,
+                                                 frameEndIndex, outputFrames);
   }
 
   ::ComponentFrame& frame = outputFrames[0];

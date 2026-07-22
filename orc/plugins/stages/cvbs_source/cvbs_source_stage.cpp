@@ -47,7 +47,7 @@ constexpr const char* kSampleEncodingFromMetadata = "From metadata";
 
 // The four TBC-locked 4FSC-domain encodings this stage can normalise.
 constexpr const char* kSupportedEncodings[] = {
-    "CVBS_U10_4FSC", "CVBS_U16_4FSC", "CVBS_TPG21_4FSC", "CVBS_S16_FSC"};
+    "CVBS_U10_4FSC", "CVBS_U16_4FSC", "CVBS_TPG21_4FSC", "CVBS_S16_4FSC"};
 
 bool is_supported_encoding(const std::string& encoding) {
   for (const char* e : kSupportedEncodings) {
@@ -74,7 +74,7 @@ std::string derive_sidecar_path(const std::string& input_path,
 
 // One pipeline audio channel pair backed by a <basename>_audio_<p>.wav
 // sidecar (24-bit signed LE stereo PCM at 48000 Hz, CVBS file format spec
-// v1.3.0).  An empty wav_path marks a placeholder for a container pair
+// v1.4.0).  An empty wav_path marks a placeholder for a container pair
 // number with no file (numbers need not be contiguous); placeholders serve
 // cadence-sized silence so pipeline pair indices match container numbers.
 struct CVBSAudioChannelPairState {
@@ -109,7 +109,7 @@ inline int16_t normalize_to_cvbs_u10(uint16_t raw, const std::string& encoding,
         static_cast<int32_t>(static_cast<int16_t>(raw)) / 64 + 508;
     return static_cast<int16_t>(decoded);
   }
-  if (encoding == "CVBS_S16_FSC") {
+  if (encoding == "CVBS_S16_4FSC") {
     // CVBS file format spec §3.1: signed, blanking-centred, ×32 scale.
     const int32_t decoded =
         static_cast<int32_t>(static_cast<int16_t>(raw)) / 32 + blanking_10bit;
@@ -316,7 +316,7 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
   // Audio channel pairs
   // --------------------------------------------------------------------------
   // Every <basename>_audio_<p>.wav sidecar is the pipeline channel pair with
-  // the same index (CVBS file format spec v1.3.0).  The payload is already
+  // the same index (CVBS file format spec v1.4.0).  The payload is already
   // in the pipeline audio form (24-bit signed LE stereo at 48000 Hz
   // synchronous), so per-frame reads seek directly to the SMPTE 272M
   // cadence offset; short or absent data is silence-padded to cadence size.
@@ -701,7 +701,7 @@ class CVBSSourceStageDeps final : public ICVBSSourceStageDeps {
     if (!fs::exists(wav_path, ec)) return std::nullopt;
 
     // Canonical 44-byte RIFF/WAVE header (the only form the CVBS file
-    // format spec v1.3.0 permits: no extended fmt chunks or non-standard
+    // format spec v1.4.0 permits: no extended fmt chunks or non-standard
     // RIFF variants).  A malformed header yields zeroed fields, which the
     // stage rejects during validation.
     std::ifstream ifs(wav_path, std::ios::binary);
@@ -750,7 +750,7 @@ class CVBSSourceStageDeps final : public ICVBSSourceStageDeps {
       return std::nullopt;
     }
 
-    // CVBS file format spec v1.3.0: one audio_channel_pair row per channel
+    // CVBS file format spec v1.4.0: one audio_channel_pair row per channel
     // pair file.
     constexpr const char* kSql =
         "SELECT channel_pair, description FROM audio_channel_pair "
@@ -1147,7 +1147,7 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
   auto dropout_runs = deps_->load_dropout_sidecar(dropout_path, do_err);
 
   // Audio: probe <basename>_audio_0.wav … _audio_7.wav (single-digit
-  // suffix, CVBS file format spec v1.3.0).  Each existing file becomes the
+  // suffix, CVBS file format spec v1.4.0).  Each existing file becomes the
   // pipeline channel pair with the same index; container numbers need not
   // be contiguous, so absent intermediate numbers become placeholder pairs
   // serving cadence-sized silence.  Every file's RIFF header is validated
@@ -1165,7 +1165,7 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
         derive_sidecar_path(input_path, ".meta"), at_err);
   }
 
-  // CVBS file format spec v1.3.0: every channel pair file carries exactly
+  // CVBS file format spec v1.4.0: every channel pair file carries exactly
   // audio_pair_offset(frame_count) stereo pairs (equal-length files).
   const uint64_t expected_stream_pairs =
       audio_pair_offset(static_cast<uint64_t>(frame_count), system_);
@@ -1177,7 +1177,7 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
     const auto wav_info = deps_->read_audio_wav_info(pair_wav_path);
     if (!wav_info) continue;  // file absent
 
-    // CVBS file format spec v1.3.0 WAV File Format: PCM, 2 channels,
+    // CVBS file format spec v1.4.0 WAV File Format: PCM, 2 channels,
     // 48000 Hz, 24-bit signed LE — the only permitted audio format.
     if (wav_info->format_tag != 1 || wav_info->channels != 2 ||
         wav_info->sample_rate_hz != kAudioSampleRateHz ||
@@ -1248,7 +1248,7 @@ std::vector<ArtifactPtr> FixedFormatCVBSSourceStage::execute(
       }
     }
     if (use_metadata && !has_row) {
-      // CVBS file format spec v1.3.0: every channel pair file must have an
+      // CVBS file format spec v1.4.0: every channel pair file must have an
       // audio_channel_pair row.
       const std::string message =
           "audio channel pair file '" + pair_wav_path +

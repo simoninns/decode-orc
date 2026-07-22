@@ -355,7 +355,7 @@ TEST(CVBSSourceStageParamTest, SampleEncoding_DefaultsToFromMetadata) {
   EXPECT_EQ(pd.constraints.allowed_strings[1], "CVBS_U10_4FSC");
   EXPECT_EQ(pd.constraints.allowed_strings[2], "CVBS_U16_4FSC");
   EXPECT_EQ(pd.constraints.allowed_strings[3], "CVBS_TPG21_4FSC");
-  EXPECT_EQ(pd.constraints.allowed_strings[4], "CVBS_S16_FSC");
+  EXPECT_EQ(pd.constraints.allowed_strings[4], "CVBS_S16_4FSC");
 }
 
 TEST(CVBSSourceStageParamTest, SetGet_SampleEncoding_RoundTrips) {
@@ -551,15 +551,15 @@ TEST(CVBSSourceStageValidationTest, EmptyInputPath_ReturnsNoOutput) {
 
 TEST(CVBSSourceStageValidationTest, AcceptsAllFourSampleEncodings) {
   for (const auto& enc :
-       {"CVBS_U10_4FSC", "CVBS_U16_4FSC", "CVBS_TPG21_4FSC", "CVBS_S16_FSC"}) {
+       {"CVBS_U10_4FSC", "CVBS_U16_4FSC", "CVBS_TPG21_4FSC", "CVBS_S16_4FSC"}) {
     auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL", enc);
     // For U10 encoding, payload must be int16_t stored as uint16_t.
     // Blanking=256 encoded as uint16_t bit-pattern of int16_t(256) = 256.
     if (std::string(enc) == "CVBS_U10_4FSC") {
       deps->payload_words.assign(static_cast<size_t>(kPalFrameSamples),
                                  static_cast<uint16_t>(kPalBlanking));
-    } else if (std::string(enc) == "CVBS_S16_FSC") {
-      // CVBS_S16_FSC: value=blanking stored as (value-blanking)*32 = 0.
+    } else if (std::string(enc) == "CVBS_S16_4FSC") {
+      // CVBS_S16_4FSC: value=blanking stored as (value-blanking)*32 = 0.
       deps->payload_words.assign(static_cast<size_t>(kPalFrameSamples), 0u);
     } else if (std::string(enc) == "CVBS_TPG21_4FSC") {
       // CVBS_TPG21_4FSC: value=blanking stored as (value-508)*64 = (256-508)*64
@@ -619,14 +619,14 @@ TEST(CVBSSourceManualEncodingTest, MetadataIsIgnoredWhenManualEncodingSet) {
 }
 
 TEST(CVBSSourceManualEncodingTest, NormalisesSelectedEncoding) {
-  // CVBS_S16_FSC: stored 0 decodes to the PAL blanking level.
+  // CVBS_S16_4FSC: stored 0 decodes to the PAL blanking level.
   auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");
   deps->metadata_available = false;
   deps->payload_words.assign(static_cast<size_t>(kPalFrameSamples), 0u);
   PALCVBSSourceStage stage(deps);
   std::map<std::string, ParameterValue> p{
       {"input_path", std::string("/fake/video.composite")},
-      {"sample_encoding", std::string("CVBS_S16_FSC")}};
+      {"sample_encoding", std::string("CVBS_S16_4FSC")}};
   auto vfr = execute_and_get_vfr(stage, p);
   ASSERT_NE(vfr, nullptr);
   const auto* line = vfr->get_line(0, 0);
@@ -765,8 +765,8 @@ TEST(CVBSSourceEncodingTest, TPG21_WhiteLevelRoundtrips) {
 }
 
 TEST(CVBSSourceEncodingTest, S16_BlankingLevelRoundtrips) {
-  // CVBS_S16_FSC: stored = (value - blanking) * 32. At blanking → stored = 0.
-  EXPECT_EQ(decode_one_sample("PAL", 0u, "CVBS_S16_FSC", kPalFrameSamples),
+  // CVBS_S16_4FSC: stored = (value - blanking) * 32. At blanking → stored = 0.
+  EXPECT_EQ(decode_one_sample("PAL", 0u, "CVBS_S16_4FSC", kPalFrameSamples),
             static_cast<int16_t>(kPalBlanking));
 }
 
@@ -774,7 +774,7 @@ TEST(CVBSSourceEncodingTest, S16_WhiteLevelRoundtrips) {
   // PAL white = 844; (844-256)*32 = 18816.
   const int16_t stored = static_cast<int16_t>((kPalWhite - kPalBlanking) * 32);
   const uint16_t raw = static_cast<uint16_t>(stored);
-  EXPECT_EQ(decode_one_sample("PAL", raw, "CVBS_S16_FSC", kPalFrameSamples),
+  EXPECT_EQ(decode_one_sample("PAL", raw, "CVBS_S16_4FSC", kPalFrameSamples),
             static_cast<int16_t>(kPalWhite));
 }
 
@@ -1187,7 +1187,7 @@ TEST(CVBSSidecarAudioTest, OutOfRangePairOrFrame_ReturnsEmpty) {
   EXPECT_TRUE(vfr->get_audio_samples(0, 1).empty());  // only one frame
 }
 
-// --- WAV header validation (CVBS file format spec v1.3.0) ---
+// --- WAV header validation (CVBS file format spec v1.4.0) ---
 
 TEST(CVBSSidecarAudioTest, WrongSampleRate_IsRejected) {
   auto deps = std::make_shared<FakeCVBSSourceStageDeps>("PAL");

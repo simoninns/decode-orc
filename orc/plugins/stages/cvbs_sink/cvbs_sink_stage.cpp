@@ -25,7 +25,7 @@ namespace {
 // Output sample encodings offered by the sample_encoding parameter, in the
 // order presented to the user. CVBS_U10_4FSC is the normative default.
 constexpr const char* kOutputEncodings[] = {"CVBS_U10_4FSC", "CVBS_U16_4FSC",
-                                            "CVBS_TPG21_4FSC", "CVBS_S16_FSC"};
+                                            "CVBS_TPG21_4FSC", "CVBS_S16_4FSC"};
 
 constexpr const char* kSignalTypeComposite = "composite";
 constexpr const char* kSignalTypeYC = "yc";

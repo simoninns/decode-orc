@@ -106,9 +106,10 @@ TEST(CVBSSinkStageTest, Descriptor_SampleEncodingOffersAllOutputEncodings) {
   ASSERT_TRUE(desc->constraints.default_value.has_value());
   EXPECT_EQ(std::get<std::string>(*desc->constraints.default_value),
             "CVBS_U10_4FSC");
-  EXPECT_THAT(desc->constraints.allowed_strings,
-              testing::UnorderedElementsAre("CVBS_U10_4FSC", "CVBS_U16_4FSC",
-                                            "CVBS_TPG21_4FSC", "CVBS_S16_FSC"));
+  EXPECT_THAT(
+      desc->constraints.allowed_strings,
+      testing::UnorderedElementsAre("CVBS_U10_4FSC", "CVBS_U16_4FSC",
+                                    "CVBS_TPG21_4FSC", "CVBS_S16_4FSC"));
 }
 
 TEST(CVBSSinkStageTest, Descriptor_SignalTypeIsNotUserSelectable) {
@@ -260,13 +261,13 @@ TEST(CVBSSinkStageTest, Trigger_PassesSelectedParametersToDeps) {
   const bool result = stage.trigger(
       {vfr},
       {{"output_path", std::string("capture")},
-       {"sample_encoding", std::string("CVBS_S16_FSC")},
+       {"sample_encoding", std::string("CVBS_S16_4FSC")},
        {"capture_notes", std::string("stacked from three captures")}},
       observation_context);
 
   EXPECT_TRUE(result);
   EXPECT_EQ(seen.output_base_path, "capture");
-  EXPECT_EQ(seen.sample_encoding, orc::CVBSSampleEncoding::S16_FSC);
+  EXPECT_EQ(seen.sample_encoding, orc::CVBSSampleEncoding::S16_4FSC);
   EXPECT_EQ(seen.signal_type, "composite");
   EXPECT_EQ(seen.capture_notes, "stacked from three captures");
 }
@@ -333,8 +334,8 @@ TEST(CVBSSinkEncodeTest, ParseSampleEncoding_AcceptsAllOutputEncodings) {
             orc::CVBSSampleEncoding::U16_4FSC);
   EXPECT_EQ(orc::parse_cvbs_sample_encoding("CVBS_TPG21_4FSC"),
             orc::CVBSSampleEncoding::TPG21_4FSC);
-  EXPECT_EQ(orc::parse_cvbs_sample_encoding("CVBS_S16_FSC"),
-            orc::CVBSSampleEncoding::S16_FSC);
+  EXPECT_EQ(orc::parse_cvbs_sample_encoding("CVBS_S16_4FSC"),
+            orc::CVBSSampleEncoding::S16_4FSC);
   EXPECT_EQ(orc::parse_cvbs_sample_encoding("RAW_S16_40M"), std::nullopt);
   EXPECT_EQ(orc::parse_cvbs_sample_encoding(""), std::nullopt);
 }
@@ -343,7 +344,7 @@ TEST(CVBSSinkEncodeTest, EncodingNames_RoundTripThroughParse) {
   for (const auto encoding :
        {orc::CVBSSampleEncoding::U10_4FSC, orc::CVBSSampleEncoding::U16_4FSC,
         orc::CVBSSampleEncoding::TPG21_4FSC,
-        orc::CVBSSampleEncoding::S16_FSC}) {
+        orc::CVBSSampleEncoding::S16_4FSC}) {
     EXPECT_EQ(orc::parse_cvbs_sample_encoding(
                   orc::cvbs_sample_encoding_name(encoding)),
               encoding);
@@ -401,20 +402,21 @@ TEST(CVBSSinkEncodeTest, EncodeTPG21_UsesDeviceOffsetAndClampsToLegalRange) {
       32704u);
 }
 
-TEST(CVBSSinkEncodeTest, EncodeS16FSC_UsesBlankingOffsetAndScalesBy32) {
+TEST(CVBSSinkEncodeTest, EncodeS164FSC_UsesBlankingOffsetAndScalesBy32) {
   using orc::CVBSSampleEncoding;
   // Sample encoding preset spec encoded level examples (PAL, blanking 256):
   // blanking → 0, black (282) → 832, white (844) → 18816, peak → 24416.
-  EXPECT_EQ(orc::encode_cvbs_u10_sample(256, CVBSSampleEncoding::S16_FSC, 256),
+  EXPECT_EQ(orc::encode_cvbs_u10_sample(256, CVBSSampleEncoding::S16_4FSC, 256),
             0u);
-  EXPECT_EQ(orc::encode_cvbs_u10_sample(282, CVBSSampleEncoding::S16_FSC, 256),
+  EXPECT_EQ(orc::encode_cvbs_u10_sample(282, CVBSSampleEncoding::S16_4FSC, 256),
             832u);
-  EXPECT_EQ(orc::encode_cvbs_u10_sample(844, CVBSSampleEncoding::S16_FSC, 256),
+  EXPECT_EQ(orc::encode_cvbs_u10_sample(844, CVBSSampleEncoding::S16_4FSC, 256),
             18816u);
-  EXPECT_EQ(orc::encode_cvbs_u10_sample(1019, CVBSSampleEncoding::S16_FSC, 256),
-            24416u);
+  EXPECT_EQ(
+      orc::encode_cvbs_u10_sample(1019, CVBSSampleEncoding::S16_4FSC, 256),
+      24416u);
   // NTSC blanking 240: sync tip (16) → −7168 (two's complement bit pattern).
-  EXPECT_EQ(orc::encode_cvbs_u10_sample(16, CVBSSampleEncoding::S16_FSC, 240),
+  EXPECT_EQ(orc::encode_cvbs_u10_sample(16, CVBSSampleEncoding::S16_4FSC, 240),
             static_cast<uint16_t>(static_cast<int16_t>(-7168)));
 }
 
@@ -428,7 +430,7 @@ TEST(CVBSSinkEncodeTest, DeriveOutputBase_StripsKnownPayloadExtensions) {
 }
 
 // ---------------------------------------------------------------------------
-// Container-format helpers (CVBS file format spec v1.3.0)
+// Container-format helpers (CVBS file format spec v1.4.0)
 // ---------------------------------------------------------------------------
 
 namespace {
@@ -448,7 +450,7 @@ uint32_t le32_at(const std::vector<uint8_t>& bytes, size_t offset) {
 }  // namespace
 
 TEST(CVBSSinkContainerTest, AudioPairPath_UsesSingleDigitSuffix) {
-  // CVBS file format spec v1.3.0: <basename>_audio_<channel_pair>.wav with
+  // CVBS file format spec v1.4.0: <basename>_audio_<channel_pair>.wav with
   // a single-digit channel pair number 0–7.
   EXPECT_EQ(orc::cvbs_audio_pair_path("/tmp/out", 0), "/tmp/out_audio_0.wav");
   EXPECT_EQ(orc::cvbs_audio_pair_path("/tmp/out", 7), "/tmp/out_audio_7.wav");
@@ -466,7 +468,7 @@ TEST(CVBSSinkContainerTest, WavHeader_Is24Bit48kStereoPcm) {
   EXPECT_EQ(std::string(header.begin() + 12, header.begin() + 16), "fmt ");
   EXPECT_EQ(le32_at(header, 16), 16u);  // canonical fmt chunk, no extension
 
-  // CVBS file format spec v1.3.0 WAV properties: PCM, 2 channels, 48000 Hz,
+  // CVBS file format spec v1.4.0 WAV properties: PCM, 2 channels, 48000 Hz,
   // 24-bit (block align 6, byte rate 288000).
   EXPECT_EQ(le16_at(header, 20), 1u);       // wFormatTag = PCM
   EXPECT_EQ(le16_at(header, 22), 2u);       // nChannels
@@ -481,7 +483,7 @@ TEST(CVBSSinkContainerTest, WavHeader_Is24Bit48kStereoPcm) {
 
 TEST(CVBSSinkContainerTest, MetaSchema_UsesUserVersion10AndChannelPairTable) {
   const std::string schema = orc::kCVBSCoreMetaSchemaSql;
-  // CVBS file format spec v1.3.0 metadata schema.
+  // CVBS file format spec v1.4.0 metadata schema.
   EXPECT_NE(schema.find("PRAGMA user_version = 10"), std::string::npos);
   EXPECT_NE(schema.find("CREATE TABLE audio_channel_pair"), std::string::npos);
   EXPECT_NE(schema.find("channel_pair                INTEGER PRIMARY KEY"),

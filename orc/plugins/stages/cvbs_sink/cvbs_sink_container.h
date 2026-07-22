@@ -21,14 +21,14 @@
 namespace orc {
 
 // One row of the .meta audio_channel_pair table (CVBS file format spec
-// v1.3.0): channel pair number and its human-readable description.
+// v1.4.0): channel pair number and its human-readable description.
 struct CVBSAudioChannelPairMetaRow {
   int32_t channel_pair = 0;  // 0–7, matches the _audio_<p>.wav suffix
   std::string description;   // empty = NULL
 };
 
 // Core <base>.meta metadata schema.
-// CVBS file format spec v1.3.0: Metadata Schema (PRAGMA user_version = 10);
+// CVBS file format spec v1.4.0: Metadata Schema (PRAGMA user_version = 10);
 // the audio_channel_pair table replaced the v1.2.0 audio_track table.
 inline constexpr const char* kCVBSCoreMetaSchemaSql =
     "PRAGMA user_version = 10;"
@@ -39,7 +39,7 @@ inline constexpr const char* kCVBSCoreMetaSchemaSql =
     "    sample_encoding_preset      TEXT    NOT NULL"
     "        CHECK (sample_encoding_preset IN ('CVBS_U10_4FSC', "
     "'CVBS_U16_4FSC', 'RAW_S16_28M', 'RAW_S16_40M', 'CVBS_TPG21_4FSC', "
-    "'CVBS_S16_FSC')),"
+    "'CVBS_S16_4FSC')),"
     "    signal_state_preset         TEXT    NOT NULL"
     "        CHECK (signal_state_preset IN ("
     "            'STANDARD_TBC_LOCKED',"
@@ -68,7 +68,7 @@ inline constexpr const char* kCVBSCoreMetaSchemaSql =
     ");";
 
 // <base>_audio_<p>.wav path for a channel pair number (single digit, CVBS
-// file format spec v1.3.0).
+// file format spec v1.4.0).
 inline std::string cvbs_audio_pair_path(const std::string& base, size_t pair) {
   return base + "_audio_" + std::to_string(pair) + ".wav";
 }
@@ -86,7 +86,7 @@ inline void cvbs_wav_append_le32(std::vector<uint8_t>& out, uint32_t v) {
 }
 
 // 44-byte canonical RIFF/WAVE header for the container audio payload.
-// CVBS file format spec v1.3.0 (after SMPTE 272M-1994): PCM, 2 channels,
+// CVBS file format spec v1.4.0 (after SMPTE 272M-1994): PCM, 2 channels,
 // 48000 Hz (exact for all systems), 24-bit signed LE — the only permitted
 // audio format.
 inline std::vector<uint8_t> make_cvbs_audio_wav_header(uint32_t data_bytes) {

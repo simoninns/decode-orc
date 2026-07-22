@@ -44,7 +44,7 @@ struct CVBSMetadataRecord {
 };
 
 // One row of the .meta audio_channel_pair table (CVBS file format spec
-// v1.3.0).
+// v1.4.0).
 struct CVBSAudioChannelPairRecord {
   int32_t channel_pair = 0;  // 0–7, matches the _audio_<p>.wav suffix
   std::optional<std::string> description;  // human-readable; nullopt = NULL
@@ -52,7 +52,7 @@ struct CVBSAudioChannelPairRecord {
 
 // RIFF/WAVE fmt-chunk properties and data-chunk size of an audio channel
 // pair sidecar, read for validation against the CVBS file format spec
-// v1.3.0 requirements (PCM, 2 channels, 48000 Hz, 24-bit signed LE).
+// v1.4.0 requirements (PCM, 2 channels, 48000 Hz, 24-bit signed LE).
 struct CVBSAudioWavInfo {
   uint16_t format_tag = 0;       // wFormatTag; 1 = PCM
   uint16_t channels = 0;         // nChannels
@@ -101,7 +101,7 @@ class ICVBSSourceStageDeps {
       const std::string& wav_path) const = 0;
 
   // Load all rows of the audio_channel_pair table from <basename>.meta
-  // (CVBS file format spec v1.3.0).  Returns nullopt when the metadata file
+  // (CVBS file format spec v1.4.0).  Returns nullopt when the metadata file
   // or the table is absent (no error; missing rows for existing audio files
   // are reported by the stage as a spec-violation warning).
   virtual std::optional<std::vector<CVBSAudioChannelPairRecord>>
@@ -149,7 +149,7 @@ class ICVBSSourceStageDeps {
 // state are rejected with a clear UserDataError before any sample data is read.
 //
 // Sample encoding: CVBS_U10_4FSC, CVBS_U16_4FSC, CVBS_TPG21_4FSC, and
-// CVBS_S16_FSC are all normalised to CVBS_U10_4FSC (int16_t 10-bit domain)
+// CVBS_S16_4FSC are all normalised to CVBS_U10_4FSC (int16_t 10-bit domain)
 // without output clamping so that headroom is preserved.
 //
 // Parameters:
@@ -159,7 +159,7 @@ class ICVBSSourceStageDeps {
 //   sample_encoding  – "From metadata" (default) or an explicit encoding
 //
 // Audio: every <basename>_audio_0.wav … _audio_7.wav sidecar (single-digit
-// suffix, CVBS file format spec v1.3.0) becomes the pipeline audio channel
+// suffix, CVBS file format spec v1.4.0) becomes the pipeline audio channel
 // pair with the same index; container numbers need not be contiguous, and
 // numbering is preserved by serving silence for absent intermediate pairs.
 // Each file's RIFF header is validated against the spec (PCM, 2 channels,

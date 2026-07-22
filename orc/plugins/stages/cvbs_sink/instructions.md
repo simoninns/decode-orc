@@ -13,7 +13,7 @@ Writes the incoming video stream using the selected sample encoding, plus a `.me
 Associated data are written automatically as sidecar files when present in the incoming stream:
 
 - `.dropouts.meta` — dropout annotations (dropout extension format)
-- `_audio_0.wav` … `_audio_7.wav` — stereo 24-bit 48 kHz PCM audio, one file per pipeline audio channel pair (up to 8), with the single-digit file number matching the pipeline pair index (CVBS file format spec v1.3.0). All pipeline audio is 48 kHz synchronous (frame-locked), so every file follows the output frame sequence; frames without audio are written as silence so all pair files stay frame-aligned and equal-length. Each pair's description is recorded in the `.meta` `audio_channel_pair` table.
+- `_audio_0.wav` … `_audio_7.wav` — stereo 24-bit 48 kHz PCM audio, one file per pipeline audio channel pair (up to 8), with the single-digit file number matching the pipeline pair index (CVBS file format spec v1.4.0). All pipeline audio is 48 kHz synchronous (frame-locked), so every file follows the output frame sequence; frames without audio are written as silence so all pair files stay frame-aligned and equal-length. Each pair's description is recorded in the `.meta` `audio_channel_pair` table.
 - `.efm` + `.efm.meta` — EFM t-value data
 - `.ac3` + `.ac3.meta` — AC3 RF data
 
@@ -23,7 +23,7 @@ Associated data are written automatically as sidecar files when present in the i
 Base path for output files. The stage appends the payload extension (`.composite` for a composite project, `.y`/`.c` for a Y/C project) and `.meta` automatically; a trailing `.composite`, `.y`, or `.c` extension is stripped when present. Required.
 
 ### sample_encoding (string)
-Sample encoding of the output data, recorded as `sample_encoding_preset` in the `.meta` file. One of `CVBS_U10_4FSC` (default), `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, or `CVBS_S16_FSC`. `CVBS_U10_4FSC` preserves the internal 10-bit domain losslessly, including headroom values outside 0–1023; the other encodings clamp to their representable domain before scaling, as required by the CVBS file format specification.
+Sample encoding of the output data, recorded as `sample_encoding_preset` in the `.meta` file. One of `CVBS_U10_4FSC` (default), `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, or `CVBS_S16_4FSC`. `CVBS_U10_4FSC` preserves the internal 10-bit domain losslessly, including headroom values outside 0–1023; the other encodings clamp to their representable domain before scaling, as required by the CVBS file format specification.
 
 ### capture_notes (string)
 Optional free-text notes written to the `.meta` file. When left empty, no notes field is written. Default: `""`.

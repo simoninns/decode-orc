@@ -96,7 +96,7 @@ The following sample encodings are normalised automatically:
 | `CVBS_U10_4FSC` | Identity (already 10-bit) |
 | `CVBS_U16_4FSC` | `value = uint16_value / 64` |
 | `CVBS_TPG21_4FSC` | `value = int16_value / 64 + 508` |
-| `CVBS_S16_FSC` | `value = int16_value / 32 + blanking_10bit` |
+| `CVBS_S16_4FSC` | `value = int16_value / 32 + blanking_10bit` |
 
 Associated dropout, audio, EFM, and AC3 sidecars are loaded automatically if present.
 
@@ -112,7 +112,7 @@ The file-path parameters offered match the project's source type: a composite pr
 
 * `sample_encoding` (string)
     - `From metadata` (default) reads the encoding from the `.meta` sidecar.
-    - Selecting `CVBS_U10_4FSC`, `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, or `CVBS_S16_FSC` manually makes the sidecar optional.
+    - Selecting `CVBS_U10_4FSC`, `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, or `CVBS_S16_4FSC` manually makes the sidecar optional.
 
 **Notes**
 

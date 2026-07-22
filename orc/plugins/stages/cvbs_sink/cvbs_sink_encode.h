@@ -25,7 +25,7 @@ enum class CVBSSampleEncoding {
   U10_4FSC,    // CVBS_U10_4FSC — int16_t stored bitwise (normative default)
   U16_4FSC,    // CVBS_U16_4FSC — unsigned, 10-bit value × 64
   TPG21_4FSC,  // CVBS_TPG21_4FSC — signed, device offset 508, ×64 scale
-  S16_FSC,     // CVBS_S16_FSC — signed, blanking-centred, ×32 scale
+  S16_4FSC,    // CVBS_S16_4FSC — signed, blanking-centred, ×32 scale
 };
 
 // Preset name strings as they appear in the .meta sample_encoding_preset
@@ -38,8 +38,8 @@ inline const char* cvbs_sample_encoding_name(CVBSSampleEncoding encoding) {
       return "CVBS_U16_4FSC";
     case CVBSSampleEncoding::TPG21_4FSC:
       return "CVBS_TPG21_4FSC";
-    case CVBSSampleEncoding::S16_FSC:
-      return "CVBS_S16_FSC";
+    case CVBSSampleEncoding::S16_4FSC:
+      return "CVBS_S16_4FSC";
   }
   return "CVBS_U10_4FSC";
 }
@@ -49,7 +49,7 @@ inline std::optional<CVBSSampleEncoding> parse_cvbs_sample_encoding(
   if (name == "CVBS_U10_4FSC") return CVBSSampleEncoding::U10_4FSC;
   if (name == "CVBS_U16_4FSC") return CVBSSampleEncoding::U16_4FSC;
   if (name == "CVBS_TPG21_4FSC") return CVBSSampleEncoding::TPG21_4FSC;
-  if (name == "CVBS_S16_FSC") return CVBSSampleEncoding::S16_FSC;
+  if (name == "CVBS_S16_4FSC") return CVBSSampleEncoding::S16_4FSC;
   return std::nullopt;
 }
 
@@ -64,7 +64,7 @@ inline std::optional<CVBSSampleEncoding> parse_cvbs_sample_encoding(
 //    to the representable [0, 1023] domain.
 //  - CVBS_TPG21_4FSC: (value − 508) × 64; the spec requires a compliant
 //    encoder to clamp to the legal [4, 1019] domain.
-//  - CVBS_S16_FSC: (value − blanking) × 32; the spec requires a compliant
+//  - CVBS_S16_4FSC: (value − blanking) × 32; the spec requires a compliant
 //    encoder to clamp to the legal [4, 1019] domain.
 inline uint16_t encode_cvbs_u10_sample(int16_t value,
                                        CVBSSampleEncoding encoding,
@@ -80,7 +80,7 @@ inline uint16_t encode_cvbs_u10_sample(int16_t value,
       const int32_t clamped = std::clamp<int32_t>(value, 4, 1019);
       return static_cast<uint16_t>(static_cast<int16_t>((clamped - 508) * 64));
     }
-    case CVBSSampleEncoding::S16_FSC: {
+    case CVBSSampleEncoding::S16_4FSC: {
       const int32_t clamped = std::clamp<int32_t>(value, 4, 1019);
       return static_cast<uint16_t>(
           static_cast<int16_t>((clamped - blanking_10bit) * 32));

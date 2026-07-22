@@ -48,7 +48,7 @@ const char* preset_name(VideoSystem system) {
   }
 }
 
-// Spec blanking level for CVBS_S16_FSC encoding when the representation
+// Spec blanking level for CVBS_S16_4FSC encoding when the representation
 // provides no SourceParameters.
 int32_t default_blanking_level(VideoSystem system) {
   // EBU Tech. 3280-E §1.1 (PAL) / SMPTE 244M-2003 (NTSC, PAL_M).
@@ -108,7 +108,7 @@ sqlite3* create_sidecar_db(const std::string& path, const char* schema_sql,
 }
 
 // Write the core <base>.meta metadata database.
-// CVBS file format spec v1.3.0: Metadata Schema (PRAGMA user_version = 10).
+// CVBS file format spec v1.4.0: Metadata Schema (PRAGMA user_version = 10).
 bool write_core_metadata(
     const std::string& meta_path, VideoSystem system,
     const CVBSSinkWriteConfig& config, uint64_t frames_written,
@@ -162,7 +162,7 @@ bool write_core_metadata(
   }
   sqlite3_finalize(stmt);
 
-  // Per-pair rows (CVBS file format spec v1.3.0): exactly one
+  // Per-pair rows (CVBS file format spec v1.4.0): exactly one
   // audio_channel_pair row per channel pair file.
   if (ok && !audio_channel_pairs.empty()) {
     constexpr const char* kPairInsert =
@@ -434,7 +434,7 @@ CVBSSinkWriteResult CVBSSinkStageDeps::write_cvbs(
 
   // --- Extension streams (opened only when the input carries the data) ---
   // Every pipeline audio channel pair is written to <base>_audio_<p>.wav
-  // with p = pipeline pair index (single digit, CVBS spec v1.3.0).
+  // with p = pipeline pair index (single digit, CVBS spec v1.4.0).
   struct AudioChannelPairOutput {
     size_t pair = 0;
     AudioChannelPairDescriptor desc;
@@ -628,7 +628,7 @@ CVBSSinkWriteResult CVBSSinkStageDeps::write_cvbs(
 
   // --- Write the .meta core metadata ---
   // One audio_channel_pair row per channel-pair file (CVBS file format spec
-  // v1.3.0), channel_pair = pipeline pair index.
+  // v1.4.0), channel_pair = pipeline pair index.
   std::string err;
   std::vector<CVBSAudioChannelPairMetaRow> audio_pair_rows;
   for (const AudioChannelPairOutput& pair_out : pair_outputs) {

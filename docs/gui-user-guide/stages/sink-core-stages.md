@@ -155,7 +155,7 @@ A CVBS file written by this stage can be round-tripped back through the CVBS Sou
 
 * `sample_encoding` (string)
     - Sample encoding of the output data, recorded as `sample_encoding_preset` in the `.meta` file.
-    - Allowed values: `CVBS_U10_4FSC`, `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, `CVBS_S16_FSC`.
+    - Allowed values: `CVBS_U10_4FSC`, `CVBS_U16_4FSC`, `CVBS_TPG21_4FSC`, `CVBS_S16_4FSC`.
     - Default: `CVBS_U10_4FSC` (lossless; preserves headroom). The other encodings clamp to their representable domain before scaling.
 
 * `capture_notes` (string)

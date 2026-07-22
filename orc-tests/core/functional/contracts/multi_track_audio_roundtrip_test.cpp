@@ -3,7 +3,7 @@
  * Module:      orc-core-functional-tests
  * Purpose:     Channel-pair audio round-trip through cvbs_sink and
  *              cvbs_source (real files: 24-bit WAV sidecars and the .meta
- *              audio_channel_pair table, CVBS file format spec v1.3.0)
+ *              audio_channel_pair table, CVBS file format spec v1.4.0)
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -166,7 +166,7 @@ uint32_t read_sqlite_user_version(const std::string& path) {
          static_cast<uint32_t>(bytes[63]);
 }
 
-// Assert the CVBS spec v1.3.0 WAV properties of a channel pair file.
+// Assert the CVBS spec v1.4.0 WAV properties of a channel pair file.
 void expect_conformant_wav_header(const std::string& path,
                                   uint64_t expected_total_pairs) {
   const auto header = read_file_bytes(path, 44);
@@ -208,14 +208,14 @@ void run_roundtrip(orc::VideoSystem system, size_t frame_count,
 
   EXPECT_TRUE(std::filesystem::exists(base + ".composite"));
   ASSERT_TRUE(std::filesystem::exists(base + ".meta"));
-  // Single-digit channel pair naming (CVBS spec v1.3.0); the legacy
+  // Single-digit channel pair naming (CVBS spec v1.4.0); the legacy
   // two-digit names must not appear.
   ASSERT_TRUE(std::filesystem::exists(base + "_audio_0.wav"));
   ASSERT_TRUE(std::filesystem::exists(base + "_audio_1.wav"));
   EXPECT_FALSE(std::filesystem::exists(base + "_audio_00.wav"));
   EXPECT_FALSE(std::filesystem::exists(base + "_audio_2.wav"));
 
-  // CVBS spec v1.3.0 metadata: PRAGMA user_version = 10.
+  // CVBS spec v1.4.0 metadata: PRAGMA user_version = 10.
   EXPECT_EQ(read_sqlite_user_version(base + ".meta"), 10u);
 
   // Equal-length 24-bit 48 kHz pair files: exactly

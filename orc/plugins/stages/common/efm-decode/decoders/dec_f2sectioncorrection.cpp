@@ -322,6 +322,38 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
     return;
   }
 
+  // If the no timecodes flag is set, the Q-channel timeline is absent or
+  // untrustworthy (early CAV discs pre-dating the EFM timecode specification),
+  // so no timecode-based checks are possible. Synthesise a monotonic timeline
+  // instead: every section receives the expected absolute time and is marked
+  // valid. This must happen before the empty-buffer seed check below - on such
+  // discs the Q-channel CRC never passes (or DATA-Q is all-zero mode 0), so
+  // waiting for a genuinely valid section to seed the timeline would silently
+  // discard the entire stream and decode no audio at all.
+  if (m_noTimecodes) {
+    // For an empty internal buffer this is 00:00:00, seeding the timeline at
+    // the start of the stream.
+    const SectionTime synthesisedTime = getExpectedAbsoluteTime();
+    f2Section.metadata.setAbsoluteSectionTime(synthesisedTime);
+    f2Section.metadata.setSectionTime(synthesisedTime);
+
+    // Create a SectionType object and set it to UserData, then pass that to
+    // setSectionType
+    SectionType st;
+    st.setType(SectionType::UserData);
+    f2Section.metadata.setSectionType(st,
+                                      1);  // Track number 1 for no timecodes
+
+    // The synthesised timeline is authoritative in this mode, so the section
+    // is valid regardless of whether its Q-channel decoded.
+    f2Section.metadata.setValid(true);
+
+    ORC_LOG_DEBUG(
+        "F2SectionCorrection::waitingForSection(): No timecodes flag set, "
+        "setting section absolute time to expected time {}",
+        synthesisedTime.toString());
+  }
+
   // Check that this isn't the first section in the internal buffer (as we can't
   // calculate the expected time for the first section)
   if (m_internalBuffer.empty()) {
@@ -350,25 +382,6 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
 
   // What is the next expected section time?
   SectionTime expectedAbsoluteTime = getExpectedAbsoluteTime();
-
-  // If no timecodes flag is set, we cannot perform any timecode-based checks so
-  // we set the section's absolute time to the expected time
-  if (m_noTimecodes) {
-    f2Section.metadata.setAbsoluteSectionTime(expectedAbsoluteTime);
-    f2Section.metadata.setSectionTime(expectedAbsoluteTime);
-
-    // Create a SectionType object and set it to UserData, then pass that to
-    // setSectionType
-    SectionType st;
-    st.setType(SectionType::UserData);
-    f2Section.metadata.setSectionType(st,
-                                      1);  // Track number 1 for no timecodes
-
-    ORC_LOG_DEBUG(
-        "F2SectionCorrection::waitingForSection(): No timecodes flag set, "
-        "setting section absolute time to expected time {}",
-        expectedAbsoluteTime.toString());
-  }
 
   // Check for Q-mode 2 and 3 sections - these will only have valid frame
   // numbers in the absolute time (i.e. minutes and seconds will be zero).

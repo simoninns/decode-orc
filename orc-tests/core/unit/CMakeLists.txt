@@ -262,6 +262,19 @@ gtest_discover_tests(orc-core-unit-tests-efm-f2-tail
         DISCOVERY_TIMEOUT 30
         PROPERTIES LABELS "unit\;sinks")
 
+# No Timecodes mode: a stream whose Q-channel never decodes (early CAV discs
+# pre-dating the EFM timecode specification) must be given a synthesised
+# timeline and emitted rather than being silently discarded.
+add_executable(orc-core-unit-tests-efm-f2-no-timecodes
+        stages/efm_common/f2_section_correction_no_timecodes_test.cpp)
+target_link_libraries(orc-core-unit-tests-efm-f2-no-timecodes
+        orc-efm-decode
+        GTest::gmock_main)
+gtest_discover_tests(orc-core-unit-tests-efm-f2-no-timecodes
+        DISCOVERY_MODE POST_BUILD
+        DISCOVERY_TIMEOUT 30
+        PROPERTIES LABELS "unit\;sinks")
+
 # F3-to-F2 section framing: boundary repair must never drop, reorder or pad
 # frames when the underlying stream is intact. Links the shared EFM decode
 # library directly, as with the de-emphasis DSP above.

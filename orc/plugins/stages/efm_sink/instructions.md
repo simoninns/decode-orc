@@ -19,7 +19,7 @@ Path to the output file. Use a `.wav` extension for audio mode and `.bin` for da
 Decode target. Values: `audio` (PCM WAV output) or `data` (ECMA-130 sector output). Default: `audio`.
 
 ### no_timecodes (boolean)
-Disable timecode verification during decode. Needed for early CAV discs that pre-date the EFM timecode specification. Default: `false`.
+Disable timecode verification during decode. Needed for early CAV discs that pre-date the EFM timecode specification. On such discs the Q-channel timeline is absent or untrustworthy — every block may carry track number 0 (which otherwise marks a lead-in) — so the decoder ignores the decoded timeline and instead synthesises a contiguous one, treating every section as programme audio (track 1). Leave this off for normal discs: it overrides genuine lead-in/lead-out and track boundaries. Default: `false`.
 
 ### audacity_labels (boolean)
 Write an Audacity label file alongside the audio output, marking chapter boundaries and positions of missing samples. Audio mode only. Default: `false`.

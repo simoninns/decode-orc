@@ -23,7 +23,7 @@ Appending the pair counts toward the pipeline's 8-channel-pair limit; the stage 
 ## Parameters
 
 ### no_timecodes
-Boolean, default `false`. Disable timecode verification during decode. Needed for early CAV discs that pre-date the EFM timecode specification.
+Boolean, default `false`. Disable timecode verification during decode. Needed for early CAV discs that pre-date the EFM timecode specification. On such discs the Q-channel timeline is absent or untrustworthy — every block may carry track number 0 (which otherwise marks a lead-in) — so the decoder ignores the decoded timeline and synthesises a contiguous one, treating every section as programme audio (track 1). Leave this off for normal discs: it overrides genuine lead-in/lead-out and track boundaries.
 
 ### no_audio_concealment
 Boolean, default `false`. Disable interpolation-based audio error concealment; uncorrectable samples are left as decoded instead of being concealed.

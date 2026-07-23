@@ -77,7 +77,13 @@ void F2SectionCorrection::pushSection(const F2Section& data) {
   // than a program-area timeline, so they are collected here and then skipped
   // by the settle/correction stages (see recordTocEntry /
   // waitForInputToSettle).
-  if (data.metadata.isValid() &&
+  //
+  // No-Timecodes: on discs pre-dating the EFM timecode spec the Q-channel is
+  // absent or untrustworthy. A mode-1 block with TNO=0 is classified as
+  // lead-in (subcode.cpp), but here it is really a mid-programme section, so
+  // its "TOC" is meaningless. Skip the harvest so those sections are neither
+  // counted as lead-in nor dropped downstream.
+  if (!m_noTimecodes && data.metadata.isValid() &&
       data.metadata.sectionType().type() == SectionType::LeadIn) {
     recordTocEntry(data.metadata);
   }
@@ -93,7 +99,7 @@ void F2SectionCorrection::pushSection(F2Section&& data) {
   ++m_receivedSections;
   if (data.metadata.isValid()) ++m_validMetadataSections;
 
-  if (data.metadata.isValid() &&
+  if (!m_noTimecodes && data.metadata.isValid() &&
       data.metadata.sectionType().type() == SectionType::LeadIn) {
     recordTocEntry(data.metadata);
   }
@@ -204,7 +210,13 @@ void F2SectionCorrection::waitForInputToSettle(F2Section& f2Section) {
   // pushSection(). Skip them here so their (running lead-in) time never seeds
   // the settle buffer; the timeline settles on the first contiguous run of
   // program-area / lead-out sections, exactly as for a program-area capture.
-  if (f2Section.metadata.isValid() &&
+  //
+  // No-Timecodes: the lead-in classification is unreliable (a TNO=0 mode-1
+  // block is really a mid-programme section here), so the skip must not fire.
+  // This path is already short-circuited in that mode - processQueue() forces
+  // m_leadinComplete before any section reaches here - but the guard keeps the
+  // "never drop a section in No-Timecodes mode" invariant explicit.
+  if (!m_noTimecodes && f2Section.metadata.isValid() &&
       f2Section.metadata.sectionType().type() == SectionType::LeadIn) {
     ORC_LOG_DEBUG(
         "F2SectionCorrection::waitForInputToSettle(): Skipping lead-in section "
@@ -314,7 +326,15 @@ void F2SectionCorrection::waitingForSection(F2Section& f2Section) {
   // block appearing mid-stream) carries TOC data, not a program-area timeline
   // entry; its TOC was harvested in pushSection(). Drop it so it does not
   // corrupt the internal buffer's monotonic absolute time.
-  if (f2Section.metadata.isValid() &&
+  //
+  // No-Timecodes: this guard MUST be gated on !m_noTimecodes. On discs
+  // pre-dating the EFM timecode spec, every mode-1 block carries TNO=0 and so
+  // is classified as lead-in (subcode.cpp), yet it is genuine programme audio.
+  // Dropping it here - before the no-timecodes re-synthesis below re-stamps it
+  // as UserData with a monotonic time - discarded the entire disc and left
+  // only the handful of Q-CRC-failed sections to be decoded (see issue: whole
+  // disc collapsing to a ~63-frame track).
+  if (!m_noTimecodes && f2Section.metadata.isValid() &&
       f2Section.metadata.sectionType().type() == SectionType::LeadIn) {
     ORC_LOG_DEBUG(
         "F2SectionCorrection::waitingForSection(): Skipping lead-in section "

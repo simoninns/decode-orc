@@ -39,10 +39,25 @@ add_library(orc-efm-decode STATIC
 # costs ~10 ns (level check + argument marshalling), which measures in the tens
 # of seconds across a full disc. So DEBUG and TRACE are deliberately compiled out
 # here (SPDLOG_LEVEL_INFO) - the opposite trade-off to orc-core/orc-gui - keeping
-# INFO-level statistics while paying nothing for the hot-loop diagnostics. Raise
-# this to DEBUG/TRACE temporarily when diagnosing the pipeline internals.
-target_compile_definitions(orc-efm-decode PRIVATE
-    SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO)
+# INFO-level statistics while paying nothing for the hot-loop diagnostics.
+#
+# The application's runtime log level (orc-cli --log-level, the GUI setting) is
+# shared by host and plugins through spdlog's process-global "core" logger, so
+# it reaches this library at run time - but with DEBUG/TRACE compiled out those
+# statements do not exist to be enabled, and "--log-level debug" therefore shows
+# nothing from the EFM decoder. Enable this option to compile the DEBUG/TRACE
+# sites back in (accepting the hot-loop cost) so the runtime level can surface
+# them when diagnosing the pipeline internals; keep it OFF for normal builds.
+option(ORC_EFM_VERBOSE_LOGGING
+    "Compile DEBUG/TRACE log sites into the EFM decode library so the runtime \
+--log-level can surface them (slower hot loop; off by default)" OFF)
+if(ORC_EFM_VERBOSE_LOGGING)
+    target_compile_definitions(orc-efm-decode PRIVATE
+        SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_TRACE)
+else()
+    target_compile_definitions(orc-efm-decode PRIVATE
+        SPDLOG_ACTIVE_LEVEL=SPDLOG_LEVEL_INFO)
+endif()
 
 # Consumers include the entry point as "efm-decode/efm_processor.h" so the
 # shared-library provenance is visible at every include site. The internal

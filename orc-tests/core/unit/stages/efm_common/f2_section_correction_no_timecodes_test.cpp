@@ -57,6 +57,19 @@ SectionMetadata validMetadata(int32_t absoluteFrame) {
   return metadata;
 }
 
+// What Subcode::fromData() produces for a mode-1/4 block whose track number is
+// 0: a *valid* section classified as lead-in (IEC 60908 - TNO 00 is the
+// lead-in). On early discs pre-dating the EFM timecode spec every programme
+// block carries TNO 00, so the whole disc arrives looking like valid lead-in.
+SectionMetadata validLeadInMetadata(int32_t absoluteFrame) {
+  SectionMetadata metadata;
+  metadata.setSectionType(SectionType(SectionType::LeadIn), 0);
+  metadata.setAbsoluteSectionTime(SectionTime(absoluteFrame));
+  metadata.setSectionTime(SectionTime(absoluteFrame));
+  metadata.setValid(true);
+  return metadata;
+}
+
 std::vector<F2Section> drain(F2SectionCorrection& correction) {
   std::vector<F2Section> out;
   while (correction.isReady()) out.push_back(correction.popSection());
@@ -95,6 +108,44 @@ TEST(F2SectionCorrectionNoTimecodes,
               static_cast<int32_t>(i))
         << "section " << i;
   }
+}
+
+// The regression behind "an NTSC disc with no EFM timecodes collapses to a
+// ~63-frame track and loses ~all data": every programme block carries TNO 00
+// and so is classified as a *valid* lead-in section. In No Timecodes mode the
+// lead-in skip must NOT fire - otherwise the whole disc is dropped before the
+// synthesised timeline can re-stamp it, leaving only the handful of
+// CRC-failed sections to be decoded. Each lead-in-typed section must instead
+// be re-stamped UserData/track 1 and emitted on a contiguous timeline, and its
+// meaningless "TOC" must not be harvested.
+TEST(F2SectionCorrectionNoTimecodes,
+     EmitsLeadInTypedSectionsInsteadOfDroppingThem) {
+  F2SectionCorrection correction;
+  correction.setNoTimecodes(true);
+
+  std::vector<F2Section> emitted;
+  for (int i = 0; i < kSectionCount; ++i) {
+    // Frozen lead-in timestamp, as a disc with a non-programme Q-channel would
+    // present; the value is irrelevant because No Timecodes overrides it.
+    correction.pushSection(makeSection(validLeadInMetadata(0)));
+    for (auto& section : drain(correction)) emitted.push_back(section);
+  }
+  correction.flush();
+  for (auto& section : drain(correction)) emitted.push_back(section);
+
+  // Not one lead-in-typed section is dropped.
+  ASSERT_EQ(static_cast<int>(emitted.size()), kSectionCount);
+  for (size_t i = 0; i < emitted.size(); ++i) {
+    EXPECT_TRUE(emitted[i].metadata.isValid()) << "section " << i;
+    EXPECT_EQ(emitted[i].metadata.trackNumber(), 1) << "section " << i;
+    EXPECT_EQ(emitted[i].metadata.sectionType().type(), SectionType::UserData)
+        << "section " << i;
+    EXPECT_EQ(emitted[i].metadata.absoluteSectionTime().frames(),
+              static_cast<int32_t>(i))
+        << "section " << i;
+  }
+  // The "TOC" on such a disc is noise; No Timecodes mode must not harvest it.
+  EXPECT_EQ(correction.leadinSections(), 0u);
 }
 
 // No Timecodes mode must treat the synthesised timeline as authoritative even
@@ -140,6 +191,22 @@ TEST(F2SectionCorrectionNoTimecodes,
   for (auto& section : drain(correction)) emitted.push_back(section);
 
   EXPECT_TRUE(emitted.empty());
+}
+
+// Guard the other side of the No Timecodes gate: in the default mode a valid
+// lead-in section is genuine lead-in and its TOC must still be harvested (the
+// !m_noTimecodes gate must not disable normal-disc lead-in handling).
+TEST(F2SectionCorrectionNoTimecodes, DefaultModeStillHarvestsLeadInToc) {
+  F2SectionCorrection correction;
+
+  for (int i = 0; i < kSectionCount; ++i) {
+    correction.pushSection(makeSection(validLeadInMetadata(i)));
+    (void)drain(correction);
+  }
+  correction.flush();
+  (void)drain(correction);
+
+  EXPECT_EQ(correction.leadinSections(), static_cast<uint32_t>(kSectionCount));
 }
 
 }  // namespace

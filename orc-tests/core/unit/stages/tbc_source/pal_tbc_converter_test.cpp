@@ -200,42 +200,4 @@ TEST(PalTBCConverterTest, AssembleFrame_ExtraSamplesInsertedAtLines312And624) {
   EXPECT_EQ(frame[line313_start], cvbs_blank);
 }
 
-// ============================================================================
-// map_field_phase_to_colour_frame_index
-// ============================================================================
-
-TEST(PalTBCConverterTest, ColourFrameIndex_PhaseAbsent_ReturnsMinusOne) {
-  EXPECT_EQ(
-      orc::PalTBCConverter::map_field_phase_to_colour_frame_index(std::nullopt),
-      -1);
-}
-
-TEST(PalTBCConverterTest, ColourFrameIndex_PhaseOutOfRange_ReturnsMinusOne) {
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(0), -1);
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(9), -1);
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(-1),
-            -1);
-}
-
-TEST(PalTBCConverterTest, ColourFrameIndex_Phase1And2_ReturnOne) {
-  // EBU Tech. 3280-E §1.1.1: phase 1 and 2 → colour_frame_index 1.
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(1), 1);
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(2), 1);
-}
-
-TEST(PalTBCConverterTest, ColourFrameIndex_Phase3And4_ReturnTwo) {
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(3), 2);
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(4), 2);
-}
-
-TEST(PalTBCConverterTest, ColourFrameIndex_Phase5And6_ReturnThree) {
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(5), 3);
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(6), 3);
-}
-
-TEST(PalTBCConverterTest, ColourFrameIndex_Phase7And8_ReturnFour) {
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(7), 4);
-  EXPECT_EQ(orc::PalTBCConverter::map_field_phase_to_colour_frame_index(8), 4);
-}
-
 }  // namespace orc_unit_test

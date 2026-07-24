@@ -20,12 +20,11 @@ namespace orc {
 
 // Metadata describing a single decoded frame in the CVBS_U10_4FSC domain.
 //
-// colour_frame_index encodes the frame's position in the colour subcarrier
-// reference sequence:
-//   -1  : unknown or unmeasurable (e.g., burst absent)
-//    1–4: position within the PAL / PAL_M 4-frame sequence (EBU Tech. 3280-E
-//          §1.1.1 / ITU-R BT.1700-1 Annex 1 Part B)
-//    0–1: position within the NTSC 2-frame A/B sequence (SMPTE 244M-2003 §3.2)
+// Colour-sequence phase is deliberately NOT part of this descriptor: it is a
+// property of the burst signal, not of source-side metadata, so stages that
+// need it measure it uniformly (for TBC and CVBS sources) via the host
+// "colour_frame_phase" observer.  See
+// orc/stage/observation/colour_frame_phase_query.h.
 struct FrameDescriptor {
   FrameID frame_id = 0;
   VideoSystem system = VideoSystem::Unknown;
@@ -40,9 +39,6 @@ struct FrameDescriptor {
   // PAL frames may have up to 4 lines with one extra sample; this field
   // holds the base/nominal value.
   size_t samples_per_line_nominal = 0;
-
-  // Colour-frame sequence index. -1 when unknown or unmeasurable.
-  int colour_frame_index = -1;
 
   // VBI-derived frame number, if available.
   std::optional<int32_t> frame_number;

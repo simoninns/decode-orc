@@ -11,6 +11,7 @@
 
 #include <orc/abi/orc_plugin_services.h>
 #include <orc/stage/cvbs_signal_constants.h>
+#include <orc/stage/observation/colour_frame_phase_query.h>
 #include <orc/stage/observation/observation_service_interface.h>
 #include <orc/support/colour_preview_conversion.h>
 #include <orc/support/frame_line_util.h>
@@ -1314,6 +1315,13 @@ bool VideoSinkStage::run_export_trigger(
   trigger_in_progress_.store(true);
   cancel_requested_.store(false);
 
+  // Drop any cached colour-sequence phase from a previous run; a reused stage
+  // instance may now be pointed at a different source.
+  {
+    std::lock_guard<std::mutex> lock(colour_phase_mutex_);
+    colour_phase_cache_.clear();
+  }
+
   // Apply any parameter updates
   set_parameters(parameters);
 
@@ -1945,6 +1953,26 @@ std::string VideoSinkStage::get_trigger_status() const {
   return trigger_status_;
 }
 
+int32_t VideoSinkStage::observer_colour_frame_index(
+    const orc::VideoFrameRepresentation& vfr, orc::FrameID frame_id) const {
+  const int32_t key = static_cast<int32_t>(frame_id);
+  {
+    std::lock_guard<std::mutex> lock(colour_phase_mutex_);
+    auto it = colour_phase_cache_.find(key);
+    if (it != colour_phase_cache_.end()) return it->second;
+  }
+
+  // Measure from the burst signal via the host observer (see
+  // colour_frame_phase_query.h). measure_frame_phase() is thread-safe, so the
+  // render path's worker threads can measure concurrently.
+  const int32_t colour_frame_index =
+      orc::observation::measure_colour_frame_index(vfr, frame_id);
+
+  std::lock_guard<std::mutex> lock(colour_phase_mutex_);
+  colour_phase_cache_[key] = colour_frame_index;
+  return colour_frame_index;
+}
+
 // Build a non-owning SourceField view into the VFrameR flat frame buffer.
 // The VFrameR frame buffer layout is:
 //   [field1_line0 | field1_line1 | … | field2_line0 | …]
@@ -1991,13 +2019,16 @@ bool VideoSinkStage::appendSourceFields(
     }
   }
 
+  // Colour-sequence phase is measured from the burst signal by the
+  // "colour_frame_phase" observer rather than read from source-side metadata,
+  // so it is available uniformly for TBC and CVBS sources (PAL / NTSC / PAL_M).
   std::optional<int32_t> frame_phase_id;
-  if (auto desc = vfr->get_frame_descriptor(frame_id)) {
-    if (desc->colour_frame_index >= 0) {
-      frame_phase_id = static_cast<int32_t>(desc->colour_frame_index);
-      ORC_LOG_TRACE("VideoSink: Frame {} colour_frame_index={}", frame_id,
-                    desc->colour_frame_index);
-    }
+  const int32_t colour_frame_index =
+      observer_colour_frame_index(*vfr, frame_id);
+  if (colour_frame_index >= 0) {
+    frame_phase_id = colour_frame_index;
+    ORC_LOG_TRACE("VideoSink: Frame {} observed colour_frame_index={}",
+                  frame_id, colour_frame_index);
   }
 
   out_fields.push_back(buildSourceField(frame_ptr, luma_ptr, chroma_ptr, is_yc,

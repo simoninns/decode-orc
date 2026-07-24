@@ -7,6 +7,7 @@
  * SPDX-FileCopyrightText: 2025-2026 Simon Inns
  */
 
+#include <orc/stage/observation/colour_frame_phase_query.h>
 #include <orc/support/frame_line_util.h>
 #include <orc/support/logging.h>
 #include <orc/support/preview_helpers.h>
@@ -74,8 +75,10 @@ std::vector<FrameID> StackedVideoFrameRepresentation::collect_source_frame_ids(
     FrameID ref_id) const {
   if (sources_.empty()) return {};
 
-  auto ref_desc = source_->get_frame_descriptor(ref_id);
-  int ref_cfi = ref_desc ? ref_desc->colour_frame_index : -1;
+  // Colour-frame-index alignment groups equal-phase frames across sources.
+  // Measure the phase from the burst signal rather than reading source-baked
+  // metadata, so it works for TBC and CVBS sources alike.
+  int ref_cfi = orc::observation::measure_colour_frame_index(*source_, ref_id);
 
   std::vector<FrameID> ids;
   ids.reserve(sources_.size());
@@ -123,7 +126,8 @@ std::vector<FrameID> StackedVideoFrameRepresentation::collect_source_frame_ids(
         if (!cd || cd->is_padding_frame) {
           continue;
         }
-        if (cd->colour_frame_index == ref_cfi) {
+        if (orc::observation::measure_colour_frame_index(*src, candidate) ==
+            ref_cfi) {
           best = candidate;
           break;
         }

@@ -73,24 +73,6 @@ class PalMTBCConverter {
       const std::vector<uint16_t>& tbc_field1,  // 263 × 909 samples
       const std::vector<uint16_t>& tbc_field2,  // 262 × 909 samples
       int32_t tbc_blanking, int32_t tbc_white);
-
-  // -------------------------------------------------------------------------
-  // Colour frame sequence
-  // -------------------------------------------------------------------------
-
-  // ITU-R BT.1700-1 Annex 1 Part B: map a TBC field_phase_id to
-  // colour_frame_index (1–4) for the PAL_M 4-frame colour cycle.
-  //
-  // PAL_M uses the same 8-phase ld-decode convention as PAL, mapping pairs
-  // of consecutive field_phase_id values to colour frame positions 1–4:
-  //
-  //   field_phase_id 1,2 → colour_frame_index 1
-  //   field_phase_id 3,4 → colour_frame_index 2
-  //   field_phase_id 5,6 → colour_frame_index 3
-  //   field_phase_id 7,8 → colour_frame_index 4
-  //   absent or out of range → -1
-  static int map_field_phase_to_colour_frame_index(
-      std::optional<int32_t> field_phase_id);
 };
 
 }  // namespace orc

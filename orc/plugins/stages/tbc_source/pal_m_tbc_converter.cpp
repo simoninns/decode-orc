@@ -76,19 +76,4 @@ std::vector<int16_t> PalMTBCConverter::assemble_frame(
   return frame;
 }
 
-// ---------------------------------------------------------------------------
-// Colour frame sequence
-// ---------------------------------------------------------------------------
-
-int PalMTBCConverter::map_field_phase_to_colour_frame_index(
-    std::optional<int32_t> field_phase_id) {
-  // ITU-R BT.1700-1 Annex 1 Part B: PAL_M 4-frame colour cycle.
-  // ld-decode encodes the PAL_M phase identically to PAL: field_phase_id 1–8,
-  // pairs mapping to colour frame positions 1–4.
-  if (!field_phase_id.has_value()) return -1;
-  const int32_t phase = field_phase_id.value();
-  if (phase < 1 || phase > 8) return -1;
-  return ((phase - 1) / 2) + 1;  // 1-based, cycles 1-4
-}
-
 }  // namespace orc

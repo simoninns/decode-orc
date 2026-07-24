@@ -1,8 +1,8 @@
 /*
  * File:        ntsc_tbc_converter_test.cpp
  * Module:      orc-tests/core/unit/stages/tbc_source
- * Purpose:     Unit tests for NtscTBCConverter level mapping and frame
- * assembly, NtscTBCYCConverter phase alignment, and PalMTBCConverter.
+ * Purpose:     Unit tests for NtscTBCConverter and PalMTBCConverter level
+ * mapping and frame assembly.
  *
  * Tests:
  *   NtscTBCConverter:
@@ -10,16 +10,10 @@
  *   - assemble_frame sample count equals kNtscFrameSamples = 477,750
  *   - assemble_frame throws on wrong field sizes
  *   - TBC field 1 (263 lines, VFR top) appears first in output
- *   - map_field_phase_to_colour_frame_index: 1→0 (A), 2→1 (B), others→−1
- *
- *   NtscTBCYCConverter:
- *   - Aligned phases return true / empty error string
- *   - Misaligned phases return false / non-empty error string
  *
  *   PalMTBCConverter:
  *   - tbc_to_cvbs maps to NTSC signal levels (kNtscBlanking, kNtscWhite)
  *   - assemble_frame sample count equals kPalMFrameSamples = 477,225
- *   - map_field_phase_to_colour_frame_index: 4-frame cycle 1–4
  *
  * SPDX-License-Identifier: GPL-3.0-or-later
  * SPDX-FileCopyrightText: 2026 decode-orc contributors
@@ -35,7 +29,6 @@
 #include <stdexcept>
 #include <vector>
 
-#include "../../../../orc/plugins/stages/tbc_source/ntsc_tbc_yc_converter.h"
 #include "../../../../orc/plugins/stages/tbc_source/pal_m_tbc_converter.h"
 
 namespace orc_unit_test {
@@ -206,65 +199,6 @@ TEST(NtscTBCConverterTest, AssembleFrame_NoExtraSamplesInserted) {
 }
 
 // ============================================================================
-// NtscTBCConverter — colour frame sequence
-// ============================================================================
-
-TEST(NtscTBCConverterTest, ColourFrameIndex_AbsentPhase_ReturnsMinusOne) {
-  EXPECT_EQ(orc::NtscTBCConverter::map_field_phase_to_colour_frame_index(
-                std::nullopt),
-            -1);
-}
-
-TEST(NtscTBCConverterTest, ColourFrameIndex_OutOfRange_ReturnsMinusOne) {
-  EXPECT_EQ(orc::NtscTBCConverter::map_field_phase_to_colour_frame_index(0),
-            -1);
-  EXPECT_EQ(orc::NtscTBCConverter::map_field_phase_to_colour_frame_index(3),
-            -1);
-  EXPECT_EQ(orc::NtscTBCConverter::map_field_phase_to_colour_frame_index(-1),
-            -1);
-}
-
-TEST(NtscTBCConverterTest, ColourFrameIndex_Phase1_ReturnsZeroFrameA) {
-  // SMPTE 244M-2003 §3.2: field_phase_id 1 → frame A → colour_frame_index 0.
-  EXPECT_EQ(orc::NtscTBCConverter::map_field_phase_to_colour_frame_index(1), 0);
-}
-
-TEST(NtscTBCConverterTest, ColourFrameIndex_Phase2_ReturnsOneFrameB) {
-  // SMPTE 244M-2003 §3.2: field_phase_id 2 → frame B → colour_frame_index 1.
-  EXPECT_EQ(orc::NtscTBCConverter::map_field_phase_to_colour_frame_index(2), 1);
-}
-
-// ============================================================================
-// NtscTBCYCConverter — phase alignment
-// ============================================================================
-
-TEST(NtscTBCYCConverterTest, CheckAlignment_SamePhasesAreAligned) {
-  EXPECT_TRUE(orc::NtscTBCYCConverter::check_yc_phase_alignment(0, 0));
-  EXPECT_TRUE(orc::NtscTBCYCConverter::check_yc_phase_alignment(1, 1));
-}
-
-TEST(NtscTBCYCConverterTest, CheckAlignment_BothUnknownIsAligned) {
-  EXPECT_TRUE(orc::NtscTBCYCConverter::check_yc_phase_alignment(-1, -1));
-}
-
-TEST(NtscTBCYCConverterTest, CheckAlignment_DifferentPhasesAreMisaligned) {
-  EXPECT_FALSE(orc::NtscTBCYCConverter::check_yc_phase_alignment(0, 1));
-  EXPECT_FALSE(orc::NtscTBCYCConverter::check_yc_phase_alignment(1, 0));
-}
-
-TEST(NtscTBCYCConverterTest, ErrorString_EmptyWhenAligned) {
-  EXPECT_EQ(orc::NtscTBCYCConverter::yc_alignment_error(0, 0), "");
-  EXPECT_EQ(orc::NtscTBCYCConverter::yc_alignment_error(-1, -1), "");
-}
-
-TEST(NtscTBCYCConverterTest, ErrorString_NonEmptyWhenMisaligned) {
-  const std::string msg = orc::NtscTBCYCConverter::yc_alignment_error(0, 1);
-  EXPECT_FALSE(msg.empty());
-  // Message should mention NTSC.
-  EXPECT_NE(msg.find("NTSC"), std::string::npos);
-}
-
-// ============================================================================
 // PalMTBCConverter — level mapping
 // ============================================================================
 
@@ -322,44 +256,6 @@ TEST(PalMTBCConverterTest, AssembleFrame_OrthogonalNoExtraSamples) {
       frame.size(),
       static_cast<size_t>(kPalMF1Lines) * static_cast<size_t>(kPalMLineW) +
           static_cast<size_t>(kPalMF2Lines) * static_cast<size_t>(kPalMLineW));
-}
-
-// ============================================================================
-// PalMTBCConverter — colour frame sequence
-// ============================================================================
-
-TEST(PalMTBCConverterTest, ColourFrameIndex_AbsentPhase_ReturnsMinusOne) {
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(
-                std::nullopt),
-            -1);
-}
-
-TEST(PalMTBCConverterTest, ColourFrameIndex_Phase1And2_ReturnOne) {
-  // ITU-R BT.1700-1 Annex 1 Part B: 4-frame cycle identical to PAL.
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(1), 1);
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(2), 1);
-}
-
-TEST(PalMTBCConverterTest, ColourFrameIndex_Phase3And4_ReturnTwo) {
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(3), 2);
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(4), 2);
-}
-
-TEST(PalMTBCConverterTest, ColourFrameIndex_Phase5And6_ReturnThree) {
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(5), 3);
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(6), 3);
-}
-
-TEST(PalMTBCConverterTest, ColourFrameIndex_Phase7And8_ReturnFour) {
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(7), 4);
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(8), 4);
-}
-
-TEST(PalMTBCConverterTest, ColourFrameIndex_OutOfRange_ReturnsMinusOne) {
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(0),
-            -1);
-  EXPECT_EQ(orc::PalMTBCConverter::map_field_phase_to_colour_frame_index(9),
-            -1);
 }
 
 }  // namespace orc_unit_test

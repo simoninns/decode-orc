@@ -76,24 +76,4 @@ std::vector<int16_t> NtscTBCConverter::assemble_frame(
   return frame;
 }
 
-// ---------------------------------------------------------------------------
-// Colour frame sequence
-// ---------------------------------------------------------------------------
-
-int NtscTBCConverter::map_field_phase_to_colour_frame_index(
-    std::optional<int32_t> field_phase_id) {
-  // SMPTE 244M-2003 §3.2: NTSC 2-frame A/B colour sequence.
-  // ld-decode encodes the NTSC phase as field_phase_id 1 (frame A) or 2
-  // (frame B).  Two consecutive fields of one frame share the same id.
-  if (!field_phase_id.has_value()) return -1;
-  switch (field_phase_id.value()) {
-    case 1:
-      return 0;  // frame A
-    case 2:
-      return 1;  // frame B
-    default:
-      return -1;
-  }
-}
-
 }  // namespace orc

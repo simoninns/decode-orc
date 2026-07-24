@@ -363,13 +363,11 @@ TBCMetadataSqliteReader::read_all_field_metadata() {
 
   const char* sql =
       "SELECT field_id, is_first_field, sync_conf, median_burst_ire, "
-      "field_phase_id, "
       "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values, "
       "ac3_symbols "
       "FROM field_record WHERE capture_id = ? ORDER BY field_id";
   const char* sql_legacy =
       "SELECT field_id, is_first_field, sync_conf, median_burst_ire, "
-      "field_phase_id, "
       "audio_samples, pad, disk_loc, file_loc, decode_faults, efm_t_values "
       "FROM field_record WHERE capture_id = ? ORDER BY field_id";
 
@@ -390,15 +388,14 @@ TBCMetadataSqliteReader::read_all_field_metadata() {
     metadata.is_first_field = impl_->get_optional_bool(stmt, 1);
     metadata.sync_confidence = impl_->get_optional_int(stmt, 2);
     metadata.median_burst_ire = impl_->get_optional_double(stmt, 3);
-    metadata.field_phase_id = impl_->get_optional_int(stmt, 4);
-    metadata.audio_samples = impl_->get_optional_int(stmt, 5);
-    metadata.is_pad = impl_->get_optional_bool(stmt, 6);
-    metadata.disk_location = impl_->get_optional_double(stmt, 7);
-    metadata.file_location = impl_->get_optional_int64(stmt, 8);
-    metadata.decode_faults = impl_->get_optional_int(stmt, 9);
-    metadata.efm_t_values = impl_->get_optional_int(stmt, 10);
+    metadata.audio_samples = impl_->get_optional_int(stmt, 4);
+    metadata.is_pad = impl_->get_optional_bool(stmt, 5);
+    metadata.disk_location = impl_->get_optional_double(stmt, 6);
+    metadata.file_location = impl_->get_optional_int64(stmt, 7);
+    metadata.decode_faults = impl_->get_optional_int(stmt, 8);
+    metadata.efm_t_values = impl_->get_optional_int(stmt, 9);
     if (has_ac3_symbols) {
-      metadata.ac3rf_symbols = impl_->get_optional_int(stmt, 11);
+      metadata.ac3rf_symbols = impl_->get_optional_int(stmt, 10);
     }
     result[FieldID(metadata.seq_no)] = metadata;
   }

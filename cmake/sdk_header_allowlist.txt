@@ -39,6 +39,7 @@ orc/stage/logging.h
 orc/stage/lru_cache.h
 orc/stage/node_id.h
 orc/stage/node_type.h
+orc/stage/observation/colour_frame_phase_query.h
 orc/stage/observation/observation_context.h
 orc/stage/observation/observation_context_interface.h
 orc/stage/observation/observation_schema.h

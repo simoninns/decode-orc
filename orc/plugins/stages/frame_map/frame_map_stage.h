@@ -41,7 +41,6 @@ class FrameMappedRepresentation : public VideoFrameRepresentationWrapper,
  public:
   struct PaddingDescriptor {
     FrameID output_id;
-    int colour_frame_index;
     VideoSystem system;
     size_t height;
     size_t samples_total;

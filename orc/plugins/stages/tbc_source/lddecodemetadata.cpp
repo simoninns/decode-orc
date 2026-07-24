@@ -504,8 +504,6 @@ void LdDecodeMetaData::Field::read(JsonReader& reader) {
       reader.read(efmTValues);
     } else if (member == "ac3Symbols") {
       reader.read(ac3Symbols);
-    } else if (member == "fieldPhaseID") {
-      reader.read(fieldPhaseID);
     } else if (member == "fileLoc") {
       reader.read(fileLoc);
     } else if (member == "isFirstField") {
@@ -561,9 +559,6 @@ void LdDecodeMetaData::Field::write(JsonWriter& writer) const {
   }
   if (efmTValues != -1) {
     writer.writeMember("efmTValues", efmTValues);
-  }
-  if (fieldPhaseID != -1) {
-    writer.writeMember("fieldPhaseID", fieldPhaseID);
   }
   if (fileLoc != -1) {
     writer.writeMember("fileLoc", fileLoc);

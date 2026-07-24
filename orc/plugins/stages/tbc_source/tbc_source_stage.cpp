@@ -29,11 +29,8 @@
 
 #include "audio-resample/audio_resampler.h"
 #include "ntsc_tbc_converter.h"
-#include "ntsc_tbc_yc_converter.h"
 #include "pal_m_tbc_converter.h"
-#include "pal_m_tbc_yc_converter.h"
 #include "pal_tbc_converter.h"
-#include "pal_tbc_yc_converter.h"
 #include "tbc_metadata_json_reader.h"
 #include "tbc_metadata_reader.h"
 #include "tbc_metadata_types.h"
@@ -210,8 +207,9 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
       FrameID id) const override {
     if (!has_frame(id)) return std::nullopt;
     // All descriptor fields come from pre-loaded metadata — no disk read
-    // needed. colour_frame_index is derived from field_meta_ via
-    // compute_colour_frame_index.
+    // needed. Colour-sequence phase is intentionally not provided here; stages
+    // that need it measure it from the burst via the colour_frame_phase
+    // observer (see colour_frame_phase_query.h).
     FrameDescriptor desc;
     desc.frame_id = id;
     desc.system = video_params_.system;
@@ -219,7 +217,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     desc.samples_total = static_cast<size_t>(frame_samples_total());
     desc.samples_per_line_nominal =
         static_cast<size_t>(source_params_.frame_width_nominal);
-    desc.colour_frame_index = compute_colour_frame_index(id);
     if (video_params_.ntsc_j_black_level_16b.has_value()) {
       desc.black_level_override = source_params_.black_level;
     }
@@ -524,29 +521,10 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     std::vector<sample_type> samples;  // assembled composite frame
     std::vector<sample_type> luma;     // YC: luma channel (empty for composite)
     std::vector<sample_type> chroma;   // YC: chroma channel
-    int colour_frame_index = -1;
   };
 
   size_t frame_samples_total() const {
     return static_cast<size_t>(frame_samples_from_system(video_params_.system));
-  }
-
-  // Compute the colour_frame_index for a frame from its field metadata.
-  // Uses TBC field 1 (even index = 2×id) which carries the frame phase.
-  int compute_colour_frame_index(FrameID id) const {
-    const size_t fld_idx = static_cast<size_t>(id) * 2;
-    if (fld_idx >= field_meta_.size()) return -1;
-    const auto phase = field_meta_[fld_idx].field_phase_id;
-    switch (video_params_.system) {
-      case VideoSystem::PAL:
-        return PalTBCConverter::map_field_phase_to_colour_frame_index(phase);
-      case VideoSystem::NTSC:
-        return NtscTBCConverter::map_field_phase_to_colour_frame_index(phase);
-      case VideoSystem::PAL_M:
-        return PalMTBCConverter::map_field_phase_to_colour_frame_index(phase);
-      default:
-        return -1;
-    }
   }
 
   void ensure_frame_cached(FrameID id) const {
@@ -603,7 +581,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     CachedFrame result;
     result.samples = PalTBCConverter::assemble_frame(
         raw_f1, raw_f2, video_params_.blanking_16b, video_params_.white_16b);
-    result.colour_frame_index = compute_colour_frame_index(id);
 
     if (is_yc_) {
       const std::vector<uint16_t> raw_c1 = deps_->read_field_samples(
@@ -659,7 +636,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     CachedFrame result;
     result.samples = NtscTBCConverter::assemble_frame(
         raw_f1, raw_f2, video_params_.blanking_16b, video_params_.white_16b);
-    result.colour_frame_index = compute_colour_frame_index(id);
 
     if (is_yc_) {
       const std::vector<uint16_t> raw_c1 = deps_->read_field_samples(
@@ -712,7 +688,6 @@ class TBCDecodedFrameRepresentation final : public VideoFrameRepresentation,
     CachedFrame result;
     result.samples = PalMTBCConverter::assemble_frame(
         raw_f1, raw_f2, video_params_.blanking_16b, video_params_.white_16b);
-    result.colour_frame_index = compute_colour_frame_index(id);
 
     if (is_yc_) {
       // PAL_M YC: same field geometry as NTSC.
@@ -966,7 +941,6 @@ std::vector<TBCFieldMeta> build_field_meta_from_reader(
   result.reserve(all.size());
   for (const auto& [fid, fm] : all) {
     TBCFieldMeta meta;
-    meta.field_phase_id = fm.field_phase_id;
     meta.audio_sample_count = fm.audio_samples;
     meta.efm_t_value_count = fm.efm_t_values;
     meta.ac3rf_symbol_count = fm.ac3rf_symbols;
@@ -1398,57 +1372,10 @@ std::vector<ArtifactPtr> TBCSourceStage::execute(
   // Load all per-field metadata.
   auto field_meta = deps_->load_all_field_meta(sc.db_path, err);
 
-  // YC phase alignment check (design §14.11): compare colour_frame_index at
-  // frame 0 for luma and chroma when operating in YC mode.
-  if (is_yc && !field_meta.empty()) {
-    auto c_sc = resolve_sidecars(c_path, parameters);
-    c_sc.db_path = c_path + ".db";
-    std::vector<TBCFieldMeta> c_meta =
-        deps_->load_all_field_meta(c_sc.db_path, err);
-
-    if (!c_meta.empty()) {
-      int luma_cfi = -1;
-      int chroma_cfi = -1;
-
-      switch (tvp.system) {
-        case VideoSystem::PAL:
-          luma_cfi = PalTBCConverter::map_field_phase_to_colour_frame_index(
-              field_meta[0].field_phase_id);
-          chroma_cfi = PalTBCConverter::map_field_phase_to_colour_frame_index(
-              c_meta[0].field_phase_id);
-          if (!PalTBCYCConverter::check_yc_phase_alignment(luma_cfi,
-                                                           chroma_cfi)) {
-            throw UserDataError(
-                PalTBCYCConverter::yc_alignment_error(luma_cfi, chroma_cfi));
-          }
-          break;
-        case VideoSystem::NTSC:
-          luma_cfi = NtscTBCConverter::map_field_phase_to_colour_frame_index(
-              field_meta[0].field_phase_id);
-          chroma_cfi = NtscTBCConverter::map_field_phase_to_colour_frame_index(
-              c_meta[0].field_phase_id);
-          if (!NtscTBCYCConverter::check_yc_phase_alignment(luma_cfi,
-                                                            chroma_cfi)) {
-            throw UserDataError(
-                NtscTBCYCConverter::yc_alignment_error(luma_cfi, chroma_cfi));
-          }
-          break;
-        case VideoSystem::PAL_M:
-          luma_cfi = PalMTBCConverter::map_field_phase_to_colour_frame_index(
-              field_meta[0].field_phase_id);
-          chroma_cfi = PalMTBCConverter::map_field_phase_to_colour_frame_index(
-              c_meta[0].field_phase_id);
-          if (!PalMTBCYCConverter::check_yc_phase_alignment(luma_cfi,
-                                                            chroma_cfi)) {
-            throw UserDataError(
-                PalMTBCYCConverter::yc_alignment_error(luma_cfi, chroma_cfi));
-          }
-          break;
-        default:
-          break;
-      }
-    }
-  }
+  // Colour-sequence phase is not read from TBC metadata anywhere (it is
+  // measured from the burst via the colour_frame_phase observer), so there is
+  // no Y/C phase-alignment check here: the luma channel carries no burst, so
+  // "Y/C phase alignment" is not a measurable or meaningful signal property.
 
   // Determine sidecar availability.
   const int32_t frame_count = tvp.number_of_fields / 2;

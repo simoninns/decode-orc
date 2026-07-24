@@ -205,7 +205,6 @@ class LdDecodeMetaData {
     bool isFirstField = false;
     int32_t syncConf = 0;
     double medianBurstIRE = 0.0;
-    int32_t fieldPhaseID = -1;
     int32_t audioSamples = -1;
 
     VitsMetrics vitsMetrics;

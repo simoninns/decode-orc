@@ -63,7 +63,6 @@ struct TBCVideoParams {
 // TBCFieldMeta — per-field metadata from .tbc.json.db
 // ---------------------------------------------------------------------------
 struct TBCFieldMeta {
-  std::optional<int32_t> field_phase_id;      // PAL: 1–8, NTSC: 1–2
   std::optional<int32_t> audio_sample_count;  // stereo pairs for this field
   std::optional<int32_t> efm_t_value_count;
   std::optional<int32_t> ac3rf_symbol_count;

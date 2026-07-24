@@ -86,6 +86,10 @@ struct FieldMetadata {
   int32_t seq_no = 0;  // Sequence number (primary key in DB)
 
   std::optional<bool> is_first_field;
+  // Colour-sequence phase for one field.  NOT populated when reading a source
+  // TBC (input phase metadata is ignored — phase is measured from the burst via
+  // the colour_frame_phase observer); the ld_sink writer sets it from that
+  // observer measurement when exporting a TBC.
   std::optional<int32_t> field_phase_id;
   std::optional<double> median_burst_ire;
 

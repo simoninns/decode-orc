@@ -70,23 +70,6 @@ class PalTBCConverter {
       const std::vector<uint16_t>& tbc_field1,  // 313 × 1135 samples
       const std::vector<uint16_t>& tbc_field2,  // 312 × 1135 samples
       int32_t tbc_blanking, int32_t tbc_white);
-
-  // -------------------------------------------------------------------------
-  // Colour frame sequence
-  // -------------------------------------------------------------------------
-
-  // EBU Tech. 3280-E §1.1.1: map a TBC field_phase_id to the FrameDescriptor
-  // colour_frame_index (1–4 for PAL).
-  //
-  // TBC ld-decode encodes PAL phase as a field-level attribute.  Two
-  // consecutive fields share the same colour frame: the mapping is:
-  //   field_phase_id ∈ {1,2} → colour_frame_index 1
-  //   field_phase_id ∈ {3,4} → colour_frame_index 2
-  //   field_phase_id ∈ {5,6} → colour_frame_index 3
-  //   field_phase_id ∈ {7,8} → colour_frame_index 4
-  // Returns -1 when field_phase_id is absent or out of range.
-  static int map_field_phase_to_colour_frame_index(
-      std::optional<int32_t> field_phase_id);
 };
 
 }  // namespace orc

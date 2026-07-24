@@ -148,3 +148,18 @@ history:
       `observation_service_interface.h` remain the contract. Source-breaking for
       any plugin still including the observer classes — migrate to
       `IObservationService::create_observer(id)`
+  - abi: 11
+    api: 3
+    cause: data-contract-swap
+    contracts:
+      - orc/stage/frame_descriptor.h
+    summary: >-
+      `FrameDescriptor` drops the `colour_frame_index` field. Colour-sequence
+      phase is a property of the burst signal, not of source metadata, so it is
+      no longer baked in by source stages; stages that need it now measure it
+      uniformly for TBC and CVBS sources via the host `colour_frame_phase`
+      observer, reached through the new contract header
+      `<orc/stage/observation/colour_frame_phase_query.h>`
+      (`orc::observation::measure_frame_phase()` /
+      `measure_colour_frame_index()`). Layout- and source-breaking for any
+      plugin reading `FrameDescriptor::colour_frame_index`.

@@ -321,7 +321,6 @@ make_audio_stack_source() {
   ON_CALL(*src, has_frame(orc::FrameID{0})).WillByDefault(Return(true));
   orc::FrameDescriptor desc;
   desc.frame_id = orc::FrameID{0};
-  desc.colour_frame_index = -1;
   ON_CALL(*src, get_frame_descriptor(orc::FrameID{0}))
       .WillByDefault(Return(desc));
   ON_CALL(*src, frame_range()).WillByDefault(Return(orc::FrameIDRange{0u, 0u}));

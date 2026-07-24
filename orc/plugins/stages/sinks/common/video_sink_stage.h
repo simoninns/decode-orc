@@ -32,6 +32,7 @@
 #include <optional>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 // Forward declarations for decoder classes
@@ -240,6 +241,15 @@ class VideoSinkStage : public DAGStage,
   std::atomic<bool> cancel_requested_{false};
   TriggerProgressCallback progress_callback_;
 
+  // Colour-sequence phase for phase-aware chroma decoders (currently the NTSC
+  // 3D adaptive comb) is measured from the burst signal by the host
+  // "colour_frame_phase" observer, not taken from source-side metadata, so it
+  // is available uniformly for TBC and CVBS sources across PAL / NTSC / PAL_M.
+  // Results are cached per frame id; the observer handle is not thread-safe, so
+  // the render path's worker threads serialise measurement behind this mutex.
+  mutable std::mutex colour_phase_mutex_;
+  mutable std::unordered_map<int32_t, int32_t> colour_phase_cache_;
+
   // Decode the input and write the output file. Called by trigger() after
   // any observation collection has completed.
   bool run_export_trigger(
@@ -261,6 +271,13 @@ class VideoSinkStage : public DAGStage,
                           const orc::SourceParameters& videoParams,
                           std::deque<std::vector<int16_t>>& owned_buffers,
                           std::vector<SourceField>& out_fields) const;
+
+  // Measure the colour-sequence phase (colour_frame_index) for frame_id by
+  // running the host "colour_frame_phase" observer over the frame's burst
+  // signal. Thread-safe and cached per frame id. Returns -1 when the phase is
+  // unknown (no observation service, or burst not detectable).
+  int32_t observer_colour_frame_index(const orc::VideoFrameRepresentation& vfr,
+                                      orc::FrameID frame_id) const;
 
   // Build a SourceField view over caller-owned frame buffers. For PAL,
   // populates line_ptrs (and luma/chroma_line_ptrs for YC sources) to handle

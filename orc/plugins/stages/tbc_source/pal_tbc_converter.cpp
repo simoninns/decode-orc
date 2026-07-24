@@ -133,31 +133,4 @@ std::vector<int16_t> PalTBCConverter::assemble_frame(
   return frame;
 }
 
-// ---------------------------------------------------------------------------
-// Colour frame sequence
-// ---------------------------------------------------------------------------
-
-int PalTBCConverter::map_field_phase_to_colour_frame_index(
-    std::optional<int32_t> field_phase_id) {
-  // EBU Tech. 3280-E §1.1.1: PAL 4-frame colour sequence.
-  //
-  // ld-decode encodes the PAL phase as a per-field attribute in the range 1–8
-  // (two consecutive fields share the same colour-frame position).  The
-  // mapping verified against the FieldPhaseHint convention in
-  // tbc_source_internal:
-  //
-  //   field_phase_id 1,2 → colour_frame_index 1
-  //   field_phase_id 3,4 → colour_frame_index 2
-  //   field_phase_id 5,6 → colour_frame_index 3
-  //   field_phase_id 7,8 → colour_frame_index 4
-  if (!field_phase_id.has_value()) {
-    return -1;
-  }
-  const int32_t phase = field_phase_id.value();
-  if (phase < 1 || phase > 8) {
-    return -1;
-  }
-  return ((phase - 1) / 2) + 1;  // 1-based, cycles 1-4
-}
-
 }  // namespace orc

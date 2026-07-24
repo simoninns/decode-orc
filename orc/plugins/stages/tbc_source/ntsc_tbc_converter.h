@@ -75,22 +75,6 @@ class NtscTBCConverter {
       const std::vector<uint16_t>& tbc_field1,  // 263 × 910 samples
       const std::vector<uint16_t>& tbc_field2,  // 262 × 910 samples
       int32_t tbc_blanking, int32_t tbc_white);
-
-  // -------------------------------------------------------------------------
-  // Colour frame sequence
-  // -------------------------------------------------------------------------
-
-  // SMPTE 244M-2003 §3.2: map a TBC field_phase_id to FrameDescriptor
-  // colour_frame_index (0 = frame A, 1 = frame B) for the NTSC 2-frame cycle.
-  //
-  // In ld-decode the NTSC field_phase_id is 1 (frame A) or 2 (frame B).
-  // Two consecutive fields of the same frame share the same field_phase_id.
-  //
-  //   field_phase_id 1 → colour_frame_index 0  (frame A)
-  //   field_phase_id 2 → colour_frame_index 1  (frame B)
-  //   absent or out of range → -1
-  static int map_field_phase_to_colour_frame_index(
-      std::optional<int32_t> field_phase_id);
 };
 
 }  // namespace orc

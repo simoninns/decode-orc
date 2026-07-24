@@ -115,14 +115,10 @@ static orc::TBCVideoParams make_pal_video_params(int32_t num_fields = 2) {
   return tvp;
 }
 
-// Build two minimal PAL TBCFieldMeta entries (one frame).
+// Build minimal PAL TBCFieldMeta entries (one frame per pair of fields).
 static std::vector<orc::TBCFieldMeta> make_pal_field_meta(
     int32_t num_fields = 2) {
-  std::vector<orc::TBCFieldMeta> meta(static_cast<size_t>(num_fields));
-  for (int i = 0; i < num_fields; ++i) {
-    meta[static_cast<size_t>(i)].field_phase_id = (i % 8) + 1;
-  }
-  return meta;
+  return std::vector<orc::TBCFieldMeta>(static_cast<size_t>(num_fields));
 }
 
 // Return a blanking-level field of the given size.
@@ -150,7 +146,6 @@ static std::vector<orc::TBCFieldMeta> make_ntsc_field_meta(
     int32_t num_fields, int32_t audio_pairs_per_field) {
   std::vector<orc::TBCFieldMeta> meta(static_cast<size_t>(num_fields));
   for (int i = 0; i < num_fields; ++i) {
-    meta[static_cast<size_t>(i)].field_phase_id = (i % 4) + 1;
     if (audio_pairs_per_field > 0) {
       meta[static_cast<size_t>(i)].audio_sample_count = audio_pairs_per_field;
     }

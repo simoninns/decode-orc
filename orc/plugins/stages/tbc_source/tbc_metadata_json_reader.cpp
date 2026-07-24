@@ -154,7 +154,6 @@ bool TBCMetadataJsonReader::open(const std::string& json_path) {
     fm.is_first_field = f.isFirstField;
     fm.sync_confidence = f.syncConf;
     fm.median_burst_ire = f.medianBurstIRE;
-    fm.field_phase_id = f.fieldPhaseID;
     fm.is_pad = f.pad;
     if (f.audioSamples > 0) fm.audio_samples = f.audioSamples;
     if (f.decodeFaults > 0) fm.decode_faults = f.decodeFaults;

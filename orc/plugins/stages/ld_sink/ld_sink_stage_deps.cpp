@@ -13,6 +13,7 @@
 #include <orc/stage/common_types.h>
 #include <orc/stage/cvbs_signal_constants.h>
 #include <orc/stage/file_io_interface.h>
+#include <orc/stage/observation/colour_frame_phase_query.h>
 #include <orc/support/dropout_util.h>
 #include <orc/support/frame_line_util.h>
 #include <orc/support/logging.h>
@@ -285,6 +286,12 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
         continue;
       }
 
+      // Measure the colour-sequence phase from the burst signal so the exported
+      // TBC carries a correct per-field fieldPhaseID (1-4 NTSC, 1-8 PAL/PAL_M),
+      // independent of whatever the input source did or did not provide.
+      const orc::observation::FramePhase frame_phase =
+          orc::observation::measure_frame_phase(*representation, frame_id);
+
       // Build per-field dropout lists from the frame-flat DropoutRuns.
       std::vector<DropoutInfo> tbc_f1_dropouts, tbc_f2_dropouts;
       for (const auto& run : representation->get_dropout_hints(frame_id)) {
@@ -366,8 +373,11 @@ bool LDSinkStageDeps::write_tbc_and_metadata(
         FieldMetadata field_meta;
         field_meta.seq_no = static_cast<int32_t>(fields_exported + 1);
         field_meta.is_first_field = ep.is_first_field;
-        if (frame_desc->colour_frame_index >= 0) {
-          field_meta.field_phase_id = frame_desc->colour_frame_index;
+        const int32_t field_phase_id = ep.is_first_field
+                                           ? frame_phase.field1_phase_id
+                                           : frame_phase.field2_phase_id;
+        if (field_phase_id >= 0) {
+          field_meta.field_phase_id = field_phase_id;
         }
         metadata_writer_->write_field_metadata(field_meta);
 

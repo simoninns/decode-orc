@@ -129,6 +129,7 @@ grouped by domain. A layout change here bumps the host ABI version.
 
 | Header | Provides |
 |--------|----------|
+| `<orc/stage/observation/colour_frame_phase_query.h>` | Measure a frame's colour-sequence phase via the colour_frame_phase observer |
 | `<orc/stage/observation/observation_context.h>` | Pipeline-scoped observation storage |
 | `<orc/stage/observation/observation_context_interface.h>` | Pipeline-scoped observation storage |
 | `<orc/stage/observation/observation_schema.h>` | Observation schema definitions |
@@ -873,6 +874,7 @@ source of truth for the ABI/API version log. Do not edit it by hand; run
 | 8 | 2 | `VideoFrameRepresentation` gains `prime_audio_decode()`: a hook that forces a deferred whole-stream audio decode (e.g. EFM audio) to run up front with progress reporting, forwarded down the wrapper chain so sinks can meter it on the progress dialog. The appended virtual changes the vtable layout, requiring all plugins to be rebuilt |
 | 9 | 2 | `OrcPluginServices` gains the appended `observation_service` pointer (`IObservationService`, new contract header `<orc/stage/observation/observation_service_interface.h>`): a host-owned service that runs the standard observers by stable string id, reached via `plugin::get_observation_service()`. Guarded by `services_size`; older hosts leave it null. Appended field only — plugins need not be rebuilt to keep working against ABI 8 behaviour |
 | 10 | 2 | The concrete observer classes (the nine `<orc/stage/observation/*_observer.h>` headers — `BiphaseObserver`, `WhiteSNRObserver`, …) and the `Observer` base (`<orc/stage/observation/observer.h>`) are removed from the plugin SDK: observers are now host-internal and reached exclusively through the `IObservationService` added in ABI 9, selected by stable string id. `orc-sdk-support` no longer ships observer object code, and the deprecated pre-tier observation include-path shims (`<orc/stage/observers/...>` and the flat `<orc/stage/observation_*.h>` paths) are removed. `observation_schema.h`, `observation_context*.h`, and `observation_service_interface.h` remain the contract. Source-breaking for any plugin still including the observer classes — migrate to `IObservationService::create_observer(id)` |
+| 11 | 3 | `FrameDescriptor` drops the `colour_frame_index` field. Colour-sequence phase is a property of the burst signal, not of source metadata, so it is no longer baked in by source stages; stages that need it now measure it uniformly for TBC and CVBS sources via the host `colour_frame_phase` observer, reached through the new contract header `<orc/stage/observation/colour_frame_phase_query.h>` (`orc::observation::measure_frame_phase()` / `measure_colour_frame_index()`). Layout- and source-breaking for any plugin reading `FrameDescriptor::colour_frame_index`. |
 
 <!-- END GENERATED ABI VERSION HISTORY -->
 

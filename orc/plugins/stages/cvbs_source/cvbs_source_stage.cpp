@@ -267,7 +267,6 @@ class CVBSDecodedFrameRepresentation final : public VideoFrameRepresentation,
     desc.height = frame_height_;
     desc.samples_total = frame_samples_;
     desc.samples_per_line_nominal = spl_nominal_;
-    desc.colour_frame_index = -1;  // measured by ColourFramePhaseObserver
     if (ntsc_j_black_level_.has_value()) {
       desc.black_level_override = ntsc_j_black_level_;
     }

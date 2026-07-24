@@ -10,6 +10,7 @@
 #include "frame_map_stage.h"
 
 #include <orc/stage/error_types.h>
+#include <orc/stage/observation/colour_frame_phase_query.h>
 #include <orc/support/logging.h>
 #include <orc/support/preview_helpers.h>
 
@@ -126,7 +127,6 @@ std::optional<FrameDescriptor> FrameMappedRepresentation::get_frame_descriptor(
     desc.height = pd->height;
     desc.samples_total = pd->samples_total;
     desc.samples_per_line_nominal = pd->samples_per_line_nominal;
-    desc.colour_frame_index = pd->colour_frame_index;
     desc.is_padding_frame = true;
     return desc;
   }
@@ -385,15 +385,18 @@ size_t FrameMapStage::apply_remove_duplicates(
       continue;
     }
 
-    auto prev_desc = source.get_frame_descriptor(prev);
-    auto cur_desc = source.get_frame_descriptor(cur);
+    // Phase is measured from the burst signal (see colour_frame_phase_query.h),
+    // not read from source-baked metadata, so duplicate detection works for
+    // TBC and CVBS sources alike.
+    const int prev_cfi =
+        orc::observation::measure_colour_frame_index(source, prev);
+    const int cur_cfi =
+        orc::observation::measure_colour_frame_index(source, cur);
 
-    if (prev_desc && cur_desc && prev_desc->colour_frame_index >= 0 &&
-        cur_desc->colour_frame_index >= 0 &&
-        prev_desc->colour_frame_index == cur_desc->colour_frame_index) {
+    if (prev_cfi >= 0 && cur_cfi >= 0 && prev_cfi == cur_cfi) {
       ORC_LOG_DEBUG(
           "FrameMapStage: removing duplicate frame {} (colour_frame_index {})",
-          cur.value(), cur_desc->colour_frame_index);
+          cur.value(), cur_cfi);
       mapping.erase(mapping.begin() + static_cast<std::ptrdiff_t>(i));
       ++removed;
       // Don't advance i — re-compare the new pair at position i
@@ -458,16 +461,10 @@ size_t FrameMapStage::apply_pad_gaps(
       continue;
     }
 
-    auto prev_desc = source.get_frame_descriptor(prev_fid);
-    auto cur_desc = source.get_frame_descriptor(cur_fid);
-
-    if (!prev_desc || !cur_desc) {
-      ++i;
-      continue;
-    }
-
-    int prev_idx = prev_desc->colour_frame_index;
-    int cur_idx = cur_desc->colour_frame_index;
+    // Phase measured from the burst signal, not source-baked metadata.
+    int prev_idx =
+        orc::observation::measure_colour_frame_index(source, prev_fid);
+    int cur_idx = orc::observation::measure_colour_frame_index(source, cur_fid);
 
     if (prev_idx < 0 || cur_idx < 0) {
       ++i;
@@ -489,7 +486,6 @@ size_t FrameMapStage::apply_pad_gaps(
       // The output FrameID will be determined after insertion; we use a
       // placeholder here and fix it up after the insert loop
       pd.output_id = FrameID{UINT64_MAX};  // filled below
-      pd.colour_frame_index = fill_idx;
       pd.system = sys;
       pd.height = height;
       pd.samples_total = samples_total;

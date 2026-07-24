@@ -257,6 +257,12 @@ headers:
     deprecated: false
     since_abi: ""
     notes: "Node type registry"
+  - path: orc/stage/observation/colour_frame_phase_query.h
+    tier: stage
+    domain: "observation"
+    deprecated: false
+    since_abi: 11
+    notes: "Measure a frame's colour-sequence phase via the colour_frame_phase observer"
   - path: orc/stage/observation/observation_context.h
     tier: stage
     domain: "observation"

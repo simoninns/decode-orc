@@ -111,7 +111,7 @@ Signal analysis tools displayed as waveform or vector graphs in floating dialogs
 | Action | Shortcut | Description |
 |--------|----------|-------------|
 | Frame Timing | Ctrl+Shift+T | Show the sync and timing waveform across all lines of the current frame. Useful for diagnosing sync pulse position and line structure. |
-| Waveform Monitor | Ctrl+Shift+W | Sample histogram across multiple lines with adjustable gain and range. Available for supported stages only. |
+| Waveform Monitor | Ctrl+Shift+W | Sample histogram across multiple lines, with selectable channel, sample range, field, and intensity. Available for supported stages only. |
 | Vectorscope | Ctrl+Shift+S | U/V chroma vector plot, available on every stage. Shows the decoded (grading) plot on a chroma-decoding stage's colour output and the composite (measurement) plot on a CVBS or Y/C output. |
 
 ### Waveform Monitor
@@ -120,8 +120,11 @@ Displays a stacked histogram of sample values across a range of lines.
 
 | Control | Description |
 |---------|-------------|
-| Gain | Vertical amplification of the trace. |
-| Range | The vertical display range in millivolts. |
+| Channel | `Y+C (Composite)` accumulates the full composite signal; `Y (Luma only)` uses the separate luma channel when the source has one, and otherwise the composite signal low-pass filtered to remove the colour subcarrier. |
+| Range | `Active video` accumulates only the visible part of each line; `Whole frame` includes sync and blanking. |
+| Field | `Frame` accumulates both fields together; `Field 1` and `Field 2` accumulate one field only. The colour subcarrier phase alternates from field to field, so comparing the two fields separates field-correlated interference (subcarrier leakage into sync, for example) from noise that is random across the frame. Disabled when the preview supplies a single field, which has no second field to compare against. |
+| Phosphor | Draws a green trace on black, in the style of an analogue oscilloscope. |
+| Intensity | Brightness gain applied to the accumulated trace. |
 
 Only available when the selected stage provides this view.
 

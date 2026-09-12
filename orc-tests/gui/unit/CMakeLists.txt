@@ -172,6 +172,7 @@ orc_add_gui_unit_tests(
         histogram_dialog_test.cpp
         vectorscope_dialog_test.cpp
         waveform_monitor_widget_test.cpp
+        waveform_monitor_dialog_test.cpp
 )
 
 # GPU render surface: the only target that opts into the GPU path. Every test

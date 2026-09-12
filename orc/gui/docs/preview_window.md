@@ -151,21 +151,26 @@ the 525-line raster, so only its burst amplitude follows the NTSC levels. NTSC
 has a single set of targets and a single burst box on the −U axis at 180°
 (SMPTE 170M-2004 §8.4).
 
-Both acquisitions take the same **line select**, in the same numbering, so one
+What the scope takes off the frame is set in two groups, one for each axis of
+the raster. **Line View** picks the region along each line and **Field View**
+the lines down the frame; within each group the options are alternatives, so
+exactly one is in force at a time.
+
+Both acquisitions take the same **Field View**, in the same numbering, so one
 can be pointed at exactly the lines the other is showing — which is what makes
 the two plots of a frame comparable. Line numbers count through the interlaced
 frame: line 1 is the top line and consecutive numbers alternate fields, the
-same numbering the active picture is stated in. Only the sampling *window*,
-which picks a region along the line, is composite-only: the decoded planes hold
-active picture, with no sync, porch or burst to choose between.
+same numbering the active picture is stated in. Only **Line View** is
+composite-only: the decoded planes hold active picture, with no sync, porch or
+burst to choose between.
 
 | Control | Description |
 |---------|-------------|
 | Acquisition | Reports which acquisition is in force. Not a choice — see above. |
-| Sampling window | Composite only. **Burst only** samples the colour-burst window on the back porch, **Active line** the active picture window, **Whole line** the entire line including sync and porches. |
-| Active picture only | Plot only the active picture lines, which is what the decoded acquisition shows. On the decoded plot it also restricts the acquisition along the line; on the composite plot the sampling window above does that instead. On by default: the two acquisitions then cover the same lines of the frame. |
-| All lines / First / Last | Restrict the acquisition to a line or a range of lines, the way a real instrument's line-select works. Clear **All lines** to enable the range. It narrows whatever **Active picture only** left rather than overriding it. |
-| Field Selection | Choose which field (both, first, or second) contributes to the plot. |
+| Line View | Composite only. **Active line** samples the active picture window, **Whole line** the entire line including sync and porches, **Burst only** the colour-burst window on the back porch. |
+| Field View | **Active field** plots the active picture only, which is what the decoded acquisition shows, and is the default: the two acquisitions then cover the same lines of the frame. **Whole field** plots every line of the frame. **Selected line(s)** plots a named range, the way a real instrument's line-select works, and takes the lines literally rather than intersecting them with the active picture. |
+| Start line / End line | Enabled by **Selected line(s)**. Untick **End line** to plot the start line on its own. The spin boxes only offer lines the plot can show: a frame of the system being plotted (625 for PAL, 525 for NTSC and PAL-M), and — when Field Selection names one field — only that field's lines, since consecutive frame lines alternate fields. |
+| Field Selection | Choose which field (both, first, or second) contributes to the plot. Restricting it to one field also restricts which lines **Selected line(s)** may name. |
 | Graticule | Target set to overlay: none, 75 %, 100 %, or both. |
 | Colorize | Tint each plotted point by its chroma position. Turn it off for a single-colour trace, which is how an instrument's CRT reads. |
 | Defocus | Add Gaussian scatter to the trace to aid reading at high dot density. |
@@ -175,7 +180,7 @@ active picture, with no sync, porch or burst to choose between.
 #### Measurement readouts
 
 Shown in the composite acquisition, computed from the burst on every active
-line of the frame — the line select changes what is plotted, not what is
+line of the frame — the field view changes what is plotted, not what is
 measured, so narrowing the range does not move the readings:
 
 | Readout | Meaning |

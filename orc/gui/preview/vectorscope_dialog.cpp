@@ -9,6 +9,8 @@
 
 #include "vectorscope_dialog.h"
 
+#include <orc/stage/cvbs_signal_constants.h>  // frame_lines_from_system
+
 #include "../field_frame_presentation.h"
 #include "../gpu/scope_surface_factory.h"
 #include "../gpu/scope_vertex_builder.h"
@@ -75,6 +77,7 @@ class VectorscopeDialogPrivate {
 
 #include <QCloseEvent>
 #include <QFontMetrics>
+#include <QGridLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
 #include <QLabel>
@@ -83,6 +86,7 @@ class VectorscopeDialogPrivate {
 #include <QPixmap>
 #include <QResizeEvent>
 #include <QScrollArea>
+#include <QSignalBlocker>
 #include <QSizePolicy>
 #include <QVBoxLayout>
 #include <algorithm>
@@ -114,10 +118,25 @@ constexpr double kMeasurementTargetBoxSizePixels = 30.0;
 constexpr double kMeasurementCrosshairSizePixels = 16.0;
 constexpr double kBurstLabelOffsetPixels = 40.0;
 
-// Upper bound for the line-select spin boxes.  A PAL frame is the largest of
-// the supported systems at 625 lines (EBU Tech. 3280-E §1.3.1); NTSC and PAL-M
-// frames are shorter, and out-of-range values are clamped by the acquisition.
+// Upper bound for the line-select spin boxes while no data has arrived to say
+// which system is being plotted.  A PAL frame is the largest of the supported
+// systems at 625 lines (EBU Tech. 3280-E §1.3.1); NTSC and PAL-M frames are
+// shorter, and the bound drops to theirs once a frame has been plotted.
 constexpr int kMaxSelectableLine = 625;
+
+// Extent of the frame the field view acquires.  The values are the field-view
+// button group's ids and mean nothing outside this file.
+enum class FieldView : int {
+  ActiveField = 0,
+  WholeField = 1,
+  SelectedLines = 2,
+};
+
+// Width of the control column.  It is fixed rather than fitted to the widest
+// control: the measurement readout is rebuilt from the numbers of every frame
+// that arrives, so a column that followed its content would change width on
+// each one and shuffle every control in it sideways during playback.
+constexpr int kControlsColumnWidth = 280;
 
 // Lines the composite measurement readout can occupy: burst amplitude,
 // subcarrier jitter, contributing line count, PAL V-switch split error and
@@ -394,6 +413,7 @@ void VectorscopeDialog::setupUI() {
 
   // Info label
   info_label_ = new QLabel();
+  info_label_->setObjectName("vectorscope_info");
   info_label_->setStyleSheet("font-weight: bold;");
   main_layout->addWidget(info_label_);
 
@@ -456,69 +476,10 @@ void VectorscopeDialog::setupUI() {
   acquisition_layout->addWidget(acquisition_label_);
   controls_layout->addWidget(acquisition_group_box);
 
-  // Sampling group — what the acquisition takes off the frame.  The line
-  // select applies to both acquisitions, in the interlaced frame-line
-  // numbering both of them report, so the same range means the same lines
-  // whichever scope is in force.  The window radios pick a region of the
-  // line and only a composite acquisition has one: the decoded planes carry
-  // active picture, with no sync, porch or burst to choose between.
-  sampling_group_ = new QGroupBox("Sampling");
-  QVBoxLayout* sampling_layout = new QVBoxLayout(sampling_group_);
-
-  window_options_ = new QWidget(sampling_group_);
-  QVBoxLayout* window_layout = new QVBoxLayout(window_options_);
-  window_layout->setContentsMargins(0, 0, 0, 0);
-
-  window_group_ = new QButtonGroup(this);
-  window_burst_radio_ = new QRadioButton("Burst only");
-  window_active_radio_ = new QRadioButton("Active line");
-  window_whole_radio_ = new QRadioButton("Whole line");
-  window_whole_radio_->setChecked(true);
-
-  window_group_->addButton(
-      window_burst_radio_,
-      static_cast<int>(orc::VectorscopeSampleWindow::BurstOnly));
-  window_group_->addButton(
-      window_active_radio_,
-      static_cast<int>(orc::VectorscopeSampleWindow::ActiveLine));
-  window_group_->addButton(
-      window_whole_radio_,
-      static_cast<int>(orc::VectorscopeSampleWindow::WholeLine));
-
-  window_layout->addWidget(window_burst_radio_);
-  window_layout->addWidget(window_active_radio_);
-  window_layout->addWidget(window_whole_radio_);
-  sampling_layout->addWidget(window_options_);
-
-  active_area_only_checkbox_ = new QCheckBox("Active picture only");
-  active_area_only_checkbox_->setChecked(true);
-  sampling_layout->addWidget(active_area_only_checkbox_);
-
-  all_lines_checkbox_ = new QCheckBox("All lines");
-  all_lines_checkbox_->setChecked(true);
-  sampling_layout->addWidget(all_lines_checkbox_);
-
-  // Line numbers are presented 1-based throughout the GUI; the contract's
-  // line range is 0-based, so the accessors subtract one.
-  QHBoxLayout* first_line_layout = new QHBoxLayout();
-  first_line_layout->addWidget(new QLabel("First:"));
-  first_line_spinbox_ = new QSpinBox();
-  first_line_spinbox_->setRange(1, kMaxSelectableLine);
-  first_line_spinbox_->setValue(1);
-  first_line_layout->addWidget(first_line_spinbox_);
-  sampling_layout->addLayout(first_line_layout);
-
-  QHBoxLayout* last_line_layout = new QHBoxLayout();
-  last_line_layout->addWidget(new QLabel("Last:"));
-  last_line_spinbox_ = new QSpinBox();
-  last_line_spinbox_->setRange(1, kMaxSelectableLine);
-  last_line_spinbox_->setValue(kMaxSelectableLine);
-  last_line_layout->addWidget(last_line_spinbox_);
-  sampling_layout->addLayout(last_line_layout);
-
-  controls_layout->addWidget(sampling_group_);
-
-  // Field selection group
+  // Field selection group.  It governs which field's samples reach the plot,
+  // and with it which interlaced frame lines the field view below may name:
+  // consecutive frame lines alternate fields, so a single-field plot can only
+  // be pointed at every other one.
   QGroupBox* field_select_group = new QGroupBox("Field Selection");
   QVBoxLayout* field_select_layout = new QVBoxLayout(field_select_group);
 
@@ -539,6 +500,93 @@ void VectorscopeDialog::setupUI() {
   field_select_layout->addWidget(field_select_second_radio_);
 
   controls_layout->addWidget(field_select_group);
+
+  // Line view — the region along each line the acquisition takes.  The three
+  // regions are alternatives, so they are radios.  Only a composite
+  // acquisition has a choice to make: the decoded planes carry active picture,
+  // with no sync, porch or burst to pick between, so the group is hidden on
+  // the decoded plot.
+  line_view_group_ = new QGroupBox("Line View");
+  QVBoxLayout* line_view_layout = new QVBoxLayout(line_view_group_);
+
+  line_view_buttons_ = new QButtonGroup(this);
+  line_active_radio_ = new QRadioButton("Active line");
+  line_whole_radio_ = new QRadioButton("Whole line");
+  line_burst_radio_ = new QRadioButton("Burst only");
+  line_whole_radio_->setChecked(true);
+
+  line_view_buttons_->addButton(
+      line_active_radio_,
+      static_cast<int>(orc::VectorscopeSampleWindow::ActiveLine));
+  line_view_buttons_->addButton(
+      line_whole_radio_,
+      static_cast<int>(orc::VectorscopeSampleWindow::WholeLine));
+  line_view_buttons_->addButton(
+      line_burst_radio_,
+      static_cast<int>(orc::VectorscopeSampleWindow::BurstOnly));
+
+  line_view_layout->addWidget(line_active_radio_);
+  line_view_layout->addWidget(line_whole_radio_);
+  line_view_layout->addWidget(line_burst_radio_);
+
+  controls_layout->addWidget(line_view_group_);
+
+  // Field view — the lines down the frame the acquisition takes.  The three
+  // extents are alternatives as well: the active picture, every line of the
+  // frame, or a range the user names.  The line select applies to both
+  // acquisitions, in the interlaced frame-line numbering both of them report,
+  // so the same range means the same lines whichever scope is in force.
+  field_view_group_ = new QGroupBox("Field View");
+  QVBoxLayout* field_view_layout = new QVBoxLayout(field_view_group_);
+
+  field_view_buttons_ = new QButtonGroup(this);
+  field_active_radio_ = new QRadioButton("Active field");
+  field_whole_radio_ = new QRadioButton("Whole field");
+  field_selected_radio_ = new QRadioButton("Selected line(s)");
+  field_active_radio_->setChecked(true);
+
+  field_view_buttons_->addButton(field_active_radio_,
+                                 static_cast<int>(FieldView::ActiveField));
+  field_view_buttons_->addButton(field_whole_radio_,
+                                 static_cast<int>(FieldView::WholeField));
+  field_view_buttons_->addButton(field_selected_radio_,
+                                 static_cast<int>(FieldView::SelectedLines));
+
+  field_view_layout->addWidget(field_active_radio_);
+  field_view_layout->addWidget(field_whole_radio_);
+  field_view_layout->addWidget(field_selected_radio_);
+
+  // Line numbers are presented 1-based throughout the GUI; the contract's
+  // line range is 0-based, so the accessors subtract one.  The spin boxes
+  // only offer the lines the current system and field selection can produce;
+  // updateLineSelectionLimits() states those bounds.  Both rows share one
+  // grid so the two boxes line up under each other and hold the same width.
+  QGridLayout* line_select_layout = new QGridLayout();
+  line_select_layout->setContentsMargins(0, 0, 0, 0);
+  line_select_layout->setColumnStretch(1, 1);
+
+  start_line_label_ = new QLabel("Start line:");
+  start_line_spinbox_ = new QSpinBox();
+  start_line_spinbox_->setObjectName("vectorscope_start_line");
+  start_line_spinbox_->setRange(1, kMaxSelectableLine);
+  start_line_spinbox_->setValue(1);
+  line_select_layout->addWidget(start_line_label_, 0, 0);
+  line_select_layout->addWidget(start_line_spinbox_, 0, 1);
+
+  // An unticked end line is a single-line selection: the start line stands on
+  // its own rather than opening a range to the bottom of the frame.
+  end_line_checkbox_ = new QCheckBox("End line:");
+  end_line_checkbox_->setChecked(true);
+  end_line_spinbox_ = new QSpinBox();
+  end_line_spinbox_->setObjectName("vectorscope_end_line");
+  end_line_spinbox_->setRange(1, kMaxSelectableLine);
+  end_line_spinbox_->setValue(kMaxSelectableLine);
+  line_select_layout->addWidget(end_line_checkbox_, 1, 0);
+  line_select_layout->addWidget(end_line_spinbox_, 1, 1);
+
+  field_view_layout->addLayout(line_select_layout);
+
+  controls_layout->addWidget(field_view_group_);
 
   // Graticule group
   QGroupBox* graticule_group = new QGroupBox("Graticule");
@@ -574,6 +622,12 @@ void VectorscopeDialog::setupUI() {
   // placeholder and the group clips the readings when they arrive.
   measurements_label_ = new QLabel("—");
   measurements_label_->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+  // The readings are as wide as the numbers in them, and those change on
+  // every frame.  Letting the label state a width would hand that change to
+  // the column it sits in; the column is fixed and wide enough to hold the
+  // longest reading, so the label takes what it is given instead.
+  measurements_label_->setSizePolicy(QSizePolicy::Ignored,
+                                     QSizePolicy::Preferred);
   measurements_label_->setMinimumHeight(
       kMeasurementReadoutLines *
       QFontMetrics(measurements_label_->font()).lineSpacing());
@@ -585,7 +639,6 @@ void VectorscopeDialog::setupUI() {
   // Set maximum width for controls panel to keep them from shrinking too much
   QWidget* controls_widget = new QWidget();
   controls_widget->setLayout(controls_layout);
-  controls_widget->setMaximumWidth(240);
 
   // The control column is taller than the dialog's minimum height once the
   // acquisition and sampling groups are present, so it scrolls rather than
@@ -595,12 +648,12 @@ void VectorscopeDialog::setupUI() {
   controls_scroll->setWidgetResizable(true);
   controls_scroll->setFrameShape(QFrame::NoFrame);
   controls_scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
-  controls_scroll->setMaximumWidth(260);
-  controls_scroll->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+  controls_scroll->setFixedWidth(kControlsColumnWidth);
   content_layout->addWidget(controls_scroll);
 
   main_layout->addLayout(content_layout, 1);
 
+  updateLineSelectionLimits();
   updateAcquisitionControlState();
 
   // Initial display
@@ -614,26 +667,30 @@ void VectorscopeDialog::connectSignals() {
           &VectorscopeDialog::onDefocusToggled);
   connect(draw_lines_checkbox_, &QCheckBox::toggled, this,
           &VectorscopeDialog::onDrawLinesToggled);
-  connect(active_area_only_checkbox_, &QCheckBox::toggled, this,
-          &VectorscopeDialog::onActiveAreaOnlyToggled);
   connect(point_size_spinbox_, QOverload<int>::of(&QSpinBox::valueChanged),
           this, &VectorscopeDialog::onPointSizeChanged);
   connect(field_select_group_, QOverload<int>::of(&QButtonGroup::idClicked),
           this, [this](int) { onFieldSelectionChanged(); });
   connect(graticule_group_, QOverload<int>::of(&QButtonGroup::idClicked), this,
           [this](int) { onGraticuleChanged(); });
-  connect(window_group_, QOverload<int>::of(&QButtonGroup::idClicked), this,
-          [this](int) { onSampleWindowChanged(); });
-  connect(all_lines_checkbox_, &QCheckBox::toggled, this,
+  connect(line_view_buttons_, QOverload<int>::of(&QButtonGroup::idClicked),
+          this, [this](int) { onSampleWindowChanged(); });
+  connect(field_view_buttons_, QOverload<int>::of(&QButtonGroup::idClicked),
+          this, [this](int) { onFieldViewChanged(); });
+  connect(end_line_checkbox_, &QCheckBox::toggled, this,
           [this](bool) { onLineRangeChanged(); });
-  connect(first_line_spinbox_, QOverload<int>::of(&QSpinBox::valueChanged),
+  connect(start_line_spinbox_, QOverload<int>::of(&QSpinBox::valueChanged),
           this, [this](int) { onLineRangeChanged(); });
-  connect(last_line_spinbox_, QOverload<int>::of(&QSpinBox::valueChanged), this,
+  connect(end_line_spinbox_, QOverload<int>::of(&QSpinBox::valueChanged), this,
           [this](int) { onLineRangeChanged(); });
 }
 
 bool VectorscopeDialog::isActiveAreaOnly() const {
-  return active_area_only_checkbox_ && active_area_only_checkbox_->isChecked();
+  return field_active_radio_ && field_active_radio_->isChecked();
+}
+
+bool VectorscopeDialog::isLineRangeExplicit() const {
+  return field_selected_radio_ && field_selected_radio_->isChecked();
 }
 
 orc::VectorscopeAcquisitionMode VectorscopeDialog::acquisitionMode() const {
@@ -657,35 +714,40 @@ void VectorscopeDialog::setAcquisitionMode(
 }
 
 orc::VectorscopeSampleWindow VectorscopeDialog::sampleWindow() const {
-  if (window_burst_radio_ && window_burst_radio_->isChecked()) {
+  if (line_burst_radio_ && line_burst_radio_->isChecked()) {
     return orc::VectorscopeSampleWindow::BurstOnly;
   }
-  if (window_active_radio_ && window_active_radio_->isChecked()) {
+  if (line_active_radio_ && line_active_radio_->isChecked()) {
     return orc::VectorscopeSampleWindow::ActiveLine;
   }
   return orc::VectorscopeSampleWindow::WholeLine;
 }
 
+int VectorscopeDialog::endLineValue() const {
+  if (!end_line_spinbox_ || !end_line_checkbox_ ||
+      !end_line_checkbox_->isChecked()) {
+    // An unticked end line selects the start line on its own.
+    return start_line_spinbox_ ? start_line_spinbox_->value() : 1;
+  }
+  return end_line_spinbox_->value();
+}
+
 uint32_t VectorscopeDialog::firstLine() const {
-  if (!first_line_spinbox_ || !all_lines_checkbox_ ||
-      all_lines_checkbox_->isChecked()) {
+  if (!start_line_spinbox_ || !isLineRangeExplicit()) {
     return 0;
   }
   // Spin boxes are 1-based for display; the contract's range is 0-based.
-  return static_cast<uint32_t>(std::max(
-      0,
-      std::min(first_line_spinbox_->value(), last_line_spinbox_->value()) - 1));
+  return static_cast<uint32_t>(
+      std::max(0, std::min(start_line_spinbox_->value(), endLineValue()) - 1));
 }
 
 uint32_t VectorscopeDialog::lastLine() const {
-  if (!last_line_spinbox_ || !all_lines_checkbox_ ||
-      all_lines_checkbox_->isChecked()) {
+  if (!start_line_spinbox_ || !isLineRangeExplicit()) {
     // 0 means "to the last line of the frame".
     return 0;
   }
-  return static_cast<uint32_t>(std::max(
-      0,
-      std::max(first_line_spinbox_->value(), last_line_spinbox_->value()) - 1));
+  return static_cast<uint32_t>(
+      std::max(0, std::max(start_line_spinbox_->value(), endLineValue()) - 1));
 }
 
 void VectorscopeDialog::applyAcquisitionTo(
@@ -712,30 +774,152 @@ void VectorscopeDialog::updateAcquisitionControlState() {
               "decoder output looks like.");
   }
 
-  // The line select applies to both acquisitions; only the window radios and
-  // the burst readouts describe a composite acquisition alone, so only those
-  // are hidden on the decoded plot.
-  if (window_options_) {
-    window_options_->setVisible(composite);
+  // The field view applies to both acquisitions; only the line view and the
+  // burst readouts describe a composite acquisition alone, so only those are
+  // hidden on the decoded plot.
+  if (line_view_group_) {
+    line_view_group_->setVisible(composite);
   }
   if (measurements_group_) {
     measurements_group_->setVisible(composite);
   }
-  if (first_line_spinbox_ && last_line_spinbox_ && all_lines_checkbox_) {
-    const bool explicit_range = !all_lines_checkbox_->isChecked();
-    first_line_spinbox_->setEnabled(explicit_range);
-    last_line_spinbox_->setEnabled(explicit_range);
+
+  const bool explicit_range = isLineRangeExplicit();
+  if (start_line_label_) {
+    start_line_label_->setEnabled(explicit_range);
   }
-  if (active_area_only_checkbox_) {
+  if (start_line_spinbox_) {
+    start_line_spinbox_->setEnabled(explicit_range);
+  }
+  if (end_line_checkbox_) {
+    end_line_checkbox_->setEnabled(explicit_range);
+  }
+  if (end_line_spinbox_) {
+    // Without an end line the selection is the start line alone, so the
+    // second spin box has nothing to say.
+    end_line_spinbox_->setEnabled(explicit_range &&
+                                  end_line_checkbox_->isChecked());
+  }
+
+  if (field_active_radio_) {
     // The restriction is vertical on both, and horizontal only where nothing
     // else governs the horizontal: a composite acquisition already picks its
-    // part of the line with the window radios.
-    active_area_only_checkbox_->setToolTip(
+    // part of the line with the line view.
+    field_active_radio_->setToolTip(
         composite
-            ? "Plot only the active picture lines. Use the sampling window "
-              "above to restrict the acquisition along the line."
+            ? "Plot only the active picture lines. Use the line view above to "
+              "restrict the acquisition along the line."
             : "Plot only the active picture area of the decoded frame.");
   }
+  if (field_selected_radio_) {
+    field_selected_radio_->setToolTip(
+        "Plot the named frame lines in full, whether or not they carry active "
+        "picture. Frame lines are numbered 1..N down the interlaced frame, so "
+        "consecutive numbers alternate fields.");
+  }
+}
+
+int VectorscopeDialog::frameLineCount() const {
+  if (d_->last_data.has_value()) {
+    const int32_t lines = orc::frame_lines_from_system(d_->last_data->system);
+    if (lines > 0) {
+      return static_cast<int>(lines);
+    }
+  }
+  return kMaxSelectableLine;
+}
+
+bool VectorscopeDialog::updateLineSelectionLimits() {
+  if (!start_line_spinbox_ || !end_line_spinbox_) {
+    return false;
+  }
+
+  const int field_select =
+      field_select_group_ ? field_select_group_->checkedId() : 0;
+
+  // Interlaced frame lines alternate fields, so a plot restricted to one
+  // field can only be pointed at every other line: 1-based odd numbers are
+  // first-field lines and even numbers second-field ones.  Offering the rest
+  // would let the user name lines the plot cannot show.
+  int minimum = 1;
+  int step = 1;
+  if (field_select == 1) {
+    minimum = 1;
+    step = 2;
+  } else if (field_select == 2) {
+    minimum = 2;
+    step = 2;
+  }
+
+  int maximum = frameLineCount();
+  maximum = minimum + (((maximum - minimum) / step) * step);
+  if (maximum < minimum) {
+    maximum = minimum;
+  }
+
+  bool moved = false;
+  for (QSpinBox* box : {start_line_spinbox_, end_line_spinbox_}) {
+    const int previous = box->value();
+    const QSignalBlocker blocker(box);
+    box->setRange(minimum, maximum);
+    box->setSingleStep(step);
+    // setRange has already pulled the value inside the bounds; this puts it
+    // on a line the step can reach.
+    box->setValue(minimum + (((box->value() - minimum) / step) * step));
+    if (box->value() != previous) {
+      moved = true;
+    }
+  }
+
+  return moved;
+}
+
+std::optional<orc::VectorscopeData> VectorscopeDialog::narrowToSelectedLines(
+    const orc::VectorscopeData& data) const {
+  if (!isLineRangeExplicit()) {
+    return std::nullopt;
+  }
+
+  const uint32_t first = firstLine();
+  const uint32_t last = lastLine();
+  if (data.first_line >= first && data.last_line <= last) {
+    return std::nullopt;
+  }
+
+  // PreviewCoordinate reads a zero last line as "to the last line of the
+  // frame", so an acquisition asked for frame line 1 on its own comes back
+  // holding the whole frame.  Both acquisitions number a sample's line the
+  // same way, so the selection can be applied here instead.
+  orc::VectorscopeData narrowed = data;
+  narrowed.samples.clear();
+  narrowed.samples.reserve(data.samples.size());
+
+  uint32_t plotted_first = 0;
+  uint32_t plotted_last = 0;
+  uint32_t plotted_lines = 0;
+  bool seen = false;
+  for (const orc::UVSample& sample : data.samples) {
+    if (sample.line_number < first || sample.line_number > last) {
+      continue;
+    }
+    // Samples arrive grouped by line, so a change of line number is a new
+    // line rather than a return to one already counted.
+    if (!seen || narrowed.samples.back().line_number != sample.line_number ||
+        narrowed.samples.back().field_id != sample.field_id) {
+      ++plotted_lines;
+    }
+    plotted_first = seen ? std::min(plotted_first, uint32_t{sample.line_number})
+                         : sample.line_number;
+    plotted_last = seen ? std::max(plotted_last, uint32_t{sample.line_number})
+                        : sample.line_number;
+    seen = true;
+    narrowed.samples.push_back(sample);
+  }
+
+  narrowed.first_line = plotted_first;
+  narrowed.last_line = plotted_last;
+  narrowed.height = plotted_lines;
+  return narrowed;
 }
 
 void VectorscopeDialog::updateMeasurementReadout() {
@@ -784,9 +968,19 @@ void VectorscopeDialog::updateVectorscope(const orc::VectorscopeData& data) {
     return;
   }
 
-  d_->last_data = data;
+  // The acquisition cannot always be narrowed to the selected lines; where it
+  // could not be, the selection is applied here so everything downstream —
+  // the plot, the info label, a re-render on a display option — sees only the
+  // lines the user asked for.
+  std::optional<orc::VectorscopeData> narrowed = narrowToSelectedLines(data);
+  d_->last_data = narrowed.has_value() ? std::move(*narrowed) : data;
   d_->current_field_number = data.field_number;
-  renderVectorscope(data);
+
+  // A frame states its system, which settles how many lines the select may
+  // offer.
+  updateLineSelectionLimits();
+
+  renderVectorscope(*d_->last_data);
   ORC_LOG_DEBUG("Vectorscope updated for field {} ({} samples)",
                 data.field_number, data.samples.size());
 }
@@ -1510,8 +1704,12 @@ void VectorscopeDialog::updateInfoLabel(const orc::VectorscopeData& data,
             .arg(stride_text)
             .arg(field_info));
   } else {
-    const QString sample_area =
-        isActiveAreaOnly() ? "active picture" : "full frame";
+    QString sample_area = "full frame";
+    if (isActiveAreaOnly()) {
+      sample_area = "active picture";
+    } else if (isLineRangeExplicit()) {
+      sample_area = "selected lines";
+    }
 
     // Line numbers are presented 1-based throughout the GUI.
     info_label_->setText(
@@ -1827,6 +2025,16 @@ void VectorscopeDialog::onDefocusToggled() {
 void VectorscopeDialog::onFieldSelectionChanged() {
   ORC_LOG_DEBUG("VectorscopeDialog: Field selection changed -> {}",
                 field_select_group_->checkedId());
+
+  // A single-field plot can only be pointed at that field's lines, so the
+  // line select may have to move.  When it does the acquisition has to be
+  // re-asked; otherwise the samples already in hand are re-filtered.
+  const bool range_moved = updateLineSelectionLimits();
+  if (range_moved && isLineRangeExplicit()) {
+    emit dataRefreshRequested();
+    return;
+  }
+
   // Re-render with new field selection
   if (d_->last_data.has_value()) {
     renderVectorscope(*d_->last_data);
@@ -1860,14 +2068,16 @@ void VectorscopeDialog::onPointSizeChanged() {
   }
 }
 
-void VectorscopeDialog::onActiveAreaOnlyToggled() {
-  ORC_LOG_DEBUG("VectorscopeDialog: Active area only toggled -> {}",
-                isActiveAreaOnly());
+void VectorscopeDialog::onFieldViewChanged() {
+  updateAcquisitionControlState();
+  ORC_LOG_DEBUG(
+      "VectorscopeDialog: Field view changed -> active_only={} explicit={}",
+      isActiveAreaOnly(), isLineRangeExplicit());
   emit dataRefreshRequested();
 }
 
 void VectorscopeDialog::onSampleWindowChanged() {
-  ORC_LOG_DEBUG("VectorscopeDialog: Sample window changed -> {}",
+  ORC_LOG_DEBUG("VectorscopeDialog: Line view changed -> {}",
                 static_cast<int>(sampleWindow()));
   emit dataRefreshRequested();
 }
@@ -1876,7 +2086,9 @@ void VectorscopeDialog::onLineRangeChanged() {
   updateAcquisitionControlState();
   ORC_LOG_DEBUG("VectorscopeDialog: Line range changed -> {}..{}", firstLine(),
                 lastLine());
-  if (acquisitionMode() == orc::VectorscopeAcquisitionMode::CompositeCarrier) {
+  // The range narrows what either acquisition takes off the frame, so both
+  // have to be re-asked for it.
+  if (isLineRangeExplicit()) {
     emit dataRefreshRequested();
   }
 }

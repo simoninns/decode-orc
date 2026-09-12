@@ -18,6 +18,14 @@
 
 namespace orc {
 
+namespace {
+
+// The value that leaves a parameter alone: what the source reports is used
+// instead. It is the only negative value any of these parameters may take.
+constexpr int32_t kInheritFromSource = -1;
+
+}  // namespace
+
 // ============================================================================
 // VideoParamsStage
 // ============================================================================
@@ -164,6 +172,18 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
     default:
       break;
   }
+  // Bound every parameter by the geometry the format actually has, so a value
+  // that could never describe a line or a frame cannot be entered. The active
+  // window's ends are exclusive, so an end may sit one past the last sample or
+  // line while a start may not. An unknown format has no geometry to bound by
+  // yet: allow the widest standard frame rather than a number picked out of
+  // the air, and let the source's own limits apply downstream.
+  const int32_t samples_per_line = samples_per_line_from_system(project_format);
+  const int32_t frame_lines = frame_lines_from_system(project_format);
+  const int32_t max_sample =
+      samples_per_line > 0 ? samples_per_line : kPalMaxSamplesPerLine;
+  const int32_t max_line = frame_lines > 0 ? frame_lines : kPalFrameLines;
+
   return {
       ParameterDescriptor{
           "activeVideoStart", "Active Video Start",
@@ -171,8 +191,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
           "Defaults to the format standard (PAL: 157, NTSC: 126); "
           "-1 = inherit from source.",
           ParameterType::INT32,
-          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                               ParameterValue{static_cast<int32_t>(10000)},
+          ParameterConstraints{ParameterValue{kInheritFromSource},
+                               ParameterValue{max_sample - 1},
                                ParameterValue{av_start_default},
                                {},
                                false,
@@ -183,8 +203,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
           "Defaults to the format standard (PAL: 1105, NTSC: 894); "
           "-1 = inherit from source.",
           ParameterType::INT32,
-          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                               ParameterValue{static_cast<int32_t>(10000)},
+          ParameterConstraints{ParameterValue{kInheritFromSource},
+                               ParameterValue{max_sample},
                                ParameterValue{av_end_default},
                                {},
                                false,
@@ -195,8 +215,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
           "Defaults to the format standard (PAL: 44, NTSC: 40); "
           "-1 = inherit from source.",
           ParameterType::INT32,
-          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                               ParameterValue{static_cast<int32_t>(1200)},
+          ParameterConstraints{ParameterValue{kInheritFromSource},
+                               ParameterValue{max_line - 1},
                                ParameterValue{first_line_default},
                                {},
                                false,
@@ -207,8 +227,8 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
           "Defaults to the format standard (PAL: 620, NTSC: 523); "
           "-1 = inherit from source.",
           ParameterType::INT32,
-          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
-                               ParameterValue{static_cast<int32_t>(1200)},
+          ParameterConstraints{ParameterValue{kInheritFromSource},
+                               ParameterValue{max_line},
                                ParameterValue{last_line_default},
                                {},
                                false,
@@ -219,7 +239,7 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
           "Defaults to the format standard (PAL: 844, NTSC: 800); "
           "-1 = inherit from source.",
           ParameterType::INT32,
-          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
+          ParameterConstraints{ParameterValue{kInheritFromSource},
                                ParameterValue{static_cast<int32_t>(1023)},
                                ParameterValue{white_default},
                                {},
@@ -231,7 +251,7 @@ std::vector<ParameterDescriptor> VideoParamsStage::get_parameter_descriptors(
           "Defaults to the format standard (PAL: 256, NTSC: 282); "
           "-1 = inherit from source.",
           ParameterType::INT32,
-          ParameterConstraints{ParameterValue{static_cast<int32_t>(-1)},
+          ParameterConstraints{ParameterValue{kInheritFromSource},
                                ParameterValue{static_cast<int32_t>(1023)},
                                ParameterValue{black_default},
                                {},
@@ -251,27 +271,66 @@ std::map<std::string, ParameterValue> VideoParamsStage::get_parameters() const {
 
 bool VideoParamsStage::set_parameters(
     const std::map<std::string, ParameterValue>& params) {
+  // Read into locals first and commit only once the whole set is known good:
+  // a caller may name one parameter without restating the rest, so the rules
+  // below apply to the values the stage would end up holding, and a rejected
+  // set must leave it holding what it held before.
+  int32_t active_video_start = active_video_start_;
+  int32_t active_video_end = active_video_end_;
+  int32_t first_active_frame_line = first_active_frame_line_;
+  int32_t last_active_frame_line = last_active_frame_line_;
+  int32_t white_level = white_level_;
+  int32_t black_level = black_level_;
+
   for (const auto& [key, value] : params) {
     const auto* v = std::get_if<int32_t>(&value);
     if (!v) {
       return false;
     }
+    // Every one of these is a sample offset, a line number or a signal level:
+    // none has a meaning below zero, and the one negative value that does mean
+    // something is the inherit sentinel.
+    if (*v < kInheritFromSource) {
+      return false;
+    }
     if (key == "activeVideoStart") {
-      active_video_start_ = *v;
+      active_video_start = *v;
     } else if (key == "activeVideoEnd") {
-      active_video_end_ = *v;
+      active_video_end = *v;
     } else if (key == "firstActiveFrameLine") {
-      first_active_frame_line_ = *v;
+      first_active_frame_line = *v;
     } else if (key == "lastActiveFrameLine") {
-      last_active_frame_line_ = *v;
+      last_active_frame_line = *v;
     } else if (key == "whiteLevel") {
-      white_level_ = *v;
+      white_level = *v;
     } else if (key == "blackLevel") {
-      black_level_ = *v;
+      black_level = *v;
     } else {
       return false;
     }
   }
+
+  // Relations no single parameter can express. A window whose end is at or
+  // before its start describes no picture at all, and a black level at or
+  // above white leaves no contrast to map. Each pair is only judged when both
+  // ends are given: an inherited end is the source's, which is not known here.
+  const auto ordered = [](int32_t lower, int32_t upper) {
+    return lower == kInheritFromSource || upper == kInheritFromSource ||
+           lower < upper;
+  };
+  if (!ordered(active_video_start, active_video_end) ||
+      !ordered(first_active_frame_line, last_active_frame_line) ||
+      !ordered(black_level, white_level)) {
+    return false;
+  }
+
+  active_video_start_ = active_video_start;
+  active_video_end_ = active_video_end;
+  first_active_frame_line_ = first_active_frame_line;
+  last_active_frame_line_ = last_active_frame_line;
+  white_level_ = white_level;
+  black_level_ = black_level;
+
   const bool any_set = active_video_start_ != -1 || active_video_end_ != -1 ||
                        first_active_frame_line_ != -1 ||
                        last_active_frame_line_ != -1 || white_level_ != -1 ||

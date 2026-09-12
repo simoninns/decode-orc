@@ -4,48 +4,51 @@ Overrides any or all of the video parameter hints that flow through the pipeline
 
 ## When to use
 
-Use Video Parameters when your source metadata contains incorrect or non-standard values. Example: a capture made with hardware that used a different black or white level than the standard — set `black_level` and `white_level` here to correct the interpretation before downstream chroma decoding. Alternatively, use the active-line parameters to crop the visible picture area to the true active region when the source metadata describes a non-standard crop.
+Use Video Parameters when your source metadata contains incorrect or non-standard values. Example: a capture made with hardware that used a different black or white level than the standard — set **Black Level** and **White Level** here to correct the interpretation before downstream chroma decoding. Alternatively, use the active-area parameters to re-frame the visible picture when the source metadata describes a non-standard active window.
 
 ## What it does
 
-The stage wraps the incoming field representation and overrides the value returned by `get_video_parameters()`. For each parameter that has been set to a value other than `-1`, the corresponding field in the `SourceParameters` structure is replaced. Parameters that remain at `-1` are copied from the source's existing parameters. The stage also updates the `has_nonstandard_values` flag when black or white level is overridden, and sets `active_area_cropping_applied` when any of the active-area parameters are changed. No pixel data is altered.
+The stage wraps the incoming frame representation and overrides the value returned by `get_video_parameters()`. For each parameter set to a value other than `-1`, the corresponding field in the `SourceParameters` structure is replaced; parameters left at `-1` are copied from the source's existing parameters. No pixel data is altered.
+
+Overriding black or white level sets `has_nonstandard_values` on the output parameters when the resulting level differs from the standard for the video system — setting a level to its spec value does not flag the source as non-standard.
+
+The active-area parameters only relabel the active window; they never set `active_area_cropping_applied`, because the sample buffer is forwarded uncropped and downstream stages must keep indexing it as a full frame. The preview shows the whole frame with the area outside the active window dimmed, so the un-dimmed region is exactly what an export will contain.
 
 ## Parameters
 
 All parameters are `int32`. A value of `-1` means "inherit from source".
 
-### frame_width_nominal
-Override the nominal frame width in samples.
+Defaults are the standard values for the project's video system, so a standard source can be edited from its own geometry rather than from a blank form. The ranges below come from the video system too: a sample offset cannot name a sample the line does not have, and a line number cannot name a line the frame does not have. `Active Video End` and `Last Active Frame Line` are exclusive, so each may sit one past the last sample or line.
 
-### frame_height
-Override the frame height in lines.
+### activeVideoStart — Active Video Start
+First active video sample within the line (0-based). Default: PAL 157, NTSC/PAL-M 126. Range: `-1` to samples-per-line − 1 (PAL 1134, NTSC 909, PAL-M 908).
 
-### sync_tip_level
-Override the sync tip level in the 10-bit sample domain.
+### activeVideoEnd — Active Video End
+One past the last active video sample within the line. Default: PAL 1105, NTSC/PAL-M 894. Range: `-1` to samples-per-line (PAL 1135, NTSC 910, PAL-M 909).
 
-### blanking_level
-Override the blanking level in the 10-bit sample domain.
+### firstActiveFrameLine — First Active Frame Line
+First active line of the frame (0-based, frame-flat). Default: PAL 44, NTSC/PAL-M 40. Range: `-1` to lines-per-frame − 1 (PAL 624, NTSC/PAL-M 524).
 
-### black_level
-Override the black level in the 10-bit sample domain. Sets `has_nonstandard_values = true` on the output parameters.
+### lastActiveFrameLine — Last Active Frame Line
+One past the last active line of the frame (0-based, frame-flat). Default: PAL 620, NTSC/PAL-M 523. Range: `-1` to lines-per-frame (PAL 625, NTSC/PAL-M 525).
 
-### white_level
-Override the white level in the 10-bit sample domain. Sets `has_nonstandard_values = true` on the output parameters.
+### whiteLevel — White Level (10-bit)
+White level (100 IRE) in the CVBS_U10_4FSC domain. Default: PAL 844, NTSC/PAL-M 800. Range: `-1` to 1023.
 
-### peak_level
-Override the peak level in the 10-bit sample domain.
+### blackLevel — Black Level (10-bit)
+Black level in the CVBS_U10_4FSC domain. Default: PAL 256 (no setup pedestal; black = blanking), NTSC/PAL-M 282 (7.5 IRE above blanking). Range: `-1` to 1023.
 
-### active_video_start
-Override the active video start sample index. Sets `active_area_cropping_applied = true`.
+### Values that must agree
 
-### active_video_end
-Override the active video end sample index. Sets `active_area_cropping_applied = true`.
+Three pairs are rejected when they contradict each other, because the resulting parameters would describe no picture:
 
-### first_active_frame_line
-Override the first active frame line number. Sets `active_area_cropping_applied = true`.
+| Must hold | Why |
+|-----------|-----|
+| `activeVideoStart` < `activeVideoEnd` | The active window would be empty or inverted |
+| `firstActiveFrameLine` < `lastActiveFrameLine` | The active picture would contain no lines |
+| `blackLevel` < `whiteLevel` | No contrast range is left to map |
 
-### last_active_frame_line
-Override the last active frame line number. Sets `active_area_cropping_applied = true`.
+A pair with either end left at `-1` is not checked: the inherited end is whatever the source reports, which this stage cannot know until it runs. In the GUI the offending pair is named before the values are applied; on the command line the stage refuses the parameters.
 
 ## Tools
 

@@ -22,7 +22,10 @@
 #include <QLineEdit>
 #include <QPushButton>
 #include <QScrollArea>
+#include <QSlider>
 #include <QSpinBox>
+#include <QStringList>
+#include <QTimer>
 #include <map>
 #include <optional>
 #include <string>
@@ -79,22 +82,69 @@ class StageParameterDialog : public QDialog {
    */
   std::map<std::string, orc::ParameterValue> get_values() const;
 
+  /**
+   * @brief Whether the live-update checkbox is ticked
+   *
+   * Exposed so a caller can ask which mode the dialog is in rather than
+   * inferring it from which signal an apply arrived on.
+   */
+  bool is_live_update_enabled() const;
+
+  /**
+   * @brief Everything wrong with the values currently in the form
+   *
+   * Value-level validation with no user interaction: the indexed frame/line
+   * specs parse, and the pairs that must stay in order do
+   * (orc::gui::crossParameterErrors). validate_values() reports these in a
+   * message box when the user presses Update or OK, and the live-update path
+   * uses them to decide whether the edit in progress is worth applying yet.
+   *
+   * Public so the rules the dialog applies can be read back directly, rather
+   * than only through the modal they would otherwise be seen in.
+   *
+   * @return One line per problem; empty when the form is consistent
+   */
+  QStringList collect_validation_errors() const;
+
  protected:
   void showEvent(QShowEvent* event) override;
 
  signals:
+  // Emitted when the user presses Update: apply the current values and report
+  // any failure to the user.
   void update_requested();
+
+  // Emitted while live update is ticked, once the edits have settled. The
+  // caller applies the values the same way but must not interrupt editing
+  // with modal errors — a half-finished edit is a normal transient state.
+  void live_update_requested();
 
  private slots:
   void on_reset_defaults();
   void on_validate_and_accept();
   void on_validate_and_update();
+  // Runs on every parameter edit: refreshes dependent widgets and, with live
+  // update ticked, restarts the settle timer.
+  void on_parameter_changed();
+  void on_live_update_toggled(bool enabled);
+  void on_live_update_timeout();
 
  private:
   QFormLayout* form_layout_;
   QScrollArea* scroll_area_;
   QDialogButtonBox* button_box_;
   QPushButton* reset_button_;
+  QCheckBox* live_update_check_;
+  QWidget* button_row_;
+
+  // Coalesces a burst of edits (typing into a spin box, holding an arrow key)
+  // into one apply: it restarts on every change and fires once the user
+  // pauses, so a preview render is not started per keystroke.
+  QTimer* live_update_timer_;
+
+  // Values carried by the last live apply, so an edit that lands back on the
+  // values already applied does not re-render.
+  std::optional<std::map<std::string, orc::ParameterValue>> last_live_values_;
 
   std::string stage_name_;  // Stage name for QSettings keys
   QString project_path_;    // Project file path for relative path conversion
@@ -106,8 +156,15 @@ class StageParameterDialog : public QDialog {
   // Widgets for each parameter (indexed by parameter name)
   struct ParameterWidget {
     orc::ParameterType type;
-    QWidget* widget;  // Points to actual widget (QSpinBox, QCheckBox, etc.)
-    QLabel* label;    // Associated label widget (for enabling/disabling)
+    // The field occupying the form row. Usually the editor itself; a bounded
+    // numeric parameter puts the editor in a row beside a slider, and a file
+    // path beside its Browse button, in which case this is that container.
+    // Showing, hiding and enabling act on this.
+    QWidget* widget;
+    // The control holding the value (QSpinBox, QCheckBox, QComboBox, ...).
+    // Reading and writing the value act on this.
+    QWidget* editor;
+    QLabel* label;  // Associated label widget (for enabling/disabling)
   };
   std::map<std::string, ParameterWidget> parameter_widgets_;
 
@@ -130,6 +187,19 @@ class StageParameterDialog : public QDialog {
 
   // Update widget enable/disable state based on dependencies
   void update_dependencies();
+
+  // Puts a bounded numeric editor in a row with a slider covering the same
+  // range, so a value judged by eye can be swept rather than typed; the two
+  // controls track each other and the editor stays the value's home. Returns
+  // the row to place in the form. Unbounded (or absurdly wide) parameters get
+  // no slider and their editor is returned unchanged.
+  QWidget* with_slider(QSpinBox* spin);
+  QWidget* with_slider(QDoubleSpinBox* spin);
+
+  // Guards the two-way link between a slider and its editor: the editor must
+  // still report the change (dependencies, live update), so the reverse leg
+  // is skipped by hand rather than by blocking the editor's signals.
+  bool slider_sync_in_progress_ = false;
 
   void reset_to_defaults();
   bool validate_values();

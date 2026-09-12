@@ -242,6 +242,16 @@ capabilities:
     gui: Edit Parameters...
     gui_evidence: "Edit Parameters..."
 
+  - id: stages.parameters.live_update
+    cli: none
+    cli_group: none
+    gui: Live update
+    gui_evidence: "live_update_check"
+    reason: >-
+      Live update closes the loop between a parameter and the picture it
+      changes, which only exists where there is a preview to watch; a CLI run
+      reads its parameters once and processes with them.
+
   - id: stages.info.yaml
     cli: orc-cli stages info <stage> --yaml
     cli_group: stages

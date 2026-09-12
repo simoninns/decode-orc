@@ -307,23 +307,22 @@ orc::presenters::SourceType toPresenterSourceType(orc::SourceType type) {
   return orc::presenters::SourceType::Unknown;
 }
 
+// What "Reset to Metadata Values" puts in the Video Parameters dialog: the
+// source's own figures, keyed by the names that stage publishes. A key the
+// stage does not have resets to the descriptor default instead of the
+// source's value and says nothing about it, so these must stay in step with
+// VideoParamsStage::get_parameter_descriptors().
 std::map<std::string, orc::ParameterValue>
 sourceParametersToVideoParamsStageValues(const orc::SourceParameters& params) {
-  // Colour burst range and IRE levels derived from system constants.
-  // EBU Tech. 3280-E §1.1 (PAL) / SMPTE 244M-2003 §4.1 (NTSC) /
-  // ITU-R BT.1700-1 Annex 1 Part B (PAL_M).
-  // Colour burst sample range: EBU Tech. 3280-E Table 1 (PAL) /
-  // SMPTE 244M-2003 Table 1 (NTSC/PAL_M).
-  const int32_t cb_start = (params.system == orc::VideoSystem::PAL) ? 98 : 72;
-  const int32_t cb_end = (params.system == orc::VideoSystem::PAL) ? 138 : 108;
-  return {{"colourBurstStart", cb_start},
-          {"colourBurstEnd", cb_end},
-          {"activeVideoStart", params.active_video_start},
+  // Line numbers are frame-flat on both sides, and the level the stage calls
+  // black is the source's black — which sits 7.5 IRE above blanking on NTSC
+  // (SMPTE 170M-2004 Table 1), so blanking is not a stand-in for it.
+  return {{"activeVideoStart", params.active_video_start},
           {"activeVideoEnd", params.active_video_end},
-          {"firstActiveFieldLine", params.first_active_frame_line / 2},
-          {"lastActiveFieldLine", params.last_active_frame_line / 2},
+          {"firstActiveFrameLine", params.first_active_frame_line},
+          {"lastActiveFrameLine", params.last_active_frame_line},
           {"whiteLevel", params.white_level},
-          {"blackLevel", params.blanking_level}};
+          {"blackLevel", params.black_level}};
 }
 
 orc::ParameterValue resolveEffectiveParameterValue(
@@ -3012,7 +3011,12 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id) {
                               param_descriptors, current_values,
                               project_.projectPath(), reset_values, this);
 
-  auto apply_dialog_values = [&]() {
+  // |live| marks an apply the user did not ask for by name: the live-update
+  // checkbox applied the edit as it was made. Those must not interrupt
+  // editing with a modal, and must not take the drastic recovery path below —
+  // a value that the stage rejects mid-adjustment is a transient state the
+  // next edit will move past, not a reason to clear the stage's parameters.
+  auto apply_dialog_values = [&](bool live) {
     auto new_values = dialog.get_values();
 
     try {
@@ -3037,6 +3041,15 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id) {
               .arg(QString::fromStdString(node_id.to_string())),
           3000);
     } catch (const std::exception& e) {
+      if (live) {
+        ORC_LOG_DEBUG("Live parameter update rejected for node {}: {}",
+                      node_id.to_string(), e.what());
+        statusBar()->showMessage(QString("Live update not applied: %1")
+                                     .arg(QString::fromStdString(e.what())),
+                                 3000);
+        return;
+      }
+
       // Parameter validation failed - show error and reset parameters to empty
       QMessageBox::critical(
           this, "Parameter Validation Error",
@@ -3062,10 +3075,12 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id) {
   };
 
   connect(&dialog, &StageParameterDialog::update_requested, this,
-          apply_dialog_values);
+          [&apply_dialog_values]() { apply_dialog_values(false); });
+  connect(&dialog, &StageParameterDialog::live_update_requested, this,
+          [&apply_dialog_values]() { apply_dialog_values(true); });
 
   if (dialog.exec() == QDialog::Accepted) {
-    apply_dialog_values();
+    apply_dialog_values(false);
   }
 }
 

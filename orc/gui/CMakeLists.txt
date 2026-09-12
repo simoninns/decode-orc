@@ -135,6 +135,8 @@ set(ORC_GUI_LIB_SOURCES
     node_navigation_mapper.h
     stageparameterdialog.cpp
     stageparameterdialog.h
+    parameter_value_rules.cpp
+    parameter_value_rules.h
     projectpropertiesdialog.cpp
     projectpropertiesdialog.h
     node_type_helper.cpp

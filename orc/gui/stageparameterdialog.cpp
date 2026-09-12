@@ -18,15 +18,18 @@
 #include <QScreen>
 #include <QScrollBar>
 #include <QSettings>
+#include <QSlider>
 #include <QStringList>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <cmath>
 #include <functional>
 #include <limits>
 #include <set>
 #include <utility>
 
 #include "logging.h"
+#include "parameter_value_rules.h"
 
 namespace {
 
@@ -35,6 +38,31 @@ namespace {
 // happens).
 constexpr int kFallbackScreenWidth = 1024;
 constexpr int kFallbackScreenHeight = 768;
+
+// How long the dialog waits for editing to settle before a live update is
+// applied. Long enough that typing a three-digit value or holding a spin box
+// arrow produces one preview render rather than one per step, short enough
+// that a deliberate adjustment still feels immediate.
+constexpr int kLiveUpdateSettleMs = 400;
+
+// Number of positions a slider offers for a floating-point parameter. The
+// editor beside it still holds the exact value, so this only sets how fine a
+// sweep of the range is; a thousand steps is finer than the slider is wide on
+// any screen.
+constexpr int kDoubleSliderSteps = 1000;
+
+// Widest integer range still worth sweeping. Past this a slider pixel covers
+// so many values that it cannot be aimed, and the parameter is one to type
+// rather than sweep.
+constexpr int64_t kMaxSliderIntegerRange = 100000;
+
+// How much of the range a page step (clicking the groove, Page Up/Down)
+// covers: one twentieth, so the whole range is a score of clicks away.
+constexpr int kSliderPageDivisions = 20;
+
+// Narrowest a slider may be drawn. Below this there is not enough travel for
+// the slider to be worth having.
+constexpr int kSliderMinimumWidth = 140;
 
 // Opening width, in average character widths, for a stage that has a file path
 // or free-form string parameter. Wide enough for a working path to be readable
@@ -93,6 +121,14 @@ StageParameterDialog::StageParameterDialog(
   auto* content = new QWidget();
   auto* content_layout = new QVBoxLayout(content);
   content_layout->setContentsMargins(0, 0, 0, 0);
+  // The gap under the description comes from the label's own bottom margin
+  // rather than from spacing here. A word-wrapped label reports its height
+  // for the width it is given, and with spacing in this layout the box
+  // layout's height-for-width pass ends up reserving that spacing twice —
+  // leaving the form a few pixels short of what its rows asked for, which it
+  // takes out of the rows. The form keeps the spacing the style asks for.
+  const int style_layout_spacing = content_layout->spacing();
+  content_layout->setSpacing(0);
 
   // Stage description label (shown at the top when non-empty)
   if (!stage_description.empty()) {
@@ -100,12 +136,15 @@ StageParameterDialog::StageParameterDialog(
     desc_label->setWordWrap(true);
     desc_label->setStyleSheet(
         "color: palette(window-text); font-style: italic;");
-    desc_label->setContentsMargins(0, 0, 0, 6);
+    // Carries the gap to the form as well as its own, since the layout it
+    // sits in has no spacing of its own (see above).
+    desc_label->setContentsMargins(0, 0, 0, 6 + style_layout_spacing);
     content_layout->addWidget(desc_label);
   }
 
   // Form layout for parameters
   form_layout_ = new QFormLayout();
+  form_layout_->setSpacing(style_layout_spacing);
   content_layout->addLayout(form_layout_);
   content_layout->addStretch();
 
@@ -118,9 +157,6 @@ StageParameterDialog::StageParameterDialog(
   scroll_area_->setSizeAdjustPolicy(QAbstractScrollArea::AdjustToContents);
   scroll_area_->setWidget(content);
   main_layout->addWidget(scroll_area_, 1);
-
-  // Build UI based on descriptors
-  build_ui(current_values);
 
   // Reset button uses metadata values when provided, otherwise descriptor
   // defaults.
@@ -143,12 +179,49 @@ StageParameterDialog::StageParameterDialog(
   connect(update_button, &QPushButton::clicked, this,
           &StageParameterDialog::on_validate_and_update);
 
-  auto* button_layout = new QHBoxLayout();
+  // Live update: apply edits to the preview as they are made, so a value that
+  // is judged by eye (black level, chroma gain) can be found by adjusting and
+  // looking rather than by typing a number and pressing Update. Editing a
+  // file path never starts one — a path is typed a character at a time and
+  // none of the partial states is worth re-opening a source for — though a
+  // path already edited is carried along by the next update, like every other
+  // value in the form.
+  live_update_check_ = new QCheckBox("Live update");
+  live_update_check_->setObjectName("live_update_check");
+  live_update_check_->setToolTip(
+      "Apply parameter changes to the preview as they are made.\n"
+      "Editing a file path does not start one: use Update or OK.");
+  // Off on every open: whether a live apply is affordable depends on the
+  // stage and the source, so the cheap state is the one to start in.
+  connect(live_update_check_, &QCheckBox::toggled, this,
+          &StageParameterDialog::on_live_update_toggled);
+
+  live_update_timer_ = new QTimer(this);
+  live_update_timer_->setSingleShot(true);
+  live_update_timer_->setInterval(kLiveUpdateSettleMs);
+  connect(live_update_timer_, &QTimer::timeout, this,
+          &StageParameterDialog::on_live_update_timeout);
+
+  // Built last: the form's widgets report their edits to this dialog, and
+  // build_ui() disables the reset button for a stage with no parameters, so
+  // the buttons and the live-update timer must already exist.
+  build_ui(current_values);
+
+  // The button row is a widget rather than a bare layout so that the opening
+  // size can ask it how tall it really is (see apply_opening_size()).
+  button_row_ = new QWidget();
+  auto* button_layout = new QHBoxLayout(button_row_);
+  button_layout->setContentsMargins(0, 0, 0, 0);
   button_layout->addWidget(reset_button_);
+  button_layout->addWidget(live_update_check_);
   button_layout->addStretch();
   button_layout->addWidget(button_box_);
 
-  main_layout->addLayout(button_layout);
+  main_layout->addWidget(button_row_);
+
+  // The values the dialog opened with count as already applied: ticking live
+  // update without having changed anything must not re-render the preview.
+  last_live_values_ = get_values();
 }
 
 void StageParameterDialog::showEvent(QShowEvent* event) {
@@ -206,10 +279,11 @@ void StageParameterDialog::apply_opening_size() {
           ? content_layout->totalHeightForWidth(content_width)
           : content_layout->sizeHint().height();
 
-  // The button row sits outside the scroll area and is always fully shown.
+  // The button row sits outside the scroll area and is always fully shown, so
+  // its full height comes off the content's. Asking the row itself keeps this
+  // right whatever it holds.
   const int chrome = margins.top() + margins.bottom() + layout()->spacing() +
-                     std::max(button_box_->sizeHint().height(),
-                              reset_button_->sizeHint().height());
+                     button_row_->sizeHint().height();
 
   int height = content_height + chrome;
   if (height > max_height) {
@@ -225,7 +299,16 @@ void StageParameterDialog::apply_opening_size() {
 void StageParameterDialog::build_ui(
     const std::map<std::string, orc::ParameterValue>& current_values) {
   for (const auto& desc : descriptors_) {
+    // |widget| is the field the form row holds, |editor| the control holding
+    // the value; they differ where the row also carries a slider or a Browse
+    // button.
     QWidget* widget = nullptr;
+    QWidget* editor = nullptr;
+
+    // A numeric parameter the stage has bounded on both sides can be swept
+    // with a slider. One left open has no travel to offer.
+    const bool bounded = desc.constraints.min_value.has_value() &&
+                         desc.constraints.max_value.has_value();
 
     // Get current value or default
     orc::ParameterValue value;
@@ -272,7 +355,8 @@ void StageParameterDialog::build_ui(
         }
         spin->setValue(std::get<int32_t>(value));
 
-        widget = spin;
+        editor = spin;
+        widget = bounded ? with_slider(spin) : spin;
         break;
       }
 
@@ -291,7 +375,8 @@ void StageParameterDialog::build_ui(
           spin->setMaximum(std::numeric_limits<int>::max());
         }
         spin->setValue(static_cast<int>(std::get<uint32_t>(value)));
-        widget = spin;
+        editor = spin;
+        widget = bounded ? with_slider(spin) : spin;
         break;
       }
 
@@ -314,13 +399,15 @@ void StageParameterDialog::build_ui(
           spin->setMaximum(kDefaultDoubleBound);
         }
         spin->setValue(std::get<double>(value));
-        widget = spin;
+        editor = spin;
+        widget = bounded ? with_slider(spin) : spin;
         break;
       }
 
       case orc::ParameterType::BOOL: {
         auto* check = new QCheckBox();
         check->setChecked(std::get<bool>(value));
+        editor = check;
         widget = check;
         break;
       }
@@ -337,6 +424,7 @@ void StageParameterDialog::build_ui(
           }
           select_combo_value(
               combo, QString::fromStdString(std::get<std::string>(value)));
+          editor = combo;
           widget = combo;
         } else {
           // Use line edit for free-form strings. Indexed spec parameters are
@@ -349,6 +437,7 @@ void StageParameterDialog::build_ui(
               orc::IndexedSpecKind::kNone) {
             spec_display_baseline_[desc.name] = display_text;
           }
+          editor = edit;
           widget = edit;
         }
         break;
@@ -645,6 +734,7 @@ void StageParameterDialog::build_ui(
         layout->addWidget(edit, 1);  // Line edit takes most space
         layout->addWidget(browse_btn);
 
+        editor = container;
         widget = container;
         break;
       }
@@ -657,37 +747,40 @@ void StageParameterDialog::build_ui(
       widget->setToolTip(QString::fromStdString(desc.description));
 
       form_layout_->addRow(label, widget);
-      parameter_widgets_[desc.name] = ParameterWidget{desc.type, widget, label};
+      parameter_widgets_[desc.name] =
+          ParameterWidget{desc.type, widget, editor, label};
 
-      // Connect change signals to update dependencies
+      // Connect change signals: dependent widgets are refreshed, and a live
+      // update is scheduled when the user has asked for one. FILE_PATH is
+      // absent by design (see the live update checkbox).
       switch (desc.type) {
         case orc::ParameterType::STRING:
-          if (auto* combo = qobject_cast<QComboBox*>(widget)) {
+          if (auto* combo = qobject_cast<QComboBox*>(editor)) {
             connect(combo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-                    this, &StageParameterDialog::update_dependencies);
-          } else if (auto* edit = qobject_cast<QLineEdit*>(widget)) {
+                    this, &StageParameterDialog::on_parameter_changed);
+          } else if (auto* edit = qobject_cast<QLineEdit*>(editor)) {
             connect(edit, &QLineEdit::textChanged, this,
-                    &StageParameterDialog::update_dependencies);
+                    &StageParameterDialog::on_parameter_changed);
           }
           break;
         case orc::ParameterType::INT32:
         case orc::ParameterType::UINT32:
-          connect(static_cast<QSpinBox*>(widget),
+          connect(static_cast<QSpinBox*>(editor),
                   QOverload<int>::of(&QSpinBox::valueChanged), this,
-                  &StageParameterDialog::update_dependencies);
+                  &StageParameterDialog::on_parameter_changed);
           break;
         case orc::ParameterType::DOUBLE:
-          connect(static_cast<QDoubleSpinBox*>(widget),
+          connect(static_cast<QDoubleSpinBox*>(editor),
                   QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
-                  &StageParameterDialog::update_dependencies);
+                  &StageParameterDialog::on_parameter_changed);
           break;
         case orc::ParameterType::BOOL:
           // Use stateChanged (Qt 6.0+) for compatibility with older Qt versions
           // checkStateChanged is only available in Qt 6.7+
           QT_WARNING_PUSH
           QT_WARNING_DISABLE_DEPRECATED
-          connect(static_cast<QCheckBox*>(widget), &QCheckBox::stateChanged,
-                  this, &StageParameterDialog::update_dependencies);
+          connect(static_cast<QCheckBox*>(editor), &QCheckBox::stateChanged,
+                  this, &StageParameterDialog::on_parameter_changed);
           QT_WARNING_POP
           break;
         default:
@@ -707,6 +800,88 @@ void StageParameterDialog::build_ui(
   }
 }
 
+QWidget* StageParameterDialog::with_slider(QSpinBox* spin) {
+  const int64_t range = static_cast<int64_t>(spin->maximum()) - spin->minimum();
+  if (range <= 0 || range > kMaxSliderIntegerRange) {
+    return spin;
+  }
+
+  auto* container = new QWidget();
+  auto* layout = new QHBoxLayout(container);
+  layout->setContentsMargins(0, 0, 0, 0);
+
+  auto* slider = new QSlider(Qt::Horizontal);
+  slider->setObjectName("parameter_slider");
+  slider->setRange(spin->minimum(), spin->maximum());
+  slider->setValue(spin->value());
+  slider->setSingleStep(spin->singleStep());
+  slider->setPageStep(
+      std::max<int>(1, static_cast<int>(range / kSliderPageDivisions)));
+  slider->setMinimumWidth(kSliderMinimumWidth);
+
+  connect(slider, &QSlider::valueChanged, this, [this, spin](int value) {
+    slider_sync_in_progress_ = true;
+    spin->setValue(value);
+    slider_sync_in_progress_ = false;
+  });
+  connect(spin, QOverload<int>::of(&QSpinBox::valueChanged), this,
+          [this, slider](int value) {
+            if (slider_sync_in_progress_) return;
+            const QSignalBlocker blocker(slider);
+            slider->setValue(value);
+          });
+
+  layout->addWidget(slider, 1);
+  layout->addWidget(spin);
+  return container;
+}
+
+QWidget* StageParameterDialog::with_slider(QDoubleSpinBox* spin) {
+  const double span = spin->maximum() - spin->minimum();
+  if (span <= 0.0) {
+    return spin;
+  }
+
+  auto* container = new QWidget();
+  auto* layout = new QHBoxLayout(container);
+  layout->setContentsMargins(0, 0, 0, 0);
+
+  // The slider counts steps across the range rather than carrying the value:
+  // QSlider is integer-only, and the editor beside it keeps the exact figure.
+  const double minimum = spin->minimum();
+  auto position_of = [minimum, span](double value) {
+    const double fraction = (value - minimum) / span;
+    return static_cast<int>(std::lround(fraction * kDoubleSliderSteps));
+  };
+  auto value_at = [minimum, span](int position) {
+    return minimum + span * position / kDoubleSliderSteps;
+  };
+
+  auto* slider = new QSlider(Qt::Horizontal);
+  slider->setObjectName("parameter_slider");
+  slider->setRange(0, kDoubleSliderSteps);
+  slider->setValue(position_of(spin->value()));
+  slider->setPageStep(kDoubleSliderSteps / kSliderPageDivisions);
+  slider->setMinimumWidth(kSliderMinimumWidth);
+
+  connect(slider, &QSlider::valueChanged, this,
+          [this, spin, value_at](int position) {
+            slider_sync_in_progress_ = true;
+            spin->setValue(value_at(position));
+            slider_sync_in_progress_ = false;
+          });
+  connect(spin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+          [this, slider, position_of](double value) {
+            if (slider_sync_in_progress_) return;
+            const QSignalBlocker blocker(slider);
+            slider->setValue(position_of(value));
+          });
+
+  layout->addWidget(slider, 1);
+  layout->addWidget(spin);
+  return container;
+}
+
 void StageParameterDialog::set_widget_value(const std::string& param_name,
                                             const orc::ParameterValue& value) {
   auto it = parameter_widgets_.find(param_name);
@@ -716,24 +891,24 @@ void StageParameterDialog::set_widget_value(const std::string& param_name,
 
   switch (pw.type) {
     case orc::ParameterType::INT32:
-      static_cast<QSpinBox*>(pw.widget)->setValue(std::get<int32_t>(value));
+      static_cast<QSpinBox*>(pw.editor)->setValue(std::get<int32_t>(value));
       break;
     case orc::ParameterType::UINT32:
-      static_cast<QSpinBox*>(pw.widget)->setValue(
+      static_cast<QSpinBox*>(pw.editor)->setValue(
           static_cast<int>(std::get<uint32_t>(value)));
       break;
     case orc::ParameterType::DOUBLE:
-      static_cast<QDoubleSpinBox*>(pw.widget)->setValue(
+      static_cast<QDoubleSpinBox*>(pw.editor)->setValue(
           std::get<double>(value));
       break;
     case orc::ParameterType::BOOL:
-      static_cast<QCheckBox*>(pw.widget)->setChecked(std::get<bool>(value));
+      static_cast<QCheckBox*>(pw.editor)->setChecked(std::get<bool>(value));
       break;
     case orc::ParameterType::STRING:
-      if (auto* combo = qobject_cast<QComboBox*>(pw.widget)) {
+      if (auto* combo = qobject_cast<QComboBox*>(pw.editor)) {
         select_combo_value(
             combo, QString::fromStdString(std::get<std::string>(value)));
-      } else if (auto* edit = qobject_cast<QLineEdit*>(pw.widget)) {
+      } else if (auto* edit = qobject_cast<QLineEdit*>(pw.editor)) {
         const std::string display_text =
             to_display_spec(param_name, std::get<std::string>(value));
         edit->setText(QString::fromStdString(display_text));
@@ -744,8 +919,8 @@ void StageParameterDialog::set_widget_value(const std::string& param_name,
       }
       break;
     case orc::ParameterType::FILE_PATH: {
-      // For FILE_PATH, the widget is a container with a QLineEdit inside
-      auto* edit = pw.widget->findChild<QLineEdit*>("file_path_edit");
+      // For FILE_PATH, the editor is a container with a QLineEdit inside
+      auto* edit = pw.editor->findChild<QLineEdit*>("file_path_edit");
       if (edit) {
         edit->setText(QString::fromStdString(std::get<std::string>(value)));
       }
@@ -765,25 +940,25 @@ orc::ParameterValue StageParameterDialog::get_widget_value(
 
   switch (pw.type) {
     case orc::ParameterType::INT32:
-      return static_cast<int32_t>(static_cast<QSpinBox*>(pw.widget)->value());
+      return static_cast<int32_t>(static_cast<QSpinBox*>(pw.editor)->value());
     case orc::ParameterType::UINT32:
-      return static_cast<uint32_t>(static_cast<QSpinBox*>(pw.widget)->value());
+      return static_cast<uint32_t>(static_cast<QSpinBox*>(pw.editor)->value());
     case orc::ParameterType::DOUBLE:
-      return static_cast<QDoubleSpinBox*>(pw.widget)->value();
+      return static_cast<QDoubleSpinBox*>(pw.editor)->value();
     case orc::ParameterType::BOOL:
-      return static_cast<QCheckBox*>(pw.widget)->isChecked();
+      return static_cast<QCheckBox*>(pw.editor)->isChecked();
     case orc::ParameterType::STRING:
-      if (auto* combo = qobject_cast<QComboBox*>(pw.widget)) {
+      if (auto* combo = qobject_cast<QComboBox*>(pw.editor)) {
         const QVariant data = combo->currentData();
         return data.isValid() ? data.toString().toStdString()
                               : combo->currentText().toStdString();
-      } else if (auto* edit = qobject_cast<QLineEdit*>(pw.widget)) {
+      } else if (auto* edit = qobject_cast<QLineEdit*>(pw.editor)) {
         return from_display_spec(param_name, edit->text().toStdString());
       }
       break;
     case orc::ParameterType::FILE_PATH: {
-      // For FILE_PATH, the widget is a container with a QLineEdit inside
-      auto* edit = pw.widget->findChild<QLineEdit*>("file_path_edit");
+      // For FILE_PATH, the editor is a container with a QLineEdit inside
+      auto* edit = pw.editor->findChild<QLineEdit*>("file_path_edit");
       if (edit) {
         return edit->text().toStdString();
       }
@@ -882,39 +1057,17 @@ bool StageParameterDialog::validate_values() {
     }
   }
 
-  // Cross-parameter constraints for video parameter overrides.
-  auto get_int_param =
-      [this](const std::string& param_name) -> std::optional<int32_t> {
-    auto it = parameter_widgets_.find(param_name);
-    if (it == parameter_widgets_.end()) {
-      return std::nullopt;
-    }
+  const QStringList validation_errors = collect_validation_errors();
+  if (!validation_errors.isEmpty()) {
+    QMessageBox::warning(this, "Invalid Parameters",
+                         validation_errors.join("\n"));
+    return false;
+  }
 
-    const auto value = get_widget_value(param_name);
-    if (const auto* int_value = std::get_if<int32_t>(&value)) {
-      return *int_value;
-    }
-    if (const auto* uint_value = std::get_if<uint32_t>(&value)) {
-      return static_cast<int32_t>(*uint_value);
-    }
+  return true;
+}
 
-    return std::nullopt;
-  };
-
-  auto require_less_than_if_set =
-      [](const std::optional<int32_t>& lhs,
-         const std::optional<int32_t>& rhs) -> bool {
-    if (!lhs.has_value() || !rhs.has_value()) {
-      return true;
-    }
-    // Value -1 means "use source value" for video params and should not fail
-    // validation.
-    if (lhs.value() < 0 || rhs.value() < 0) {
-      return true;
-    }
-    return lhs.value() < rhs.value();
-  };
-
+QStringList StageParameterDialog::collect_validation_errors() const {
   QStringList validation_errors;
 
   // Indexed spec parameters (frame/line ranges) are entered 1-based in the
@@ -952,63 +1105,72 @@ bool StageParameterDialog::validate_values() {
     }
   }
 
-  const auto colour_burst_start = get_int_param("colourBurstStart");
-  const auto colour_burst_end = get_int_param("colourBurstEnd");
-  const auto active_video_start = get_int_param("activeVideoStart");
-  const auto active_video_end = get_int_param("activeVideoEnd");
-  const auto first_active_field_line = get_int_param("firstActiveFieldLine");
-  const auto last_active_field_line = get_int_param("lastActiveFieldLine");
-  const auto black_ire = get_int_param("blackLevel");
-  const auto white_ire = get_int_param("whiteLevel");
-
-  if (!require_less_than_if_set(colour_burst_start, colour_burst_end)) {
-    validation_errors
-        << "Colour Burst Start must be less than Colour Burst End.";
+  // Relations between parameters, which no single descriptor can state.
+  for (const auto& error : orc::gui::crossParameterErrors(get_values())) {
+    validation_errors << QString::fromStdString(error);
   }
 
-  if (!require_less_than_if_set(active_video_start, active_video_end)) {
-    validation_errors
-        << "Active Video Start must be less than Active Video End.";
-  }
-
-  if (!require_less_than_if_set(colour_burst_start, active_video_start)) {
-    validation_errors
-        << "Colour Burst Start must be before Active Video Start.";
-  }
-
-  if (!require_less_than_if_set(colour_burst_end, active_video_start)) {
-    validation_errors << "Colour Burst End must be before Active Video Start.";
-  }
-
-  if (!require_less_than_if_set(first_active_field_line,
-                                last_active_field_line)) {
-    validation_errors
-        << "First Active Field Line must be less than Last Active Field Line.";
-  }
-
-  if (!require_less_than_if_set(black_ire, white_ire)) {
-    validation_errors << "Black IRE must be less than White IRE.";
-  }
-
-  if (!validation_errors.isEmpty()) {
-    QMessageBox::warning(this, "Invalid Parameters",
-                         validation_errors.join("\n"));
-    return false;
-  }
-
-  return true;
+  return validation_errors;
 }
 
 void StageParameterDialog::on_validate_and_accept() {
+  live_update_timer_->stop();
   if (validate_values()) {
     accept();
   }
 }
 
 void StageParameterDialog::on_validate_and_update() {
+  live_update_timer_->stop();
   if (validate_values()) {
+    last_live_values_ = get_values();
     emit update_requested();
   }
+}
+
+bool StageParameterDialog::is_live_update_enabled() const {
+  return live_update_check_ != nullptr && live_update_check_->isChecked();
+}
+
+void StageParameterDialog::on_parameter_changed() {
+  update_dependencies();
+
+  if (is_live_update_enabled()) {
+    // Restart rather than let a pending shot through: a burst of edits is one
+    // adjustment, and only the value it settles on is worth rendering.
+    live_update_timer_->start();
+  }
+}
+
+void StageParameterDialog::on_live_update_toggled(bool enabled) {
+  if (enabled) {
+    // Ticking the box mid-edit shows the effect of what is already entered,
+    // rather than waiting for the next keystroke to bring the preview level.
+    live_update_timer_->start();
+  } else {
+    live_update_timer_->stop();
+  }
+}
+
+void StageParameterDialog::on_live_update_timeout() {
+  if (!is_live_update_enabled()) {
+    return;
+  }
+
+  // A half-finished edit is a normal transient state here, so an invalid set
+  // of values is simply not applied — no message box interrupts the user, and
+  // the next edit gets its own chance.
+  if (!collect_validation_errors().isEmpty()) {
+    return;
+  }
+
+  auto values = get_values();
+  if (last_live_values_.has_value() && *last_live_values_ == values) {
+    return;  // Edited back to what is already applied; nothing to re-render.
+  }
+
+  last_live_values_ = std::move(values);
+  emit live_update_requested();
 }
 
 void StageParameterDialog::update_dependencies() {

@@ -87,11 +87,15 @@ class VectorscopeDialog : public QDialog {
   /// Portion of each line a composite acquisition samples.
   orc::VectorscopeSampleWindow sampleWindow() const;
 
-  /// Inclusive frame-flat line range for a composite acquisition, 0-based.
-  /// Returns {0, 0} when the whole frame is selected — 0 as the last line
-  /// means "to the last line of the frame" in PreviewCoordinate.
+  /// Inclusive interlaced frame-line range, 0-based.  Returns {0, 0} when the
+  /// whole frame is selected — 0 as the last line means "to the last line of
+  /// the frame" in PreviewCoordinate.
   uint32_t firstLine() const;
   uint32_t lastLine() const;
+
+  /// True while the field view names an explicit line range rather than the
+  /// whole field or its active picture.
+  bool isLineRangeExplicit() const;
 
   /// Copy the acquisition controls into a preview coordinate.
   void applyAcquisitionTo(orc::PreviewCoordinate& coordinate) const;
@@ -127,7 +131,7 @@ class VectorscopeDialog : public QDialog {
   void onGraticuleChanged();
   void onDrawLinesToggled();
   void onPointSizeChanged();
-  void onActiveAreaOnlyToggled();
+  void onFieldViewChanged();
   void onSampleWindowChanged();
   void onLineRangeChanged();
 
@@ -154,6 +158,24 @@ class VectorscopeDialog : public QDialog {
   void updateAcquisitionControlState();
   void updateMeasurementReadout();
 
+  /// Lines in a frame of the system last plotted, or the largest supported
+  /// frame while no data has arrived.
+  int frameLineCount() const;
+
+  /// Re-state the bounds, step and parity the line spin boxes may hold for
+  /// the current system and field selection.  Returns true when a value had
+  /// to move to satisfy them.
+  bool updateLineSelectionLimits();
+
+  /// Last line of the selection, 1-based: the end spin box when it is in use
+  /// and the start line itself when it is not.
+  int endLineValue() const;
+
+  /// Drop samples outside the selected line range when the acquisition could
+  /// not be narrowed to it.  Returns nothing when it already was.
+  std::optional<orc::VectorscopeData> narrowToSelectedLines(
+      const orc::VectorscopeData& data) const;
+
   // Pimpl - hides core types from header
   std::unique_ptr<VectorscopeDialogPrivate> d_;
 
@@ -179,18 +201,27 @@ class VectorscopeDialog : public QDialog {
       orc::VectorscopeAcquisitionMode::DecodedComponent};
   QLabel* acquisition_label_;
 
-  // Sampling options.  The line select applies to both acquisitions;
-  // window_options_ holds the radios that only a composite one can act on.
-  QGroupBox* sampling_group_;
-  QWidget* window_options_;
-  QRadioButton* window_burst_radio_;
-  QRadioButton* window_active_radio_;
-  QRadioButton* window_whole_radio_;
-  QButtonGroup* window_group_;
-  QCheckBox* active_area_only_checkbox_;
-  QCheckBox* all_lines_checkbox_;
-  QSpinBox* first_line_spinbox_;
-  QSpinBox* last_line_spinbox_;
+  // Sampling options, in two mutually exclusive groups.  The line view picks
+  // a region along the line and only a composite acquisition has one — the
+  // decoded planes carry active picture, with no sync, porch or burst to
+  // choose between.  The field view picks the lines down the frame and
+  // applies to both acquisitions, in the interlaced frame-line numbering both
+  // of them report.
+  QGroupBox* line_view_group_;
+  QRadioButton* line_active_radio_;
+  QRadioButton* line_whole_radio_;
+  QRadioButton* line_burst_radio_;
+  QButtonGroup* line_view_buttons_;
+
+  QGroupBox* field_view_group_;
+  QRadioButton* field_active_radio_;
+  QRadioButton* field_whole_radio_;
+  QRadioButton* field_selected_radio_;
+  QButtonGroup* field_view_buttons_;
+  QLabel* start_line_label_;
+  QSpinBox* start_line_spinbox_;
+  QCheckBox* end_line_checkbox_;
+  QSpinBox* end_line_spinbox_;
 
   // Measurement readouts (composite acquisition only)
   QGroupBox* measurements_group_;

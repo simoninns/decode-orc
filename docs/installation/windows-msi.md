@@ -1,5 +1,22 @@
 # Windows MSI Installation
 
+## Prerequisite: Microsoft Visual C++ Redistributable
+
+Decode-Orc for Windows is built with MSVC and links against the Microsoft Visual C++ runtime
+(`MSVCP140.dll`, `VCRUNTIME140.dll` and `VCRUNTIME140_1.dll`). The MSI does **not** bundle
+the runtime, so it must be installed separately.
+
+Most Windows systems already have it, because it is installed alongside many other
+applications. A fresh Windows installation with few other programs on it usually does not.
+
+1. Download the **latest supported X64 Visual C++ Redistributable** from Microsoft:
+   [Microsoft Visual C++ Redistributable latest supported downloads](https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist)
+2. Run the downloaded `vc_redist.x64.exe` and follow the prompts.
+3. Reboot if the installer asks you to.
+
+Install the redistributable before installing Decode-Orc; if you have already installed
+Decode-Orc there is no need to reinstall it afterwards.
+
 ## Download the latest release
 
 1. Open the GitHub releases page: [Decode-Orc Releases](https://github.com/decode-orc/decode-orc/releases)
@@ -78,6 +95,22 @@ You can then run:
 ```cmd
 orc-cli --help
 ```
+
+## Troubleshooting
+
+### "MSVCP140.dll was not found"
+
+If launching `orc-gui.exe` produces one or more system errors of the form:
+
+```text
+The code execution cannot proceed because MSVCP140.dll was not found.
+Reinstalling the program may fix this problem.
+```
+
+(or the same message naming `VCRUNTIME140.dll` or `VCRUNTIME140_1.dll`), the Microsoft
+Visual C++ Redistributable is missing. Install it as described in
+[Prerequisite: Microsoft Visual C++ Redistributable](#prerequisite-microsoft-visual-c-redistributable),
+then launch Decode-Orc again. Reinstalling Decode-Orc itself will not fix it.
 
 ## Uninstalling
 

@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <array>
+#include <utility>
 
 #include "../../mocks/mock_video_frame_representation.h"
 
@@ -101,6 +102,120 @@ TEST(VideoParamsStageTest, Descriptor_AllDefaultsMatchFormatMetadata) {
             orc::kNtscLastActiveFrameLine);
   EXPECT_EQ(default_of(ntsc, "whiteLevel"), orc::kNtscWhite);
   EXPECT_EQ(default_of(ntsc, "blackLevel"), orc::kNtscBlack);
+}
+
+TEST(VideoParamsStageTest, Descriptor_RangesMatchTheFormatGeometry) {
+  orc::VideoParamsStage stage;
+  auto range_of = [](const std::vector<orc::ParameterDescriptor>& d,
+                     const char* name) {
+    const auto* desc = find_descriptor(d, name);
+    return std::pair<int32_t, int32_t>{
+        std::get<int32_t>(*desc->constraints.min_value),
+        std::get<int32_t>(*desc->constraints.max_value)};
+  };
+
+  // A sample offset cannot name a sample the line does not have, and a line
+  // number cannot name a line the frame does not have. The window's ends are
+  // exclusive, so an end may sit one past the last sample or line.
+  const auto pal = stage.get_parameter_descriptors(orc::VideoSystem::PAL,
+                                                   orc::SourceType::Composite);
+  EXPECT_EQ(
+      range_of(pal, "activeVideoStart"),
+      (std::pair<int32_t, int32_t>{-1, orc::kPalSamplesPerLineNominal - 1}));
+  EXPECT_EQ(range_of(pal, "activeVideoEnd"),
+            (std::pair<int32_t, int32_t>{-1, orc::kPalSamplesPerLineNominal}));
+  EXPECT_EQ(range_of(pal, "firstActiveFrameLine"),
+            (std::pair<int32_t, int32_t>{-1, orc::kPalFrameLines - 1}));
+  EXPECT_EQ(range_of(pal, "lastActiveFrameLine"),
+            (std::pair<int32_t, int32_t>{-1, orc::kPalFrameLines}));
+
+  const auto ntsc = stage.get_parameter_descriptors(orc::VideoSystem::NTSC,
+                                                    orc::SourceType::Composite);
+  EXPECT_EQ(range_of(ntsc, "activeVideoStart"),
+            (std::pair<int32_t, int32_t>{-1, orc::kNtscSamplesPerLine - 1}));
+  EXPECT_EQ(range_of(ntsc, "activeVideoEnd"),
+            (std::pair<int32_t, int32_t>{-1, orc::kNtscSamplesPerLine}));
+  EXPECT_EQ(range_of(ntsc, "firstActiveFrameLine"),
+            (std::pair<int32_t, int32_t>{-1, orc::kNtscFrameLines - 1}));
+  EXPECT_EQ(range_of(ntsc, "lastActiveFrameLine"),
+            (std::pair<int32_t, int32_t>{-1, orc::kNtscFrameLines}));
+
+  // The levels are 10-bit samples whatever the format.
+  EXPECT_EQ(range_of(pal, "whiteLevel"),
+            (std::pair<int32_t, int32_t>{-1, 1023}));
+  EXPECT_EQ(range_of(pal, "blackLevel"),
+            (std::pair<int32_t, int32_t>{-1, 1023}));
+}
+
+TEST(VideoParamsStageTest,
+     Descriptor_RangesFallBackToTheWidestStandardFrame_WhenFormatIsUnknown) {
+  orc::VideoParamsStage stage;
+  const auto unknown = stage.get_parameter_descriptors(
+      orc::VideoSystem::Unknown, orc::SourceType::Composite);
+  EXPECT_EQ(
+      std::get<int32_t>(
+          *find_descriptor(unknown, "activeVideoEnd")->constraints.max_value),
+      orc::kPalMaxSamplesPerLine);
+  EXPECT_EQ(std::get<int32_t>(*find_descriptor(unknown, "lastActiveFrameLine")
+                                   ->constraints.max_value),
+            orc::kPalFrameLines);
+}
+
+TEST(VideoParamsStageTest,
+     SetParameters_RejectsAnActiveWindowThatEndsBeforeItStarts) {
+  orc::VideoParamsStage stage;
+  EXPECT_FALSE(stage.set_parameters(
+      {{"activeVideoStart", int32_t(1105)}, {"activeVideoEnd", int32_t(157)}}));
+  // An empty window is no more usable than an inverted one.
+  EXPECT_FALSE(stage.set_parameters(
+      {{"activeVideoStart", int32_t(157)}, {"activeVideoEnd", int32_t(157)}}));
+}
+
+TEST(VideoParamsStageTest, SetParameters_RejectsActiveLinesInTheWrongOrder) {
+  orc::VideoParamsStage stage;
+  EXPECT_FALSE(stage.set_parameters({{"firstActiveFrameLine", int32_t(620)},
+                                     {"lastActiveFrameLine", int32_t(44)}}));
+}
+
+TEST(VideoParamsStageTest, SetParameters_RejectsBlackAtOrAboveWhite) {
+  orc::VideoParamsStage stage;
+  EXPECT_FALSE(stage.set_parameters(
+      {{"blackLevel", int32_t(844)}, {"whiteLevel", int32_t(256)}}));
+}
+
+TEST(VideoParamsStageTest, SetParameters_RejectsAPairCompletedByAnEarlierCall) {
+  // The rules apply to what the stage would end up holding, not only to what
+  // one call names: a front end may set one end at a time.
+  orc::VideoParamsStage stage;
+  ASSERT_TRUE(stage.set_parameters({{"activeVideoEnd", int32_t(157)}}));
+  EXPECT_FALSE(stage.set_parameters({{"activeVideoStart", int32_t(1105)}}));
+}
+
+TEST(VideoParamsStageTest, SetParameters_AcceptsAPairWithOneEndInherited) {
+  // -1 leaves that end to the source, whose value is not known here, so the
+  // pair cannot be judged and must not be refused.
+  orc::VideoParamsStage stage;
+  EXPECT_TRUE(stage.set_parameters(
+      {{"activeVideoStart", int32_t(1105)}, {"activeVideoEnd", int32_t(-1)}}));
+}
+
+TEST(VideoParamsStageTest, SetParameters_RejectsANegativeThatIsNotTheSentinel) {
+  orc::VideoParamsStage stage;
+  EXPECT_FALSE(stage.set_parameters({{"activeVideoStart", int32_t(-2)}}));
+  EXPECT_FALSE(stage.set_parameters({{"blackLevel", int32_t(-100)}}));
+}
+
+TEST(VideoParamsStageTest, SetParameters_KeepsThePreviousValues_WhenRejected) {
+  orc::VideoParamsStage stage;
+  ASSERT_TRUE(stage.set_parameters(
+      {{"activeVideoStart", int32_t(157)}, {"activeVideoEnd", int32_t(1105)}}));
+
+  EXPECT_FALSE(stage.set_parameters(
+      {{"activeVideoStart", int32_t(1200)}, {"activeVideoEnd", int32_t(157)}}));
+
+  const auto params = stage.get_parameters();
+  EXPECT_EQ(std::get<int32_t>(params.at("activeVideoStart")), 157);
+  EXPECT_EQ(std::get<int32_t>(params.at("activeVideoEnd")), 1105);
 }
 
 TEST(VideoParamsStageTest, Process_SpecLevelsDoNotFlagNonstandard) {

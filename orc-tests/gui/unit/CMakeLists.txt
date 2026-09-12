@@ -110,6 +110,8 @@ orc_add_gui_unit_tests(
             node_type_helper_port_test.cpp
             observation_status_formatter_test.cpp
             overlay_primitive_builder_test.cpp
+            parameter_value_rules_test.cpp
+            stage_parameter_context_test.cpp
             plot_series_decimation_test.cpp
             preview_audio_chase_test.cpp
             project_load_status_formatter_test.cpp
@@ -170,6 +172,7 @@ orc_add_gui_unit_tests(
         histogram_dialog_test.cpp
         vectorscope_dialog_test.cpp
         waveform_monitor_widget_test.cpp
+        waveform_monitor_dialog_test.cpp
 )
 
 # GPU render surface: the only target that opts into the GPU path. Every test

@@ -307,25 +307,6 @@ orc::presenters::SourceType toPresenterSourceType(orc::SourceType type) {
   return orc::presenters::SourceType::Unknown;
 }
 
-std::map<std::string, orc::ParameterValue>
-sourceParametersToVideoParamsStageValues(const orc::SourceParameters& params) {
-  // Colour burst range and IRE levels derived from system constants.
-  // EBU Tech. 3280-E §1.1 (PAL) / SMPTE 244M-2003 §4.1 (NTSC) /
-  // ITU-R BT.1700-1 Annex 1 Part B (PAL_M).
-  // Colour burst sample range: EBU Tech. 3280-E Table 1 (PAL) /
-  // SMPTE 244M-2003 Table 1 (NTSC/PAL_M).
-  const int32_t cb_start = (params.system == orc::VideoSystem::PAL) ? 98 : 72;
-  const int32_t cb_end = (params.system == orc::VideoSystem::PAL) ? 138 : 108;
-  return {{"colourBurstStart", cb_start},
-          {"colourBurstEnd", cb_end},
-          {"activeVideoStart", params.active_video_start},
-          {"activeVideoEnd", params.active_video_end},
-          {"firstActiveFieldLine", params.first_active_frame_line / 2},
-          {"lastActiveFieldLine", params.last_active_frame_line / 2},
-          {"whiteLevel", params.white_level},
-          {"blackLevel", params.blanking_level}};
-}
-
 orc::ParameterValue resolveEffectiveParameterValue(
     const orc::ParameterDescriptor& desc,
     const std::map<std::string, orc::ParameterValue>& values) {
@@ -414,24 +395,6 @@ std::map<std::string, orc::ParameterValue> mergeParameterValues(
   return merged;
 }
 
-bool isUnsetVideoParamsStageValue(const orc::ParameterValue& value) {
-  if (const auto* int_value = std::get_if<int32_t>(&value)) {
-    return *int_value == -1;
-  }
-  return false;
-}
-
-void applyMetadataFallbackValues(
-    std::map<std::string, orc::ParameterValue>& current_values,
-    const std::map<std::string, orc::ParameterValue>& metadata_values) {
-  for (const auto& [param_name, metadata_value] : metadata_values) {
-    auto current_it = current_values.find(param_name);
-    if (current_it == current_values.end() ||
-        isUnsetVideoParamsStageValue(current_it->second)) {
-      current_values[param_name] = metadata_value;
-    }
-  }
-}
 }  // namespace
 
 MainWindow::MainWindow(QWidget* parent)
@@ -580,6 +543,17 @@ MainWindow::MainWindow(QWidget* parent)
 }
 
 MainWindow::~MainWindow() {
+  // Parameter editors are modeless windows that delete themselves when closed,
+  // and their destroyed handler erases their entry from the map below. They
+  // have to go while that map is still alive: left to the widget teardown that
+  // follows this destructor, the handler would run against a member that no
+  // longer exists.
+  auto parameter_editors = std::move(parameter_dialogs_);
+  parameter_dialogs_.clear();
+  for (auto& [node_id, dialog] : parameter_editors) {
+    delete dialog;
+  }
+
   // Explicitly disconnect and delete DAG scene/model/view to avoid Qt teardown
   // assertions
   if (dag_scene_) {
@@ -1208,6 +1182,11 @@ void MainWindow::connectDAGSignals() {
           &MainWindow::onDAGModified);
   connect(dag_model_, &QtNodes::AbstractGraphModel::nodeDeleted, this,
           &MainWindow::onDAGModified);
+  // Renaming a stage arrives here, and an open parameter editor carries the
+  // stage's name in its title bar so that the user can tell several of them
+  // apart.
+  connect(dag_model_, &QtNodes::AbstractGraphModel::nodeUpdated, this,
+          [this](QtNodes::NodeId) { refreshStageParameterEditorIdentities(); });
   connect(dag_scene_, &OrcGraphicsScene::nodeSelected, this,
           &MainWindow::onQtNodeSelected);
   connect(dag_scene_, &OrcGraphicsScene::editParametersRequested, this,
@@ -1412,12 +1391,22 @@ void MainWindow::closeAllDialogs() {
       dialogs_to_close.push_back(pair.second);
     }
   }
+  // Parameter editors go with the project they edit. They are not closed when
+  // the DAG is merely rebuilt (see closeResultViewers): what they show is the
+  // project's own values, which survive a rebuild, and closing one would take
+  // the window out from under an edit the user is still making.
+  for (auto& pair : parameter_dialogs_) {
+    if (pair.second) {
+      dialogs_to_close.push_back(pair.second);
+    }
+  }
   // Clear maps before closing to prevent destroyed signal handlers from
   // modifying them
   dropout_analysis_dialogs_.clear();
   snr_analysis_dialogs_.clear();
   burst_level_analysis_dialogs_.clear();
   catalogue_dialogs_.clear();
+  parameter_dialogs_.clear();
 
   // Now safe to close all dialogs
   for (auto* dialog : dialogs_to_close) {
@@ -2811,8 +2800,9 @@ void MainWindow::positionViewToTopLeft() {
   dag_view_->centerOn(centerPoint);
 }
 
-void MainWindow::onEditParameters(const orc::NodeID& node_id) {
-  ORC_LOG_DEBUG("Edit parameters requested for node: {}", node_id);
+MainWindow::StageParameterEditorContext MainWindow::gatherStageParameterContext(
+    const orc::NodeID& node_id) {
+  StageParameterEditorContext editor;
 
   // Find the node in the project
   const auto nodes = project_.presenter()->getNodes();
@@ -2822,44 +2812,60 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id) {
                               });
 
   if (node_it == nodes.end()) {
-    QMessageBox::warning(this, "Edit Parameters",
-                         QString("Stage '%1' not found")
-                             .arg(QString::fromStdString(node_id.to_string())));
-    return;
+    editor.status = StageParameterEditorContext::Status::NodeMissing;
+    return editor;
   }
 
-  std::string stage_name = node_it->stage_name;
+  editor.stage_name = node_it->stage_name;
 
   // Check if stage exists in registry
-  if (!orc::presenters::ProjectPresenter::hasStage(stage_name)) {
-    QMessageBox::warning(this, "Edit Parameters",
-                         QString("Unknown stage type '%1'")
-                             .arg(QString::fromStdString(stage_name)));
-    return;
+  if (!orc::presenters::ProjectPresenter::hasStage(editor.stage_name)) {
+    editor.status = StageParameterEditorContext::Status::UnknownStage;
+    return editor;
   }
+
+  // Display name and description for the dialog title and header
+  editor.display_name = editor.stage_name;  // Fallback to stage_name
+  std::string stage_description;
+  const orc::NodeTypeInfo* type_info =
+      orc::get_node_type_info(editor.stage_name);
+  if (type_info) {
+    if (!type_info->display_name.empty()) {
+      editor.display_name = type_info->display_name;
+    }
+    if (!type_info->description.empty()) {
+      stage_description = type_info->description;
+    }
+  }
+  editor.node_label = QString::fromStdString(
+      node_it->label.empty() ? editor.display_name : node_it->label);
 
   // Get parameter descriptors using presenter (handles video format/source type
   // context internally)
-  auto param_descriptors = project_.presenter()->getStageParameters(stage_name);
+  auto param_descriptors =
+      project_.presenter()->getStageParameters(editor.stage_name);
 
   if (param_descriptors.empty()) {
-    QMessageBox::information(
-        this, "Edit Parameters",
-        QString("Stage '%1' does not have configurable parameters")
-            .arg(QString::fromStdString(stage_name)));
-    return;
+    editor.status = StageParameterEditorContext::Status::NoParameters;
+    return editor;
   }
 
-  // Get current parameter values from the node
-  auto current_values = project_.presenter()->getNodeParameters(node_id);
+  orc::gui::StageParameterContextInputs inputs;
+  inputs.stage_name = editor.stage_name;
+  inputs.descriptors = std::move(param_descriptors);
+  inputs.current_values = project_.presenter()->getNodeParameters(node_id);
+  inputs.stage_description = std::move(stage_description);
 
-  // audio_channel_map / audio_align / AudioSink / tbc_sink: restrict the
-  // channel-pair dropdown to the pairs the node's input actually carries. The
-  // stage descriptor lists all container slots; here we narrow it using the
-  // upstream node's audio pair count.
-  std::optional<size_t> input_audio_pair_count;
-  if (stage_name == "audio_channel_map" || stage_name == "audio_align" ||
-      stage_name == "AudioSink" || stage_name == "tbc_sink") {
+  const auto edges = project_.presenter()->getEdges();
+
+  // Both graph-derived readings — the channel pairs an audio stage can be
+  // pointed at, and the metadata a Video Parameters reset restores — are
+  // taken from the node's input rather than from the node itself: the node's
+  // own output already carries whatever this stage does to it.
+  const bool reads_input_node =
+      orc::gui::stageNarrowsAudioChannelPairs(editor.stage_name) ||
+      orc::gui::stageResetsToSourceMetadata(editor.stage_name);
+  if (reads_input_node) {
     auto* core_project = project_.presenter()->getCoreProjectHandle();
     if (core_project) {
       orc::presenters::RenderPresenter render_presenter(core_project);
@@ -2869,121 +2875,33 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id) {
       render_presenter.setBackgroundObservationEnabled(false);
       render_presenter.setDAG(project_.getDAG());
 
-      orc::NodeID input_source_node_id = node_id;
-      const auto edges = project_.presenter()->getEdges();
+      orc::NodeID input_node_id = node_id;
       auto input_edge =
           std::find_if(edges.begin(), edges.end(),
                        [&node_id](const orc::presenters::EdgeInfo& edge) {
                          return edge.target_node == node_id;
                        });
       if (input_edge != edges.end()) {
-        input_source_node_id = input_edge->source_node;
+        input_node_id = input_edge->source_node;
       }
 
-      const auto pair_names =
-          render_presenter.getAudioChannelPairNames(input_source_node_id);
-      input_audio_pair_count = pair_names.size();
-      if (!pair_names.empty()) {
-        // Combo entry "value␟label": stored value is the bare index (or "new"),
-        // display adds the pair description when present, e.g. "0: Analogue".
-        const char sep = StageParameterDialog::kComboValueLabelSeparator;
-        auto pair_entry = [&](size_t p) {
-          return orc::gui::audioChannelPairComboEntry(p, pair_names[p], sep);
-        };
-
-        for (auto& desc : param_descriptors) {
-          if (desc.name == "channel_pair" ||
-              desc.name == "audio_channel_pair") {
-            desc.constraints.allowed_strings.clear();
-            for (size_t p = 0; p < pair_names.size(); ++p) {
-              desc.constraints.allowed_strings.push_back(pair_entry(p));
-            }
-          } else if (desc.name == "target_pair") {
-            desc.constraints.allowed_strings.clear();
-            desc.constraints.allowed_strings.push_back(
-                std::string("new") + sep + "New channel pair");
-            for (size_t p = 0; p < pair_names.size(); ++p) {
-              desc.constraints.allowed_strings.push_back(pair_entry(p));
-            }
-          }
-        }
+      if (orc::gui::stageNarrowsAudioChannelPairs(editor.stage_name)) {
+        inputs.input_audio_pair_names =
+            render_presenter.getAudioChannelPairNames(input_node_id);
+      } else {
+        ORC_LOG_DEBUG(
+            "Video params reset source resolved: target_node='{}', "
+            "source_node='{}', used_upstream_input={}",
+            node_id.to_string(), input_node_id.to_string(),
+            (input_edge != edges.end()));
+        inputs.input_video_parameters =
+            render_presenter.getVideoParameters(input_node_id);
       }
     }
   }
 
-  std::optional<std::map<std::string, orc::ParameterValue>> reset_values;
-  if (stage_name == "video_params") {
-    auto* core_project = project_.presenter()->getCoreProjectHandle();
-    if (core_project) {
-      orc::presenters::RenderPresenter render_presenter(core_project);
-      // Throwaway helper presenter: rendering/parameter reads only — no
-      // sidecar, scheduler, or sweeps (construction must stay cheap on the
-      // GUI thread).
-      render_presenter.setBackgroundObservationEnabled(false);
-      render_presenter.setDAG(project_.getDAG());
-
-      // Reset values should come from the stage input path (pre-override),
-      // not from the video_params node output (which already includes
-      // overrides).
-      orc::NodeID metadata_source_node_id = node_id;
-      const auto edges = project_.presenter()->getEdges();
-      auto input_edge =
-          std::find_if(edges.begin(), edges.end(),
-                       [&node_id](const orc::presenters::EdgeInfo& edge) {
-                         return edge.target_node == node_id;
-                       });
-
-      if (input_edge != edges.end()) {
-        metadata_source_node_id = input_edge->source_node;
-      }
-
-      ORC_LOG_DEBUG(
-          "Video params reset source resolved: target_node='{}', "
-          "source_node='{}', used_upstream_input={}",
-          node_id.to_string(), metadata_source_node_id.to_string(),
-          (input_edge != edges.end()));
-
-      if (auto source_params =
-              render_presenter.getVideoParameters(metadata_source_node_id)) {
-        reset_values = sourceParametersToVideoParamsStageValues(*source_params);
-        applyMetadataFallbackValues(current_values, *reset_values);
-      }
-    }
-  }
-
-  // Get display name for the dialog title
-  std::string display_name = stage_name;  // Fallback to stage_name
-  const orc::NodeTypeInfo* type_info = orc::get_node_type_info(stage_name);
-  if (type_info && !type_info->display_name.empty()) {
-    display_name = type_info->display_name;
-  }
-
-  // Retrieve stage description for the dialog header
-  std::string stage_description;
-  if (type_info && !type_info->description.empty()) {
-    stage_description = type_info->description;
-  }
-
-  // An audio stage whose input carries no channel pairs cannot be configured
-  // usefully — say so in the dialog header rather than letting the user pick a
-  // pair the input does not have. The TBC sink is the exception: its export
-  // succeeds either way and only the optional .pcm sidecar is affected, so it
-  // gets the milder note.
-  if (input_audio_pair_count) {
-    stage_description = (stage_name == "tbc_sink")
-                            ? orc::gui::withAudioChannelPairSidecarNotice(
-                                  stage_description, *input_audio_pair_count)
-                            : orc::gui::withAudioChannelPairNotice(
-                                  stage_description, *input_audio_pair_count);
-  }
-
-  // Source Join orders its inputs by node ID, and nothing in the form says
-  // which numbers those are — a multi-input stage has one input port, so the
-  // connections do not name their sources. Put the connected nodes, with the
-  // IDs the graph draws on them, at the top of the dialog.
-  if (stage_name == "source_join") {
-    std::vector<orc::gui::ConnectedInputNode> connected_inputs;
-    for (const auto& edge : project_.presenter()->getEdges()) {
+  if (editor.stage_name == "source_join") {
+    for (const auto& edge : edges) {
       if (edge.target_node != node_id) continue;
       auto source_it =
           std::find_if(nodes.begin(), nodes.end(),
@@ -3000,72 +2918,288 @@ void MainWindow::onEditParameters(const orc::NodeID& node_id) {
               source_type ? source_type->display_name : source_it->stage_name;
         }
       }
-      connected_inputs.push_back(
+      inputs.connected_inputs.push_back(
           orc::gui::ConnectedInputNode{edge.source_node.value(), name});
     }
-    stage_description = orc::gui::withSourceJoinInputNodesNotice(
-        stage_description, connected_inputs);
   }
 
-  // Show parameter dialog
-  StageParameterDialog dialog(stage_name, display_name, stage_description,
-                              param_descriptors, current_values,
-                              project_.projectPath(), reset_values, this);
+  editor.context = orc::gui::buildStageParameterContext(std::move(inputs));
+  editor.status = StageParameterEditorContext::Status::Ready;
+  return editor;
+}
 
-  auto apply_dialog_values = [&]() {
-    auto new_values = dialog.get_values();
+void MainWindow::onEditParameters(const orc::NodeID& node_id) {
+  ORC_LOG_DEBUG("Edit parameters requested for node: {}", node_id);
 
-    try {
-      if (!project_.presenter()->setNodeParameters(node_id, new_values)) {
-        throw std::runtime_error("Presenter rejected parameter update");
-      }
-
-      // Rebuild DAG to pick up the new parameter values
-      project_.rebuildDAG();
-
-      // Update the preview renderer with the new DAG
-      updatePreviewRenderer();
-
-      // Refresh QtNodes view
-      dag_model_->refresh();
-
-      // Update the preview to show the changes
-      updatePreview();
-
-      statusBar()->showMessage(
-          QString("Updated parameters for stage '%1'")
-              .arg(QString::fromStdString(node_id.to_string())),
-          3000);
-    } catch (const std::exception& e) {
-      // Parameter validation failed - show error and reset parameters to empty
-      QMessageBox::critical(
-          this, "Parameter Validation Error",
-          QString("Failed to set parameters: %1\n\nParameters have been reset.")
-              .arg(QString::fromStdString(e.what())));
-
-      // Reset parameters to empty map
-      std::map<std::string, orc::ParameterValue> empty_params;
-      try {
-        project_.presenter()->setNodeParameters(node_id, empty_params);
-
-        // Rebuild DAG with empty parameters
-        project_.rebuildDAG();
-        updatePreviewRenderer();
-        dag_model_->refresh();
-        updatePreview();
-      } catch (const std::exception& reset_error) {
-        // If reset also fails, log it but don't crash
-        ORC_LOG_ERROR("Failed to reset parameters after validation error: {}",
-                      reset_error.what());
-      }
+  // One editor per node. The reader asked for parameter windows that can be
+  // open alongside each other, which is a window per node; a second window
+  // onto the same node would be two edit buffers over one set of values with
+  // no rule for which of them wins.
+  auto existing = parameter_dialogs_.find(node_id);
+  if (existing != parameter_dialogs_.end() && existing->second) {
+    StageParameterDialog* open_editor = existing->second;
+    // The editor has a minimise button of its own, so bringing it forward has
+    // to cover the case where that is where the user left it.
+    if (open_editor->isMinimized()) {
+      open_editor->showNormal();
+    } else {
+      open_editor->show();
     }
-  };
+    open_editor->raise();
+    open_editor->activateWindow();
+    return;
+  }
 
-  connect(&dialog, &StageParameterDialog::update_requested, this,
-          apply_dialog_values);
+  auto editor = gatherStageParameterContext(node_id);
+  switch (editor.status) {
+    case StageParameterEditorContext::Status::NodeMissing:
+      QMessageBox::warning(
+          this, "Edit Parameters",
+          QString("Stage '%1' not found")
+              .arg(QString::fromStdString(node_id.to_string())));
+      return;
+    case StageParameterEditorContext::Status::UnknownStage:
+      QMessageBox::warning(this, "Edit Parameters",
+                           QString("Unknown stage type '%1'")
+                               .arg(QString::fromStdString(editor.stage_name)));
+      return;
+    case StageParameterEditorContext::Status::NoParameters:
+      QMessageBox::information(
+          this, "Edit Parameters",
+          QString("Stage '%1' does not have configurable parameters")
+              .arg(QString::fromStdString(editor.stage_name)));
+      return;
+    case StageParameterEditorContext::Status::Ready:
+      break;
+  }
 
-  if (dialog.exec() == QDialog::Accepted) {
-    apply_dialog_values();
+  auto* dialog = new StageParameterDialog(
+      editor.stage_name, editor.display_name, editor.context.stage_description,
+      editor.context.descriptors, editor.context.current_values,
+      project_.projectPath(), editor.context.reset_values, this);
+  dialog->setAttribute(Qt::WA_DeleteOnClose);
+  // An independent window rather than a panel held over the main window: it
+  // is meant to sit beside the graph and the preview while both are used.
+  dialog->setWindowFlags(Qt::Window | Qt::WindowMinimizeButtonHint |
+                         Qt::WindowMaximizeButtonHint |
+                         Qt::WindowCloseButtonHint);
+  dialog->set_node_identity(editor.node_label,
+                            QString::fromStdString(node_id.to_string()));
+
+  // Step each new editor down and across from the last, so that opening a
+  // second one does not simply hide the first.
+  constexpr int kCascadeOffset = 32;
+  constexpr int kCascadePositions = 8;
+  const QPoint cascade_origin =
+      frameGeometry().topLeft() + QPoint(kCascadeOffset, kCascadeOffset) *
+                                      (parameter_dialog_cascade_step_ + 1);
+  parameter_dialog_cascade_step_ =
+      (parameter_dialog_cascade_step_ + 1) % kCascadePositions;
+  dialog->set_opening_position(cascade_origin);
+
+  QPointer<StageParameterDialog> dialog_ptr(dialog);
+  connect(dialog, &StageParameterDialog::update_requested, this,
+          [this, node_id, dialog_ptr]() {
+            applyStageParameters(node_id, dialog_ptr, false);
+          });
+  connect(dialog, &StageParameterDialog::live_update_requested, this,
+          [this, node_id, dialog_ptr]() {
+            applyStageParameters(node_id, dialog_ptr, true);
+          });
+  connect(dialog, &QDialog::accepted, this, [this, node_id, dialog_ptr]() {
+    applyStageParameters(node_id, dialog_ptr, false);
+  });
+  connect(dialog, &QObject::destroyed, this, [this, node_id]() {
+    parameter_dialogs_.erase(node_id);
+    if (parameter_dialogs_.empty()) {
+      // Nothing left to step away from, so the next editor opens where the
+      // first one does rather than further down the screen each time.
+      parameter_dialog_cascade_step_ = 0;
+    }
+  });
+
+  parameter_dialogs_[node_id] = dialog;
+  dialog->show();
+}
+
+void MainWindow::applyStageParameters(const orc::NodeID& node_id,
+                                      QPointer<StageParameterDialog> dialog,
+                                      bool live) {
+  if (!dialog) {
+    return;
+  }
+
+  auto new_values = dialog->get_values();
+
+  try {
+    if (!project_.presenter()->setNodeParameters(node_id, new_values)) {
+      throw std::runtime_error("Presenter rejected parameter update");
+    }
+
+    // Rebuild DAG to pick up the new parameter values
+    project_.rebuildDAG();
+
+    // Update the preview renderer with the new DAG
+    updatePreviewRenderer();
+
+    // Refresh QtNodes view
+    dag_model_->refresh();
+
+    // Update the preview to show the changes
+    updatePreview();
+
+    // Any other editor open on this project is now showing values that may
+    // have moved under it — a stage's parameters can be read back changed
+    // after a rebuild, and two editors can be open on nodes that constrain
+    // one another.
+    refreshOtherStageParameterEditors(node_id);
+
+    statusBar()->showMessage(
+        QString("Updated parameters for stage '%1'")
+            .arg(QString::fromStdString(node_id.to_string())),
+        3000);
+  } catch (const std::exception& e) {
+    if (live) {
+      ORC_LOG_DEBUG("Live parameter update rejected for node {}: {}",
+                    node_id.to_string(), e.what());
+      statusBar()->showMessage(QString("Live update not applied: %1")
+                                   .arg(QString::fromStdString(e.what())),
+                               3000);
+      return;
+    }
+
+    // Parameter validation failed - show error and reset parameters to empty.
+    // Parented to the editor that raised it: with several editors open, a
+    // message box held by the main window would block all of them, and the
+    // one that has something wrong with it is the one the user is looking at.
+    ORC_LOG_WARN("Parameter update rejected for node {}: {}",
+                 node_id.to_string(), e.what());
+    QMessageBox::critical(
+        dialog, "Parameter Validation Error",
+        QString("Failed to set parameters: %1\n\nParameters have been reset.")
+            .arg(QString::fromStdString(e.what())));
+
+    // Reset parameters to empty map
+    std::map<std::string, orc::ParameterValue> empty_params;
+    try {
+      project_.presenter()->setNodeParameters(node_id, empty_params);
+
+      // Rebuild DAG with empty parameters
+      project_.rebuildDAG();
+      updatePreviewRenderer();
+      dag_model_->refresh();
+      updatePreview();
+    } catch (const std::exception& reset_error) {
+      // If reset also fails, log it but don't crash
+      ORC_LOG_ERROR("Failed to reset parameters after validation error: {}",
+                    reset_error.what());
+    }
+  }
+}
+
+void MainWindow::refreshStageParameterEditors() {
+  if (parameter_dialogs_.empty()) {
+    return;
+  }
+
+  // Collect first, then act: closing an editor deletes it, and its destroyed
+  // handler erases the map entry a live iterator would be standing on.
+  std::vector<std::pair<orc::NodeID, StageParameterDialog*>> editors;
+  editors.reserve(parameter_dialogs_.size());
+  for (const auto& [node_id, dialog] : parameter_dialogs_) {
+    if (dialog) {
+      editors.emplace_back(node_id, dialog);
+    }
+  }
+
+  for (const auto& [node_id, dialog] : editors) {
+    auto editor = gatherStageParameterContext(node_id);
+    if (editor.status != StageParameterEditorContext::Status::Ready) {
+      // The node has been deleted, or has stopped being something with
+      // parameters. An editor left open on it would apply its values to
+      // nothing and take the recovery path against a node that is not there.
+      ORC_LOG_DEBUG("Closing parameter editor for node {}: no longer editable",
+                    node_id.to_string());
+      // Taken out of the registry here rather than left to the destroyed
+      // handler, which does not run until the deferred delete does: until
+      // then the entry would still answer a request to edit that node with a
+      // window that is already closing.
+      parameter_dialogs_.erase(node_id);
+      dialog->close();
+      continue;
+    }
+
+    dialog->set_node_identity(editor.node_label,
+                              QString::fromStdString(node_id.to_string()));
+    dialog->refresh_context(editor.context);
+  }
+}
+
+void MainWindow::refreshOtherStageParameterEditors(
+    const orc::NodeID& originator) {
+  if (parameter_dialogs_.size() < 2) {
+    return;
+  }
+
+  const auto nodes = project_.presenter()->getNodes();
+  for (const auto& [node_id, dialog] : parameter_dialogs_) {
+    if (!dialog || node_id == originator) {
+      continue;
+    }
+
+    auto node_it = std::find_if(nodes.begin(), nodes.end(),
+                                [&node_id](const orc::presenters::NodeInfo& n) {
+                                  return n.node_id == node_id;
+                                });
+    if (node_it == nodes.end()) {
+      continue;  // Closed by the sweep that follows a graph change.
+    }
+
+    // Most stages show the values the project stores. Video Parameters shows
+    // what the source reports wherever the user has not overridden it, so its
+    // values have to be derived again rather than read back raw — read raw,
+    // the source's figures would be replaced by the -1 that stands for
+    // "inherit from source".
+    if (orc::gui::stageResetsToSourceMetadata(node_it->stage_name)) {
+      auto editor = gatherStageParameterContext(node_id);
+      if (editor.status == StageParameterEditorContext::Status::Ready) {
+        dialog->refresh_values(editor.context.current_values);
+      }
+      continue;
+    }
+
+    dialog->refresh_values(project_.presenter()->getNodeParameters(node_id));
+  }
+}
+
+void MainWindow::refreshStageParameterEditorIdentities() {
+  if (parameter_dialogs_.empty()) {
+    return;
+  }
+
+  const auto nodes = project_.presenter()->getNodes();
+  for (const auto& [node_id, dialog] : parameter_dialogs_) {
+    if (!dialog) {
+      continue;
+    }
+    auto node_it = std::find_if(nodes.begin(), nodes.end(),
+                                [&node_id](const orc::presenters::NodeInfo& n) {
+                                  return n.node_id == node_id;
+                                });
+    if (node_it == nodes.end()) {
+      continue;  // Handled by the sweep that follows the graph change.
+    }
+
+    std::string label = node_it->label;
+    if (label.empty()) {
+      const orc::NodeTypeInfo* type_info =
+          orc::get_node_type_info(node_it->stage_name);
+      label = (type_info && !type_info->display_name.empty())
+                  ? type_info->display_name
+                  : node_it->stage_name;
+    }
+    dialog->set_node_identity(QString::fromStdString(label),
+                              QString::fromStdString(node_id.to_string()));
   }
 }
 
@@ -3169,6 +3303,11 @@ void MainWindow::onDAGModified() {
   // Update UI state to reflect modified project (window title, save button,
   // etc.)
   updateUIState();
+
+  // An open parameter editor describes the graph as it was when it opened:
+  // its node may have just been deleted, and the connections the audio,
+  // Source Join and Video Parameters editors read from may have just changed.
+  refreshStageParameterEditors();
 }
 
 void MainWindow::onArrangeDAGToGrid() {

@@ -16,10 +16,12 @@
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QSettings>
+#include <QSignalBlocker>
 #include <QSlider>
 #include <QVBoxLayout>
 #include <algorithm>
 #include <cstdint>
+#include <utility>
 
 #include "waveformmonitorwidget.h"
 
@@ -37,11 +39,17 @@ static constexpr int kChannelIndexYOnly = 1;
 static constexpr int kRangeIndexActiveVideo = 0;
 static constexpr int kRangeIndexWholeFrame = 1;
 
+// Field combo box item indices must match WaveformFieldSelection enum order.
+static constexpr int kFieldIndexFrame = 0;
+static constexpr int kFieldIndexField1 = 1;
+static constexpr int kFieldIndexField2 = 2;
+
 WaveformMonitorDialog::WaveformMonitorDialog(QWidget* parent)
     : QDialog(parent),
       monitor_widget_(nullptr),
       channel_combo_(nullptr),
       range_combo_(nullptr),
+      field_combo_(nullptr),
       phosphor_check_(nullptr),
       gain_slider_(nullptr),
       gain_value_label_(nullptr) {
@@ -115,6 +123,24 @@ void WaveformMonitorDialog::setupUI() {
   controls->addWidget(range_combo_);
   controls->addSpacing(12);
 
+  // Field selector: whole frame or a single field.  The colour subcarrier
+  // phase alternates between fields, so a per-field trace tells field-
+  // correlated interference apart from random noise.
+  controls->addWidget(new QLabel("Field:"));
+  field_combo_ = new QComboBox();
+  field_combo_->setObjectName("waveform_field_combo");
+  field_combo_->addItem("Frame", kFieldIndexFrame);
+  field_combo_->addItem("Field 1", kFieldIndexField1);
+  field_combo_->addItem("Field 2", kFieldIndexField2);
+  field_combo_->setCurrentIndex(kFieldIndexFrame);
+  field_combo_->setToolTip(
+      "Frame: accumulate the lines of both fields together.\n"
+      "Field 1 / Field 2: accumulate one field only — the colour subcarrier "
+      "phase alternates between fields, so comparing the two separates "
+      "field-correlated interference from random noise.");
+  controls->addWidget(field_combo_);
+  controls->addSpacing(12);
+
   // Phosphor mode — green trace on black background.
   phosphor_check_ = new QCheckBox("Phosphor");
   phosphor_check_->setToolTip(
@@ -158,6 +184,11 @@ void WaveformMonitorDialog::setupUI() {
   connect(range_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
           this, [this](int) { updateWidgetForCurrentChannel(); });
 
+  connect(field_combo_, QOverload<int>::of(&QComboBox::currentIndexChanged),
+          this, [this](int) { updateWidgetForCurrentChannel(); });
+
+  updateFieldComboAvailability();
+
   connect(phosphor_check_, &QCheckBox::toggled, this,
           [this](bool checked) { monitor_widget_->setPhosphorMode(checked); });
 }
@@ -178,6 +209,7 @@ void WaveformMonitorDialog::setData(
   second_field_height_ = second_field_height;
   video_params_ = video_params;
 
+  updateFieldComboAvailability();
   updateWidgetForCurrentChannel();
 }
 
@@ -258,13 +290,90 @@ void WaveformMonitorDialog::updateWidgetForCurrentChannel() {
   // active-video range mode.
   int f1 = first_field_height_;
   int f2 = second_field_height_;
-  const std::vector<int16_t>& display_samples =
-      (first_active_line > 0)
-          ? sliceToActiveLines(raw_samples, f1, f2, first_active_line)
-          : raw_samples;
+  std::vector<int16_t> display_samples = std::move(raw_samples);
+  if (first_active_line > 0) {
+    display_samples =
+        sliceToActiveLines(display_samples, f1, f2, first_active_line);
+  }
+
+  // Then reduce to a single field when one is selected.
+  const WaveformFieldSelection field = currentFieldSelection();
+  if (field != WaveformFieldSelection::Frame) {
+    display_samples = sliceToField(display_samples, f1, f2, field);
+  }
 
   monitor_widget_->setYOnlyMode(ch == WaveformChannel::YOnly);
   monitor_widget_->setData(display_samples, f1, f2, display_params);
+}
+
+// ---------------------------------------------------------------------------
+// Field selection
+// ---------------------------------------------------------------------------
+
+WaveformFieldSelection WaveformMonitorDialog::currentFieldSelection() const {
+  // Single-field data has no second field to pick from, so it always reads
+  // as Frame regardless of what the (disabled) combo still shows.
+  if (!field_combo_ || first_field_height_ <= 0 || second_field_height_ <= 0) {
+    return WaveformFieldSelection::Frame;
+  }
+  switch (field_combo_->currentIndex()) {
+    case kFieldIndexField1:
+      return WaveformFieldSelection::Field1;
+    case kFieldIndexField2:
+      return WaveformFieldSelection::Field2;
+    default:
+      return WaveformFieldSelection::Frame;
+  }
+}
+
+// Single-field preview output arrives with second_field_height == 0; there is
+// no second field to choose from, so the selector is disabled and reset to
+// Frame rather than silently showing the same trace for all three items.
+void WaveformMonitorDialog::updateFieldComboAvailability() {
+  if (!field_combo_) return;
+
+  const bool both_fields_present =
+      first_field_height_ > 0 && second_field_height_ > 0;
+  if (!both_fields_present &&
+      field_combo_->currentIndex() != kFieldIndexFrame) {
+    // Blocked so the reset does not trigger a render with stale data; the
+    // caller re-renders immediately afterwards.
+    const QSignalBlocker blocker(field_combo_);
+    field_combo_->setCurrentIndex(kFieldIndexFrame);
+  }
+  field_combo_->setEnabled(both_fields_present);
+}
+
+// Keep the selected field and drop the other.  The returned buffer describes
+// one field, so field1_height becomes the selected field's line count and
+// field2_height becomes zero.
+std::vector<int16_t> WaveformMonitorDialog::sliceToField(
+    const std::vector<int16_t>& samples, int& field1_height, int& field2_height,
+    WaveformFieldSelection selection) {
+  if (selection == WaveformFieldSelection::Frame) return samples;
+
+  const int total_lines = field1_height + field2_height;
+  if (total_lines <= 0 || samples.empty()) return samples;
+
+  const int spl = static_cast<int>(samples.size()) / total_lines;
+  if (spl <= 0) return samples;
+
+  const int kept_height = (selection == WaveformFieldSelection::Field1)
+                              ? field1_height
+                              : field2_height;
+  if (kept_height <= 0) return samples;
+
+  const int line_offset =
+      (selection == WaveformFieldSelection::Field1) ? 0 : field1_height;
+
+  const auto* base = samples.data();
+  std::vector<int16_t> result(
+      base + static_cast<ptrdiff_t>(line_offset) * spl,
+      base + static_cast<ptrdiff_t>(line_offset + kept_height) * spl);
+
+  field1_height = kept_height;
+  field2_height = 0;
+  return result;
 }
 
 // ---------------------------------------------------------------------------

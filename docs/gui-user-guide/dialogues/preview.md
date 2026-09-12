@@ -100,6 +100,68 @@ This ensures the preview reflects how downstream sinks will interpret the signal
 
 ---
 
+## Signal analysis tools
+
+The preview's **View** menu opens floating scope dialogues that read the same
+frame the preview is showing. Each is a separate window, so a scope can be left
+open while parameters upstream of it are adjusted.
+
+| Tool | Shortcut | What it shows |
+|------|----------|---------------|
+| Frame Timing | Ctrl+Shift+T | Sync and timing waveform across all lines of the current frame. |
+| Waveform Monitor | Ctrl+Shift+W | Stacked histogram of sample values across a range of lines. Supported stages only. |
+| Vectorscope | Ctrl+Shift+S | U/V chroma scatter on a vectorscope graticule. Available on every stage. |
+
+### Waveform Monitor
+
+| Control | Description |
+|---------|-------------|
+| Channel | `Y+C (Composite)` accumulates the full composite signal; `Y (Luma only)` uses the separate luma channel when the source has one, and otherwise the composite signal low-pass filtered to remove the colour subcarrier. |
+| Range | `Active video` accumulates only the visible part of each line; `Whole frame` includes sync and blanking. |
+| Field | `Frame` accumulates both fields together; `Field 1` and `Field 2` accumulate one field only. |
+| Phosphor | Draws a green trace on black, in the style of an analogue oscilloscope. |
+| Intensity | Brightness gain applied to the accumulated trace. |
+
+The colour subcarrier phase alternates from field to field, so plotting the two
+fields separately separates field-correlated interference — subcarrier leakage
+into sync, for example — from noise that is random across the frame. The **Field**
+selector is disabled when the preview supplies a single field, which has no
+second field to compare against.
+
+### Vectorscope
+
+The scope has two acquisitions and does not let you choose between them: the
+output being previewed settles which one runs. A chroma decoder's colour output
+gives the **decoded (grading)** plot of the U/V planes the decoder produced; a
+CVBS or Y/C output gives the **composite (measurement)** plot, demodulated from
+the carrier against a burst-locked reference with the burst and both PAL line
+phases still in the data set. The Acquisition box reports which is in force.
+
+What the scope takes off the frame is set in two groups, one for each axis of
+the raster. Within each group the options are alternatives, so exactly one is in
+force at a time.
+
+| Control | Description |
+|---------|-------------|
+| Line View | Composite only — the decoded planes hold active picture, with no sync, porch or burst to choose between. **Active line** samples the active picture window, **Whole line** the entire line including sync and porches, **Burst only** the colour-burst window on the back porch. |
+| Field View | **Active field** (the default) plots the active picture only, which is what the decoded acquisition shows, so the two acquisitions cover the same lines of the frame. **Whole field** plots every line. **Selected line(s)** plots a named range, the way a real instrument's line-select works. |
+| Start line / End line | Enabled by **Selected line(s)**. Untick **End line** to plot the start line on its own. The spin boxes only offer lines the plot can show: a frame of the system being plotted (625 for PAL, 525 for NTSC and PAL-M), and — when Field Selection names one field — only that field's lines. |
+| Field Selection | Which field (both, first, or second) contributes to the plot. Restricting it to one field also restricts which lines **Selected line(s)** may name. |
+| Graticule, Colorize, Defocus, Draw Trace Lines, Gain | Display controls over the plotted trace. |
+
+Line numbers count through the interlaced frame: line 1 is the top line and
+consecutive numbers alternate fields — the same numbering the active picture is
+stated in — so both acquisitions can be pointed at exactly the same lines.
+
+The burst measurement readouts shown with the composite acquisition are computed
+from every active line of the frame: the field view changes what is plotted, not
+what is measured, so narrowing the range does not move the readings.
+
+The preview window's **Help → User Guide…** carries the full description of each
+control, including the graticule conventions and the burst readouts.
+
+---
+
 ## Stage-specific preview behaviour
 
 Some stages augment the preview dialogue with additional behaviour or controls.

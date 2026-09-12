@@ -359,6 +359,16 @@ This changes the label shown on the stage.
 
 Use this to set file paths, decoding options, thresholds, output settings, and other stage-specific behaviour.
 
+The parameter window is a window in its own right, not a panel held over the application: the graph, the preview and the rest of the window stay usable while it is open. One can be open per stage, so two stages can be compared and adjusted against the same preview, and each window's title bar names the stage and the node ID it belongs to. Choosing **Edit Parameters…** again on a stage that already has a window open brings that window forward rather than opening a second one onto the same values. Renaming a stage re-titles its open window.
+
+If a stage's parameters are changed from somewhere else while its window is open — by an adjustment to another stage, or by the reset that follows a rejected value — the window shows the new values. Where it is holding edits that have not been applied yet, those are kept instead and the title gains a `*`, so what is on screen is known to have diverged from what the stage currently holds. Rewiring a stage's input updates what its window offers: the selectable audio channel pairs, the Source Join input listing, and the source figures behind **Reset to Metadata Values**. Deleting a stage closes its window.
+
+A numeric parameter the stage bounds on both sides is shown as a slider with its value box beside it. Drag the slider to sweep the range by eye, or type an exact figure in the box — the two always carry the same value. A parameter with no bounds, or one whose range is too wide for a slider to be aimed (a bitrate, say), is shown as a value box alone.
+
+**OK** applies the values and closes the dialogue; **Update** applies them and leaves it open, so the preview can be checked against the values still on screen.
+
+Tick **Live update** to have changes applied to the preview as they are made, without pressing Update. While it is ticked the Cancel button reads **Close**: the values have already been applied, so closing the window is all that is left to do and nothing is taken back. This suits any value judged by eye — black and white levels, chroma gain — where it is quicker to adjust and look than to type a number and apply it. Edits are applied once they settle, so holding a spin box arrow down re-renders once rather than once per step, and a set of values the stage rejects is simply left unapplied until it makes sense again. Editing a file path never starts a live update, because a path is typed a character at a time; use **Update** or **OK** for those. Live update starts off each time the dialogue is opened.
+
 CLI: `orc-cli stages info <stage>` describes the same parameters — display name, description, type, whether it is required, default, range, allowed values and dependencies. `orc-cli stages info <stage> --yaml` emits a parameter block to paste into a project file, and `--filtergraph` emits the form `--source`/`--filters`/`--sink` take.
 
 ### Running Stage Tools

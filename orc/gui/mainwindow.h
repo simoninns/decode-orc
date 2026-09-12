@@ -37,6 +37,7 @@
 #include "render_coordinator.h"
 #include "response_pair_gate.h"
 #include "response_sequence_gate.h"
+#include "stage_parameter_context.h"
 
 class OrcGraphicsView;
 class PreviewDialog;
@@ -49,6 +50,7 @@ class DropoutAnalysisDialog;
 class SNRAnalysisDialog;
 class BurstLevelAnalysisDialog;
 class RenderCoordinator;
+class StageParameterDialog;
 
 namespace orc {
 class DropoutAnalysisDecoder;
@@ -251,6 +253,60 @@ class MainWindow : public QMainWindow {
           node_id);  // Select stage in DAG view (same as user click)
   void onEditParameters(const orc::NodeID& node_id);
   void onTriggerStage(const orc::NodeID& node_id);
+
+  /// Everything a node's parameter editor is opened or refreshed from
+  struct StageParameterEditorContext {
+    enum class Status {
+      Ready,         ///< The node is editable and |context| describes it
+      NodeMissing,   ///< No such node in the project
+      UnknownStage,  ///< The node names a stage the registry does not have
+      NoParameters,  ///< The stage has nothing to configure
+    };
+
+    Status status = Status::NodeMissing;
+    std::string stage_name;
+    std::string display_name;  ///< Stage display name, for the window title
+    QString node_label;        ///< User label, or the stage display name
+    orc::gui::StageParameterContext context;
+  };
+
+  /// Read a node's parameter context out of the presenters
+  ///
+  /// The presenter side of what the parameter editor shows: the node's stage
+  /// and values, and — for the stages that consult it — the graph around the
+  /// node. Deriving the dialogue's contents from that is
+  /// orc::gui::buildStageParameterContext(), which this calls. Repeatable,
+  /// because a modeless editor has to be refreshed when the graph changes.
+  StageParameterEditorContext gatherStageParameterContext(
+      const orc::NodeID& node_id);
+
+  /// Apply an editor's values to its node
+  ///
+  /// |live| marks an apply the user did not ask for by name: the live-update
+  /// checkbox applied the edit as it was made. Those must not interrupt
+  /// editing with a modal, and must not take the drastic recovery path — a
+  /// value the stage rejects mid-adjustment is a transient state the next
+  /// edit will move past, not a reason to clear the stage's parameters.
+  void applyStageParameters(const orc::NodeID& node_id,
+                            QPointer<StageParameterDialog> dialog, bool live);
+
+  /// Close editors whose node has gone, and re-seed the rest
+  ///
+  /// Called when the graph changes shape: an editor's node can be deleted
+  /// under it, and the context of one that survives (selectable channel
+  /// pairs, connected Source Join inputs, Video Parameters metadata) is
+  /// derived from connections the user has just changed.
+  void refreshStageParameterEditors();
+
+  /// Show the values an apply has just stored in every other open editor
+  ///
+  /// The originating editor is skipped: its form is where those values came
+  /// from, and re-seeding it would overwrite whatever the user has typed
+  /// since.
+  void refreshOtherStageParameterEditors(const orc::NodeID& originator);
+
+  /// Re-label open editors after a stage is renamed
+  void refreshStageParameterEditorIdentities();
   void runAnalysisForNode(const orc::AnalysisToolInfo& tool_info,
                           const orc::NodeID& node_id,
                           const std::string& stage_name);
@@ -416,6 +472,13 @@ class MainWindow : public QMainWindow {
       burst_level_analysis_dialogs_;
   // Catalogue browsers, one per node whose stage offers one (stage tool)
   std::unordered_map<orc::NodeID, CatalogueDialog*> catalogue_dialogs_;
+  // Parameter editors, one per node being edited. Modeless and independent,
+  // so several stages can be adjusted against the same preview; not result
+  // viewers, so applying values does not close them (see closeResultViewers).
+  std::unordered_map<orc::NodeID, StageParameterDialog*> parameter_dialogs_;
+  // Where the next editor opens, stepped so that a second window does not
+  // land exactly on top of the first.
+  int parameter_dialog_cascade_step_ = 0;
   OrcGraphModel* dag_model_;
   OrcGraphicsView* dag_view_;
   OrcGraphicsScene* dag_scene_;

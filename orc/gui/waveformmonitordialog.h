@@ -37,6 +37,21 @@ class QSlider;
 enum class WaveformChannel { YPlusC, YOnly };
 
 /**
+ * @brief Selects which part of the frame the waveform monitor accumulates.
+ *
+ * Frame — both fields together (the whole frame).
+ *
+ * Field1 / Field2 — one field only.  The NTSC colour subcarrier phase
+ * alternates from field to field, so accumulating a single field separates
+ * field-correlated artefacts (subcarrier leakage into sync, for example)
+ * from noise that is random across the frame.
+ *
+ * Field1 is the field that appears first in the supplied buffer, which for a
+ * reversed-field preview is the second field of the frame.
+ */
+enum class WaveformFieldSelection { Frame, Field1, Field2 };
+
+/**
  * @brief Dialog for the multi-line waveform monitor view
  *
  * Displays a sample-luminance histogram across all active video lines in a
@@ -72,9 +87,26 @@ class WaveformMonitorDialog : public QDialog {
 
   void setAmplitudeUnit(orc::AmplitudeDisplayUnit unit);
 
+  // Reduce a flat two-field buffer to the selected field.  field1_height and
+  // field2_height are updated to describe the returned buffer: the selected
+  // field becomes field 1 and field 2 becomes empty.  Returns |samples|
+  // unchanged for WaveformFieldSelection::Frame, and when the requested field
+  // is not present in the buffer.  Public for unit testing.
+  static std::vector<int16_t> sliceToField(const std::vector<int16_t>& samples,
+                                           int& field1_height,
+                                           int& field2_height,
+                                           WaveformFieldSelection selection);
+
  private:
   void setupUI();
   void updateWidgetForCurrentChannel();
+
+  // Field selection is only meaningful when both fields are present; the
+  // combo is disabled and forced back to Frame for single-field data.
+  void updateFieldComboAvailability();
+
+  // Current field selection, or Frame when the combo is not yet built.
+  WaveformFieldSelection currentFieldSelection() const;
 
   // 4-tap moving-average FIR — notch at fs/4 removes 4FSC colour subcarrier.
   static std::vector<int16_t> extractYFromComposite(
@@ -89,6 +121,7 @@ class WaveformMonitorDialog : public QDialog {
   WaveformMonitorWidget* monitor_widget_;
   QComboBox* channel_combo_;
   QComboBox* range_combo_;
+  QComboBox* field_combo_;
   QCheckBox* phosphor_check_;
   QSlider* gain_slider_;
   QLabel* gain_value_label_;

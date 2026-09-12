@@ -14,10 +14,12 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QCoreApplication>
+#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QLabel>
 #include <QLineEdit>
+#include <QPushButton>
 #include <QScreen>
 #include <QScrollArea>
 #include <QSignalSpy>
@@ -28,6 +30,7 @@
 #include <vector>
 
 #include "audio_channel_pair_notice.h"
+#include "stage_parameter_context.h"
 #include "stageparameterdialog.h"
 
 namespace gui_unit_test {
@@ -1020,6 +1023,254 @@ TEST(StageParameterDialogTest,
 
   slider->setValue(slider->maximum());
   EXPECT_EQ(std::get<int32_t>(dialog.get_values().at("activeVideoEnd")), 1135);
+}
+
+// ---------------------------------------------------------------------------
+// Modeless editing: the window stays open while the project changes around it
+// ---------------------------------------------------------------------------
+
+TEST(StageParameterDialogTest, Title_NamesTheNodeTheDialogBelongsTo) {
+  // Several editors can be open at once, so each says which node in the graph
+  // it edits.
+  (void)ensureApplication();
+
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(makeDescriptor("threshold", "Threshold",
+                                       orc::ParameterType::INT32,
+                                       static_cast<int32_t>(100)));
+
+  StageParameterDialog dialog("dropout_correct", "Dropout Correct", "",
+                              descriptors, {});
+  EXPECT_EQ(dialog.windowTitle(), "Dropout Correct Parameters");
+
+  dialog.set_node_identity("First pressing", "4");
+  EXPECT_EQ(dialog.windowTitle(),
+            QString("Dropout Correct Parameters — First pressing (4)"));
+
+  // A rename reaches the open window.
+  dialog.set_node_identity("Second pressing", "4");
+  EXPECT_EQ(dialog.windowTitle(),
+            QString("Dropout Correct Parameters — Second pressing (4)"));
+}
+
+TEST(StageParameterDialogTest, Refresh_ValuesShowsWhatWasChangedElsewhere) {
+  (void)ensureApplication();
+
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(makeDescriptor("threshold", "Threshold",
+                                       orc::ParameterType::INT32,
+                                       static_cast<int32_t>(100)));
+
+  StageParameterDialog dialog("dropout_correct", "Dropout Correct", "",
+                              descriptors, {});
+  dialog.set_node_identity("Correct", "4");
+  EXPECT_FALSE(dialog.has_unapplied_edits());
+
+  std::map<std::string, orc::ParameterValue> values;
+  values["threshold"] = static_cast<int32_t>(250);
+  EXPECT_TRUE(dialog.refresh_values(values));
+
+  auto* spin =
+      qobject_cast<QSpinBox*>(widgetForDisplayName(dialog, "Threshold"));
+  ASSERT_NE(spin, nullptr);
+  EXPECT_EQ(spin->value(), 250);
+  // The refreshed values are what the node holds, so they count as applied.
+  EXPECT_FALSE(dialog.has_unapplied_edits());
+  EXPECT_EQ(dialog.windowTitle(),
+            QString("Dropout Correct Parameters — Correct (4)"));
+}
+
+TEST(StageParameterDialogTest, Refresh_ValuesIsDeclinedWhileEditsAreUnapplied) {
+  // A refresh must never take the user's half-finished edit away from them.
+  // It is refused instead, and the title says the node has moved on.
+  (void)ensureApplication();
+
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(makeDescriptor("threshold", "Threshold",
+                                       orc::ParameterType::INT32,
+                                       static_cast<int32_t>(100)));
+
+  StageParameterDialog dialog("dropout_correct", "Dropout Correct", "",
+                              descriptors, {});
+  dialog.set_node_identity("Correct", "4");
+
+  auto* spin =
+      qobject_cast<QSpinBox*>(widgetForDisplayName(dialog, "Threshold"));
+  ASSERT_NE(spin, nullptr);
+  spin->setValue(175);
+  EXPECT_TRUE(dialog.has_unapplied_edits());
+
+  std::map<std::string, orc::ParameterValue> values;
+  values["threshold"] = static_cast<int32_t>(250);
+  EXPECT_FALSE(dialog.refresh_values(values));
+
+  EXPECT_EQ(spin->value(), 175);
+  EXPECT_EQ(dialog.windowTitle(),
+            QString("Dropout Correct Parameters — Correct (4) *"));
+}
+
+TEST(StageParameterDialogTest, Refresh_ContextNarrowsAnOpenDialogsChoices) {
+  // The graph can be rewired under an open editor: an audio stage moved to a
+  // source with different channel pairs has to offer the new ones.
+  (void)ensureApplication();
+
+  const char sep = StageParameterDialog::kComboValueLabelSeparator;
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(makeDescriptor(
+      "channel_pair", "Channel Pair", orc::ParameterType::STRING,
+      std::string("0"), std::nullopt, std::nullopt,
+      {orc::gui::audioChannelPairComboEntry(0, "Analogue", sep)}));
+
+  StageParameterDialog dialog("audio_align", "Audio Align", "Aligns audio.",
+                              descriptors, {});
+
+  auto* combo =
+      qobject_cast<QComboBox*>(widgetForDisplayName(dialog, "Channel Pair"));
+  ASSERT_NE(combo, nullptr);
+  EXPECT_EQ(combo->count(), 1);
+
+  orc::gui::StageParameterContextInputs inputs;
+  inputs.stage_name = "audio_align";
+  inputs.descriptors = descriptors;
+  inputs.descriptors.front().constraints.allowed_strings = {"0", "1", "2"};
+  inputs.stage_description = "Aligns audio.";
+  inputs.input_audio_pair_names =
+      std::vector<std::string>{"Analogue", "EFM digital audio"};
+  dialog.refresh_context(orc::gui::buildStageParameterContext(inputs));
+
+  // The form was rebuilt, so the combo has to be found again.
+  combo =
+      qobject_cast<QComboBox*>(widgetForDisplayName(dialog, "Channel Pair"));
+  ASSERT_NE(combo, nullptr);
+  EXPECT_EQ(combo->count(), 2);
+  EXPECT_EQ(combo->itemText(1).toStdString(), "1: EFM digital audio");
+}
+
+TEST(StageParameterDialogTest, Refresh_ContextKeepsEditsInProgress) {
+  // Rewiring the graph is no reason to throw away what the user has typed.
+  (void)ensureApplication();
+
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(makeDescriptor("threshold", "Threshold",
+                                       orc::ParameterType::INT32,
+                                       static_cast<int32_t>(100)));
+
+  StageParameterDialog dialog("dropout_correct", "Dropout Correct", "",
+                              descriptors, {});
+
+  auto* spin =
+      qobject_cast<QSpinBox*>(widgetForDisplayName(dialog, "Threshold"));
+  ASSERT_NE(spin, nullptr);
+  spin->setValue(175);
+
+  orc::gui::StageParameterContext context;
+  context.descriptors = descriptors;
+  context.current_values["threshold"] = static_cast<int32_t>(250);
+  dialog.refresh_context(context);
+
+  spin = qobject_cast<QSpinBox*>(widgetForDisplayName(dialog, "Threshold"));
+  ASSERT_NE(spin, nullptr);
+  EXPECT_EQ(spin->value(), 175);
+  EXPECT_TRUE(dialog.has_unapplied_edits());
+}
+
+TEST(StageParameterDialogTest,
+     Refresh_ContextDoesNotCountItsOwnChoiceAsAUsersEdit) {
+  // Narrowing a dropdown can move a value the user never chose: the selection
+  // they had may no longer be on offer. That is the refresh's doing, not an
+  // edit of theirs, so the editor must not go on to report unapplied edits
+  // and decline every refresh that follows.
+  (void)ensureApplication();
+
+  const char sep = StageParameterDialog::kComboValueLabelSeparator;
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(makeDescriptor(
+      "channel_pair", "Channel Pair", orc::ParameterType::STRING,
+      std::string("0"), std::nullopt, std::nullopt,
+      {orc::gui::audioChannelPairComboEntry(0, "Analogue", sep),
+       orc::gui::audioChannelPairComboEntry(1, "EFM digital audio", sep)}));
+
+  std::map<std::string, orc::ParameterValue> current_values;
+  current_values["channel_pair"] = std::string("1");
+
+  StageParameterDialog dialog("audio_align", "Audio Align", "", descriptors,
+                              current_values);
+  EXPECT_FALSE(dialog.has_unapplied_edits());
+
+  // The input now carries one pair, so the pair that was selected is gone.
+  orc::gui::StageParameterContextInputs inputs;
+  inputs.stage_name = "audio_align";
+  inputs.descriptors = descriptors;
+  inputs.descriptors.front().constraints.allowed_strings = {"0", "1"};
+  inputs.current_values = current_values;
+  inputs.input_audio_pair_names = std::vector<std::string>{"Analogue"};
+  dialog.refresh_context(orc::gui::buildStageParameterContext(inputs));
+
+  EXPECT_FALSE(dialog.has_unapplied_edits());
+
+  // And a later refresh is still accepted rather than declined.
+  std::map<std::string, orc::ParameterValue> values;
+  values["channel_pair"] = std::string("0");
+  EXPECT_TRUE(dialog.refresh_values(values));
+  EXPECT_FALSE(dialog.windowTitle().endsWith("*"));
+}
+
+TEST(StageParameterDialogTest, Refresh_ContextUpdatesTheHeaderAndResetButton) {
+  (void)ensureApplication();
+
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(makeDescriptor("blackLevel", "Black Level",
+                                       orc::ParameterType::INT32,
+                                       static_cast<int32_t>(-1)));
+
+  StageParameterDialog dialog("video_params", "Video Parameters",
+                              "Overrides source video parameters.", descriptors,
+                              {});
+
+  auto* description = dialog.findChild<QLabel*>("stage_description_label");
+  ASSERT_NE(description, nullptr);
+  EXPECT_EQ(description->text(), "Overrides source video parameters.");
+
+  orc::gui::StageParameterContext context;
+  context.descriptors = descriptors;
+  context.stage_description =
+      "Overrides source video parameters. Now with a "
+      "source behind it.";
+  context.current_values["blackLevel"] = static_cast<int32_t>(16384);
+  context.reset_values = std::map<std::string, orc::ParameterValue>{
+      {"blackLevel", static_cast<int32_t>(16384)}};
+  dialog.refresh_context(context);
+
+  EXPECT_EQ(description->text(),
+            "Overrides source video parameters. Now with a source behind it.");
+  EXPECT_EQ(std::get<int32_t>(dialog.get_values().at("blackLevel")), 16384);
+}
+
+TEST(StageParameterDialogTest, LiveUpdate_RenamesCancelToClose) {
+  // With live update ticked the values are applied as they are made, so a
+  // button offering to cancel them would be promising what it cannot do.
+  (void)ensureApplication();
+
+  std::vector<orc::ParameterDescriptor> descriptors;
+  descriptors.push_back(makeDescriptor("threshold", "Threshold",
+                                       orc::ParameterType::INT32,
+                                       static_cast<int32_t>(100)));
+
+  StageParameterDialog dialog("dropout_correct", "Dropout Correct", "",
+                              descriptors, {});
+
+  auto* live_update = dialog.findChild<QCheckBox*>("live_update_check");
+  auto* buttons = dialog.findChild<QDialogButtonBox*>();
+  ASSERT_NE(live_update, nullptr);
+  ASSERT_NE(buttons, nullptr);
+  auto* cancel = buttons->button(QDialogButtonBox::Cancel);
+  ASSERT_NE(cancel, nullptr);
+
+  EXPECT_EQ(cancel->text(), "Cancel");
+  live_update->setChecked(true);
+  EXPECT_EQ(cancel->text(), "Close");
+  live_update->setChecked(false);
+  EXPECT_EQ(cancel->text(), "Cancel");
 }
 
 }  // namespace gui_unit_test

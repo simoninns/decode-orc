@@ -111,6 +111,7 @@ orc_add_gui_unit_tests(
             observation_status_formatter_test.cpp
             overlay_primitive_builder_test.cpp
             parameter_value_rules_test.cpp
+            stage_parameter_context_test.cpp
             plot_series_decimation_test.cpp
             preview_audio_chase_test.cpp
             project_load_status_formatter_test.cpp

@@ -31,6 +31,8 @@
 #include <string>
 #include <vector>
 
+#include "stage_parameter_context.h"
+
 /**
  * @brief Dialog for editing stage parameters
  *
@@ -81,6 +83,61 @@ class StageParameterDialog : public QDialog {
    * @return Map of parameter names to new values
    */
   std::map<std::string, orc::ParameterValue> get_values() const;
+
+  /**
+   * @brief Re-seed the dialog from a freshly derived context
+   *
+   * The dialog is modeless, so the graph it describes can be rewired while it
+   * is open: an audio stage can gain or lose the input whose channel pairs its
+   * dropdown lists, a Source Join can gain a connection its header should
+   * name, a Video Parameters node can be moved to a source with different
+   * metadata behind its reset button. This replaces all of that in place.
+   *
+   * Work in progress is never discarded: where the form holds edits that have
+   * not been applied, those values are kept and only the surrounding context
+   * changes. The form's widgets are rebuilt only when the descriptors
+   * themselves differ; the common case of a refresh that changes nothing
+   * structural leaves every widget, and its caret, alone.
+   */
+  void refresh_context(const orc::gui::StageParameterContext& context);
+
+  /**
+   * @brief Show values that were changed outside this dialog
+   *
+   * Another node's editor, an undo, or the recovery path that clears a
+   * rejected node's parameters can all move the values under an open form.
+   *
+   * @return false when the form holds unapplied edits, in which case nothing
+   *         is changed and the window title is marked so the user can see
+   *         that what is on screen is no longer what the node holds
+   */
+  bool refresh_values(const std::map<std::string, orc::ParameterValue>& values);
+
+  /**
+   * @brief Whether the form differs from the values last applied from it
+   */
+  bool has_unapplied_edits() const;
+
+  /**
+   * @brief Name the node this dialog edits, in the window title
+   *
+   * Several parameter windows can be open at once, so each has to say which
+   * node in the graph it belongs to. Called again when the stage is renamed.
+   *
+   * @param node_label Stage label as the graph draws it
+   * @param node_id Node ID as the graph draws it
+   */
+  void set_node_identity(const QString& node_label, const QString& node_id);
+
+  /**
+   * @brief Ask for the window to open at a particular top-left corner
+   *
+   * Applied on first show, after the opening size has been worked out and
+   * before the window is mapped, and clamped so the window lands on screen
+   * whatever was asked for. Used to step successive editors apart so that a
+   * second window does not open exactly on top of the first.
+   */
+  void set_opening_position(const QPoint& top_left);
 
   /**
    * @brief Whether the live-update checkbox is ticked
@@ -136,19 +193,35 @@ class StageParameterDialog : public QDialog {
   QPushButton* reset_button_;
   QCheckBox* live_update_check_;
   QWidget* button_row_;
+  // Always built, shown only when there is a description to show: the text is
+  // part of the context and a refresh can give a stage a note it did not open
+  // with (or take one away).
+  QLabel* description_label_;
 
   // Coalesces a burst of edits (typing into a spin box, holding an arrow key)
   // into one apply: it restarts on every change and fires once the user
   // pauses, so a preview render is not started per keystroke.
   QTimer* live_update_timer_;
 
-  // Values carried by the last live apply, so an edit that lands back on the
-  // values already applied does not re-render.
-  std::optional<std::map<std::string, orc::ParameterValue>> last_live_values_;
+  // Values carried by the last apply, whether live, by Update or on opening,
+  // so an edit that lands back on the values already applied does not
+  // re-render — and so an external refresh can tell edits in progress from a
+  // form that is simply showing what the node holds.
+  std::optional<std::map<std::string, orc::ParameterValue>>
+      last_applied_values_;
 
   std::string stage_name_;  // Stage name for QSettings keys
   QString project_path_;    // Project file path for relative path conversion
   std::optional<std::map<std::string, orc::ParameterValue>> reset_values_;
+
+  // Window title parts. Held rather than composed once, because a rename, a
+  // declined refresh or a live-update toggle each change one of them.
+  QString display_name_;
+  QString node_label_;
+  QString node_id_text_;
+  // Set when a refresh was declined because the form held unapplied edits:
+  // the values on screen are then no longer the node's, and the title says so.
+  bool refresh_declined_ = false;
 
   // Parameter descriptors (keep for validation and defaults)
   std::vector<orc::ParameterDescriptor> descriptors_;
@@ -181,9 +254,28 @@ class StageParameterDialog : public QDialog {
   void apply_opening_size();
   bool opening_size_applied_ = false;
 
+  // Where the window was asked to open, if anywhere. Applied once, with the
+  // opening size, so the clamp knows how big the window will actually be.
+  std::optional<QPoint> opening_position_;
+  void apply_opening_position();
+
   // Build UI from descriptors
   void build_ui(
       const std::map<std::string, orc::ParameterValue>& current_values);
+
+  // Throws the form away and builds it again from the current descriptors.
+  // Only reached from refresh_context(), and only when the descriptors have
+  // actually changed shape.
+  void rebuild_form(
+      const std::map<std::string, orc::ParameterValue>& current_values);
+
+  // Sets the description shown above the form, hiding the label when there is
+  // nothing to say.
+  void set_stage_description(const std::string& description);
+
+  // Composes the window title from the stage, the node it belongs to and
+  // whether a refresh has been declined.
+  void update_window_title();
 
   // Update widget enable/disable state based on dependencies
   void update_dependencies();

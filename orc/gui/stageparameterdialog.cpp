@@ -107,9 +107,9 @@ StageParameterDialog::StageParameterDialog(
       stage_name_(stage_name),
       descriptors_(descriptors),
       project_path_(project_path),
-      reset_values_(reset_values) {
-  setWindowTitle(
-      QString("%1 Parameters").arg(QString::fromStdString(display_name)));
+      reset_values_(reset_values),
+      display_name_(QString::fromStdString(display_name)) {
+  update_window_title();
   setMinimumWidth(400);
 
   auto* main_layout = new QVBoxLayout(this);
@@ -130,17 +130,19 @@ StageParameterDialog::StageParameterDialog(
   const int style_layout_spacing = content_layout->spacing();
   content_layout->setSpacing(0);
 
-  // Stage description label (shown at the top when non-empty)
-  if (!stage_description.empty()) {
-    auto* desc_label = new QLabel(QString::fromStdString(stage_description));
-    desc_label->setWordWrap(true);
-    desc_label->setStyleSheet(
-        "color: palette(window-text); font-style: italic;");
-    // Carries the gap to the form as well as its own, since the layout it
-    // sits in has no spacing of its own (see above).
-    desc_label->setContentsMargins(0, 0, 0, 6 + style_layout_spacing);
-    content_layout->addWidget(desc_label);
-  }
+  // Stage description label (shown at the top when non-empty). Built whether
+  // or not there is anything to say yet: a refresh can give the stage a note
+  // it did not open with, and an empty label takes no room.
+  description_label_ = new QLabel();
+  description_label_->setObjectName("stage_description_label");
+  description_label_->setWordWrap(true);
+  description_label_->setStyleSheet(
+      "color: palette(window-text); font-style: italic;");
+  // Carries the gap to the form as well as its own, since the layout it
+  // sits in has no spacing of its own (see above).
+  description_label_->setContentsMargins(0, 0, 0, 6 + style_layout_spacing);
+  content_layout->addWidget(description_label_);
+  set_stage_description(stage_description);
 
   // Form layout for parameters
   form_layout_ = new QFormLayout();
@@ -221,7 +223,127 @@ StageParameterDialog::StageParameterDialog(
 
   // The values the dialog opened with count as already applied: ticking live
   // update without having changed anything must not re-render the preview.
-  last_live_values_ = get_values();
+  last_applied_values_ = get_values();
+}
+
+void StageParameterDialog::set_stage_description(
+    const std::string& description) {
+  description_label_->setText(QString::fromStdString(description));
+  description_label_->setVisible(!description.empty());
+}
+
+void StageParameterDialog::update_window_title() {
+  QString title = QString("%1 Parameters").arg(display_name_);
+  if (!node_label_.isEmpty()) {
+    title += QString(" — %1").arg(node_label_);
+  }
+  if (!node_id_text_.isEmpty()) {
+    title += QString(" (%1)").arg(node_id_text_);
+  }
+  if (refresh_declined_) {
+    // The node has moved on from what is on screen; the user's own edits are
+    // still here and still theirs to apply or abandon.
+    title += " *";
+  }
+  setWindowTitle(title);
+}
+
+void StageParameterDialog::set_node_identity(const QString& node_label,
+                                             const QString& node_id) {
+  node_label_ = node_label;
+  node_id_text_ = node_id;
+  update_window_title();
+}
+
+bool StageParameterDialog::has_unapplied_edits() const {
+  if (!last_applied_values_.has_value()) {
+    return false;
+  }
+  return *last_applied_values_ != get_values();
+}
+
+bool StageParameterDialog::refresh_values(
+    const std::map<std::string, orc::ParameterValue>& values) {
+  if (has_unapplied_edits()) {
+    refresh_declined_ = true;
+    update_window_title();
+    return false;
+  }
+
+  for (const auto& desc : descriptors_) {
+    auto it = values.find(desc.name);
+    if (it != values.end()) {
+      set_widget_value(desc.name, it->second);
+    }
+  }
+
+  update_dependencies();
+  last_applied_values_ = get_values();
+  refresh_declined_ = false;
+  update_window_title();
+  return true;
+}
+
+void StageParameterDialog::refresh_context(
+    const orc::gui::StageParameterContext& context) {
+  // Edits in progress survive a context refresh: the graph changing under the
+  // window is no reason to throw away what the user has typed into it. The
+  // node's own values are the starting point, with anything the user has
+  // changed laid over the top.
+  const bool had_unapplied_edits = has_unapplied_edits();
+  auto values = context.current_values;
+  if (had_unapplied_edits) {
+    for (const auto& [name, value] : get_values()) {
+      values[name] = value;
+    }
+  }
+
+  const bool descriptors_changed =
+      !orc::gui::descriptorsMatch(descriptors_, context.descriptors);
+
+  set_stage_description(context.stage_description);
+  reset_values_ = context.reset_values;
+  const bool has_custom_reset_values =
+      reset_values_.has_value() && !reset_values_->empty();
+  reset_button_->setText(has_custom_reset_values ? "Reset to Metadata Values"
+                                                 : "Reset to Defaults");
+
+  if (descriptors_changed) {
+    descriptors_ = context.descriptors;
+    rebuild_form(values);
+  } else {
+    for (const auto& desc : descriptors_) {
+      auto it = values.find(desc.name);
+      if (it != values.end()) {
+        set_widget_value(desc.name, it->second);
+      }
+    }
+    update_dependencies();
+  }
+
+  // An editor that was showing the node's values still is, whatever the new
+  // context made of them — a narrowed dropdown can move a value the user did
+  // not choose, and that is not an edit of theirs to hold against them. One
+  // that was holding edits keeps holding them, and they stay unapplied.
+  if (!had_unapplied_edits) {
+    last_applied_values_ = get_values();
+  }
+  refresh_declined_ = false;
+  update_window_title();
+}
+
+void StageParameterDialog::rebuild_form(
+    const std::map<std::string, orc::ParameterValue>& current_values) {
+  // removeRow() deletes the widgets it takes out, which is what is wanted
+  // here: every row is about to be built again from the new descriptors.
+  while (form_layout_->rowCount() > 0) {
+    form_layout_->removeRow(0);
+  }
+  parameter_widgets_.clear();
+  spec_display_baseline_.clear();
+  reset_button_->setEnabled(true);
+
+  build_ui(current_values);
 }
 
 void StageParameterDialog::showEvent(QShowEvent* event) {
@@ -231,8 +353,37 @@ void StageParameterDialog::showEvent(QShowEvent* event) {
   if (!opening_size_applied_) {
     opening_size_applied_ = true;
     apply_opening_size();
+    apply_opening_position();
   }
   QDialog::showEvent(event);
+}
+
+void StageParameterDialog::set_opening_position(const QPoint& top_left) {
+  opening_position_ = top_left;
+}
+
+void StageParameterDialog::apply_opening_position() {
+  if (!opening_position_.has_value()) {
+    return;
+  }
+
+  const QScreen* dialog_screen =
+      parentWidget() != nullptr ? parentWidget()->screen() : screen();
+  const QRect available =
+      dialog_screen != nullptr
+          ? dialog_screen->availableGeometry()
+          : QRect(0, 0, kFallbackScreenWidth, kFallbackScreenHeight);
+
+  // The size is settled by now, so the clamp can keep the whole window on
+  // screen rather than only its corner.
+  const QSize window_size = size();
+  const int x = std::clamp(
+      opening_position_->x(), available.left(),
+      std::max(available.left(), available.right() - window_size.width()));
+  const int y = std::clamp(
+      opening_position_->y(), available.top(),
+      std::max(available.top(), available.bottom() - window_size.height()));
+  move(x, y);
 }
 
 void StageParameterDialog::apply_opening_size() {
@@ -1123,7 +1274,7 @@ void StageParameterDialog::on_validate_and_accept() {
 void StageParameterDialog::on_validate_and_update() {
   live_update_timer_->stop();
   if (validate_values()) {
-    last_live_values_ = get_values();
+    last_applied_values_ = get_values();
     emit update_requested();
   }
 }
@@ -1143,6 +1294,13 @@ void StageParameterDialog::on_parameter_changed() {
 }
 
 void StageParameterDialog::on_live_update_toggled(bool enabled) {
+  // With live update ticked the edits have already been applied, so a button
+  // offering to cancel them would be promising something it cannot do: the
+  // window can only be closed, and what has been applied stays applied.
+  if (auto* cancel_button = button_box_->button(QDialogButtonBox::Cancel)) {
+    cancel_button->setText(enabled ? "Close" : "Cancel");
+  }
+
   if (enabled) {
     // Ticking the box mid-edit shows the effect of what is already entered,
     // rather than waiting for the next keystroke to bring the preview level.
@@ -1165,11 +1323,11 @@ void StageParameterDialog::on_live_update_timeout() {
   }
 
   auto values = get_values();
-  if (last_live_values_.has_value() && *last_live_values_ == values) {
+  if (last_applied_values_.has_value() && *last_applied_values_ == values) {
     return;  // Edited back to what is already applied; nothing to re-render.
   }
 
-  last_live_values_ = std::move(values);
+  last_applied_values_ = std::move(values);
   emit live_update_requested();
 }
 
